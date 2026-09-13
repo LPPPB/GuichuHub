@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+tests
+*.md
+data
+*.db
+*.db-wal
+*.db-shm
+bilibili_cookie.json

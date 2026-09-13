@@ -1,0 +1,25 @@
+[project]
+name = "kichu-board"
+version = "2.0.0"
+description = "鬼畜热度看板 V2.0 — B站鬼畜区热度追踪与UP主动态分析"
+requires-python = ">=3.12"
+dependencies = [
+    "flask>=3.1,<4.0",
+    "flask-cors>=4.0,<5.0",
+    "requests>=2.32,<3.0",
+    "apscheduler>=3.10,<4.0",
+    "qrcode>=7.4,<8.0",
+    "jieba>=0.42,<0.50",
+    "python-dotenv>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-cov>=5.0,<6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=. --cov-report=term-missing"
