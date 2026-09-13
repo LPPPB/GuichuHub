@@ -37,7 +37,7 @@ def get_conn():
     """获取当前线程的数据库连接（B6：连接不跨线程）"""
     conn = getattr(_thread_local, 'conn', None)
     if conn is None:
-        os.makedirs(DATA_DIR, exist_ok=True)
+        os.makedirs(os.path.dirname(DB_PATH) or '.', exist_ok=True)
         conn = sqlite3.connect(DB_PATH, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA journal_mode=WAL')
