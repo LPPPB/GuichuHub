@@ -52,7 +52,6 @@ from storage.cache import get_data
 from analytics.filters import filter_danmaku_words
 from jobs.crawl_jobs import get_status, try_acquire_lock, mark_crawling, run_crawl_job, _crawl_job_locked, _crawl_job_live
 from jobs.up_trends_jobs import start_analysis, get_progress, get_running_task_id
-from jobs.scheduler import setup_scheduler
 # 读路径完全走数据库（up_obs + video_obs_snapshot）
 from storage.up_trends_reader import load_analysis, load_history_batches
 from storage.up_obs_reader import get_latest_batch_ts, get_up_details
@@ -1924,23 +1923,6 @@ if __name__ == '__main__':
     from logger import get_logger
     logger = get_logger(__name__)
 
-    logger.info('鬼畜热度看板 V2.0 - 后端服务启动中...')
-
-    # 预热缓存
-    get_data()
-
-    # 启动定时调度（配置化：全量抓取 + 观测 + UP分析 + 每周一备份）
-    setup_scheduler()
-    # 恢复服务重启前尚未完成的日历回填任务；数据库租约保证多进程只消费一次。
-    from jobs.calendar_jobs import ensure_calendar_worker
-    ensure_calendar_worker()
-    from config import CRAWL_HOURS, UP_TRENDS_HOURS, UP_TRENDS_MINUTE
-    logger.info(f'调度器已启动（全量抓取 {CRAWL_HOURS} + 观测整点/半点(0,30) '
-                f'+ UP分析 {UP_TRENDS_HOURS} @ :{UP_TRENDS_MINUTE:02d}）')
-
-    # 首次抓取放后台线程（启动场景不重试，失败等定时任务自然触发）
-    from jobs.crawl_jobs import _crawl_once
-    threading.Thread(target=_crawl_once, args=('startup',), daemon=True).start()
-    logger.info('服务启动中（首次数据抓取在后台进行，约2-3分钟）...')
+    logger.info('鬼畜热度看板 V3.0 - 本地 API 服务启动中...')
 
     app.run(host='0.0.0.0', port=BACKEND_PORT, debug=False, threaded=True)
