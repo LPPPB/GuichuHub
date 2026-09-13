@@ -7,8 +7,10 @@ import base64
 import hashlib
 import urllib.parse
 import qrcode
+from runtime_paths import RuntimePaths
 
-COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', 'bilibili_cookie.json')
+RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
+COOKIE_FILE = str(RUNTIME_PATHS.cookie_file)
 
 def get_headers(cookie_str=None):
     headers = {

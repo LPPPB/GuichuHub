@@ -19,9 +19,11 @@ import secrets
 import sqlite3
 import threading
 import time
+from runtime_paths import RuntimePaths
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
-AUTH_DB_PATH = os.path.join(DATA_DIR, 'auth.db')
+RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
+DATA_DIR = str(RUNTIME_PATHS.auth_db.parent)
+AUTH_DB_PATH = str(RUNTIME_PATHS.auth_db)
 
 SESSION_TTL = 30 * 24 * 3600  # 会话有效期：30 天
 

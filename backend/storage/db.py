@@ -18,12 +18,15 @@ import json
 from html import unescape as html_unescape
 from datetime import datetime, timezone, timedelta
 from config import KICHU_TIDS_WITH_PARENT  # 鬼畜分区唯一真源（含 119 父分区兜底），禁止本地硬编码
+from runtime_paths import RuntimePaths
 from utils.scorer import calc_engagement_quality  # 互动质量唯一真源（权重/满分线），禁止另写权重
 
 CN_TZ = timezone(timedelta(hours=8))
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
-DB_PATH = os.path.join(DATA_DIR, 'kichu_board.db')
+RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
+DATA_DIR = str(RUNTIME_PATHS.business_db.parent)
+DB_PATH = str(RUNTIME_PATHS.business_db)
+BACKUP_DIR = str(RUNTIME_PATHS.backup_dir)
 
 _thread_local = threading.local()
 _write_lock = threading.Lock()   # 单写者多读者
@@ -900,7 +903,7 @@ def backup_db(keep=4):
 
     注意：不要直接复制 .db 文件——WAL 模式下未 checkpoint 的数据在 -wal 里。
     """
-    backup_dir = os.path.join(DATA_DIR, 'backups')
+    backup_dir = BACKUP_DIR
     os.makedirs(backup_dir, exist_ok=True)
     ts_str = datetime.now(CN_TZ).strftime('%Y%m%d_%H%M%S')
     backup_path = os.path.join(backup_dir, f'kichu_{ts_str}.db')

@@ -10,6 +10,7 @@ import os
 import secrets
 
 from dotenv import load_dotenv
+from runtime_paths import RuntimePaths
 
 # 读 .env，不强制存在（Docker 环境用 env_file 注入）
 load_dotenv()
@@ -17,9 +18,10 @@ load_dotenv()
 
 # ==================== 运维参数（必须 .env 化）====================
 
-# 数据目录（容器内 /app/data，本地开发回退到 backend/data）
-DATA_DIR = os.getenv('DATA_DIR', os.path.join(os.path.dirname(__file__), 'data'))
-DB_PATH = os.path.join(DATA_DIR, 'kichu_board.db')
+# 运行时路径通过 KICHU_* 环境变量注入；未配置时仅回退到本地开发目录。
+RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
+DATA_DIR = str(RUNTIME_PATHS.business_db.parent)
+DB_PATH = str(RUNTIME_PATHS.business_db)
 
 # 后端端口
 BACKEND_PORT = int(os.getenv('BACKEND_PORT', '5000'))
