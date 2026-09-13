@@ -125,6 +125,24 @@ def test_logout_clears_cookie_and_deletes_server_session(client):
     assert auth_store.get_session(token) is None
 
 
+def test_logout_clears_stale_cookie_without_write_token(client):
+    """A present Cookie stays safely logout-able after its server row is gone."""
+    client.set_cookie(SESSION_COOKIE, "expired-or-deleted-session")
+
+    response = client.post("/api/bili-auth/logout")
+
+    assert response.status_code == 200
+    assert response.get_json()["success"] is True
+    cleared = response.headers.get("Set-Cookie", "")
+    assert f"{SESSION_COOKIE}=" in cleared
+    assert "Max-Age=0" in cleared
+    assert "HttpOnly" in cleared
+    assert "Secure" in cleared
+    assert "SameSite=Lax" in cleared
+    assert "Path=/" in cleared
+    assert client.get_cookie(SESSION_COOKIE) is None
+
+
 def test_production_has_no_cross_origin_access_or_proxy_trust():
     """Default production mode must ignore browser Origin and forwarded headers."""
     probe = _make_probe_app({})

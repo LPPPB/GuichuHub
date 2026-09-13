@@ -701,9 +701,7 @@ def route_bili_logout():
     token = request.cookies.get(SESSION_COOKIE_NAME, '').strip()
     if not token:
         return jsonify({'success': False, 'message': '未登录'}), 401
-    ok = delete_session(token)
-    if not ok:
-        return jsonify({'success': False, 'message': '会话不存在或已过期'}), 401
+    delete_session(token)
     response = jsonify({'success': True, 'message': '已退出登录'})
     response.delete_cookie(
         SESSION_COOKIE_NAME,
