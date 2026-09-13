@@ -1,7 +1,12 @@
 const API_BASE = '/api'
 const TOKEN_KEY = 'kichu_write_token'
 const VISITOR_KEY = 'kichu_visitor_id'
-const SESSION_KEY = 'kichu_session_token'
+const LEGACY_SESSION_KEY = 'kichu_session_token'
+
+// V2 曾把身份会话 token 放在 localStorage；V3 改由 HttpOnly Cookie 承载。
+try {
+  localStorage.removeItem(LEGACY_SESSION_KEY)
+} catch { /* 隐私模式等场景忽略 */ }
 
 // 读取已保存的写操作口令（空串 = 未设置）
 export function getWriteToken() {
@@ -10,23 +15,6 @@ export function getWriteToken() {
   } catch {
     return ''
   }
-}
-
-// B站身份会话 token（扫码登录成功后由后端签发）。
-// 凭证（SESSDATA 等）只存服务器会话表，浏览器仅持有此 token。
-export function getSessionToken() {
-  try {
-    return localStorage.getItem(SESSION_KEY) || ''
-  } catch {
-    return ''
-  }
-}
-
-export function setSessionToken(token) {
-  try {
-    if (token) localStorage.setItem(SESSION_KEY, token)
-    else localStorage.removeItem(SESSION_KEY)
-  } catch { /* 隐私模式等场景忽略 */ }
 }
 
 // 访客身份：浏览器本地 UUID（收藏归属标识；清浏览器数据/换设备 = 换新身份）
@@ -51,6 +39,7 @@ export async function verifyAdminSilent() {
   try {
     const res = await fetch(`${API_BASE}/auth/verify`, {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-Write-Token': token },
     })
     if (res.ok) return true
@@ -76,7 +65,12 @@ async function doFetch(url, options, headers) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
-    const res = await fetch(`${API_BASE}${url}`, { ...rest, headers, signal: controller.signal })
+    const res = await fetch(`${API_BASE}${url}`, {
+      ...rest,
+      credentials: 'same-origin',
+      headers,
+      signal: controller.signal,
+    })
     clearTimeout(timer)
     // 防御空 body（后端重启瞬间或连接中断可能返回空响应）
     const text = await res.text()
@@ -106,11 +100,9 @@ async function request(url, options = {}) {
     // 身份凭证跟随所有请求（GET 也携带）：
     //   X-Visitor-Id    → 访客收藏归属（浏览器 UUID）
     //   X-Write-Token   → 超管口令（应急后门；GET /api/favorites 归属、管理员接口均需）
-    //   X-Session-Token → B站身份会话（扫码登录签发；管理员名单判定用）
+    //   HttpOnly Cookie → B站身份会话（浏览器自动随同源请求发送）
     const headers = { 'Content-Type': 'application/json', ...options.headers, 'X-Visitor-Id': getVisitorId() }
     if (token) headers['X-Write-Token'] = token
-    const sessionToken = getSessionToken()
-    if (sessionToken) headers['X-Session-Token'] = sessionToken
     const { res, body } = await doFetch(url, options, headers)
     if (isWrite && res && res.status === 401) {
       const t = askWriteToken(!!token)
@@ -155,25 +147,18 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
-  // 身份登录（全员开放）：成功响应含 session_token/user/is_admin；
-  // token 落 localStorage，B站凭证只留服务器
+  // 身份登录（全员开放）：会话由后端写入 HttpOnly Cookie，JS 不接触 token。
   getQrcode: () => request('/bili-auth/qrcode'),
   checkLogin: async (key) => {
-    const body = await request(`/bili-auth/check?key=${key}`)
-    if (body && body.success && body.session_token) setSessionToken(body.session_token)
-    return body
+    return request(`/bili-auth/check?key=${key}`)
   },
   // 采集账号信息 / 采集登录（管理员专属：凭证写入服务器爬虫 Cookie 文件）
   getUserInfo: () => request('/bili-auth/user'),
   collectLogin: () => request('/bili-auth/collect-login'),
   collectCheck: (key) => request(`/bili-auth/collect-check?key=${key}`),
   collectLogout: () => request('/bili-auth/collect-logout', { method: 'POST' }),
-  // 退出身份登录：销毁服务器会话；本地 token 无论成败都清除（会话可能已过期）
-  logout: async () => {
-    const body = await request('/bili-auth/logout', { method: 'POST' })
-    setSessionToken('')
-    return body
-  },
+  // 退出身份登录：后端销毁会话并清除 HttpOnly Cookie。
+  logout: () => request('/bili-auth/logout', { method: 'POST' }),
   // UP主动态新接口
   upTrendsCheck: () => request('/up-trends/check'),
   upTrendsList: () => request('/up-trends/list', { timeout: 60000 }),

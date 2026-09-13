@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, g, jsonify, request, Response, send_file
 from flask_cors import CORS
 import requests
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from logger import setup_logging
 from config import BACKEND_PORT, get_write_token, ONLINE_BREAK_THRESHOLD, ONLINE_BREAK_COOLDOWN
@@ -56,8 +57,34 @@ from jobs.up_trends_jobs import start_analysis, get_progress, get_running_task_i
 from storage.up_trends_reader import load_analysis, load_history_batches
 from storage.up_obs_reader import get_latest_batch_ts, get_up_details
 
+DEVELOPMENT_ORIGINS = (
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+)
+SESSION_COOKIE_NAME = 'kichu_session'
+
+
+def _configure_transport_security(flask_app, environ=None):
+    """Configure opt-in development CORS and the explicitly trusted proxy hop."""
+    environ = os.environ if environ is None else environ
+    if str(environ.get('KICHU_ENV', 'production')).strip().lower() == 'development':
+        CORS(
+            flask_app,
+            origins=DEVELOPMENT_ORIGINS,
+            supports_credentials=True,
+            expose_headers=['Content-Disposition'],
+        )
+    if str(environ.get('KICHU_TRUST_PROXY', '')).strip() == '1':
+        flask_app.wsgi_app = ProxyFix(
+            flask_app.wsgi_app,
+            x_for=1,
+            x_proto=1,
+            x_host=1,
+        )
+
+
 app = Flask(__name__)
-CORS(app, expose_headers=['Content-Disposition'])
+_configure_transport_security(app)
 
 init_db()
 
@@ -71,7 +98,7 @@ print(f'[API] 写操作口令已启用（写接口需 X-Write-Token 请求头）
 def _current_identity():
     """身份判定链（三态，每请求缓存一次）：
     1. X-Write-Token 命中 → 超级管理员（应急后门，永不过期）
-    2. X-Session-Token → 会话有效且 mid ∈ 管理员名单（auth.db）→ 管理员
+    2. HttpOnly 会话 Cookie → 会话有效且 mid ∈ 管理员名单（auth.db）→ 管理员
     3. 其余 → 访客（含"已登录B站但不在名单"的有身份访客）
     """
     ident = getattr(g, 'kb_identity', None)
@@ -81,7 +108,7 @@ def _current_identity():
     vid = vid if vid and 0 < len(vid) <= 64 else None
     # B站会话用户信息先统一解析（写口令与会话同时携带时，写口令只决定 admin 权限，
     # 不吞掉 user，否则站长扫码登录后 /auth/me 仍返回 user=null → 前端误判未登录）。
-    token = request.headers.get('X-Session-Token', '').strip()
+    token = request.cookies.get(SESSION_COOKIE_NAME, '').strip()
     sess = get_session(token) if token else None
     user = None
     if sess:
@@ -107,14 +134,13 @@ def _fav_owner():
     """收藏归属（2026-08-29 起）：登录 B站账号 → str(mid)（跨设备持久）；未登录 → None。
 
     写口令是超管应急后门，不参与收藏归属——站长也需扫码登录一次绑定账号。
-    即使写口令与 X-Session-Token 同时携带，也优先取会话 mid（避免写口令短路导致拿不到账号）。
+    即使写口令与会话 Cookie 同时携带，也优先取会话 mid（避免写口令短路导致拿不到账号）。
     返回 (owner, ident)：ident 用于判断是否 B站管理员会话（迁移存量收藏用）。
     """
     ident = _current_identity()
-    token = request.headers.get('X-Session-Token', '').strip()
-    sess = get_session(token) if token else None
-    if sess and sess.get('mid'):
-        return str(sess['mid']), ident
+    user = ident.get('user') or {}
+    if user.get('mid'):
+        return str(user['mid']), ident
     return None, ident
 
 
@@ -147,10 +173,7 @@ _verify_lock = threading.Lock()
 
 
 def _client_ip():
-    """客户端 IP：优先取反向代理注入的 X-Forwarded-For 首段（部署在 nginx 后），否则 remote_addr"""
-    xff = request.headers.get('X-Forwarded-For', '')
-    if xff:
-        return xff.split(',')[0].strip()
+    """客户端 IP：ProxyFix 开启时 remote_addr 已由唯一可信代理层规范化。"""
     return request.remote_addr or 'unknown'
 
 
@@ -183,7 +206,7 @@ def _require_write_token():
     # 审核操作（review）在路由内要求管理员（写口令或B站管理员会话），列表（GET）路由内 403。
     if request.method == 'POST' and request.path.startswith('/api/up-trends/requests'):
         return None
-    # B站会话登出豁免全局写口令：已登录访客凭 X-Session-Token 退出自己的登录（路由内校验）
+    # B站会话登出豁免全局写口令：已登录访客凭 HttpOnly Cookie 退出自己的登录（路由内校验）
     if request.method == 'POST' and request.path == '/api/bili-auth/logout':
         return None
     if request.method in ('POST', 'PUT', 'DELETE'):
@@ -653,27 +676,43 @@ def route_bili_check_login():
     update_admin_profile(mid, name, face)  # 管理员名单资料自愈（不在名单时 no-op）
     with _qr_lock:
         _QR_PENDING.pop(key, None)
-    return jsonify({
+    response = jsonify({
         'success': True, 'status': 'success', 'message': '登录成功',
-        'session_token': token,
         'user': {'mid': mid, 'name': name, 'face': face},
         'is_admin': is_admin_mid(mid),
     })
+    response.set_cookie(
+        SESSION_COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=True,
+        samesite='Lax',
+        path='/',
+    )
+    return response
 
 
 @app.route('/api/bili-auth/logout', methods=['POST'])
 def route_bili_logout():
     """退出B站身份登录（销毁当前浏览器会话；不影响采集 Cookie）。
 
-    豁免全局写口令：已登录访客凭 X-Session-Token 即可退出自己的登录。
+    豁免全局写口令：已登录访客凭 HttpOnly Cookie 即可退出自己的登录。
     """
-    token = request.headers.get('X-Session-Token', '').strip()
+    token = request.cookies.get(SESSION_COOKIE_NAME, '').strip()
     if not token:
         return jsonify({'success': False, 'message': '未登录'}), 401
     ok = delete_session(token)
     if not ok:
         return jsonify({'success': False, 'message': '会话不存在或已过期'}), 401
-    return jsonify({'success': True, 'message': '已退出登录'})
+    response = jsonify({'success': True, 'message': '已退出登录'})
+    response.delete_cookie(
+        SESSION_COOKIE_NAME,
+        path='/',
+        secure=True,
+        httponly=True,
+        samesite='Lax',
+    )
+    return response
 
 
 @app.route('/api/bili-auth/user', methods=['GET'])

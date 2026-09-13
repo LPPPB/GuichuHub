@@ -69,7 +69,7 @@ def _add(c, headers, item=None):
 
 
 def _login(client, monkeypatch, vid=VID_A, mid=1, name='站长'):
-    """完整身份登录流程（qrcode → check），返回 session_token（浏览器只拿 token）"""
+    """完整身份登录流程，返回测试客户端 Cookie 中的 token。"""
     monkeypatch.setattr(app_module, 'check_login_status',
                         lambda key, save=True: {
                             'success': True, 'status': 'success', 'message': '登录成功',
@@ -83,7 +83,15 @@ def _login(client, monkeypatch, vid=VID_A, mid=1, name='站长'):
     res = client.get(f'/api/bili-auth/check?key={QR_KEY}', headers={'X-Visitor-Id': vid})
     body = res.get_json()
     assert res.status_code == 200 and body.get('success'), f'登录失败：{body}'
-    return body['session_token']
+    cookie = client.get_cookie(app_module.SESSION_COOKIE_NAME)
+    assert cookie is not None, '登录成功必须写入会话 Cookie'
+    return cookie.value
+
+
+def _use_session(client, token, headers=None):
+    """切换 Flask 测试客户端的 HttpOnly 会话 Cookie。"""
+    client.set_cookie(app_module.SESSION_COOKIE_NAME, token)
+    return headers or {}
 
 
 def _add_admin(client, mid, name=''):
@@ -108,59 +116,59 @@ class TestFavoritesIsolation:
         assert res.status_code == 401
 
     def test_logged_in_can_favorite(self, client, monkeypatch):
-        """登录 B站账号后凭 X-Session-Token 即可收藏"""
+        """登录 B站账号后凭 HttpOnly 会话 Cookie 即可收藏"""
         token = _login(client, monkeypatch, mid=1)
-        res = _add(client, {'X-Session-Token': token})
+        res = _add(client, _use_session(client, token))
         assert res.status_code == 200
         assert res.get_json()['success'] is True
 
     def test_users_isolated(self, client, monkeypatch):
         """两个不同 mid 各自只看到自己的收藏"""
         t1 = _login(client, monkeypatch, vid=VID_A, mid=1)
-        _add(client, {'X-Session-Token': t1}, item={'keyword': 'A的梗'})
+        _add(client, _use_session(client, t1), item={'keyword': 'A的梗'})
         t2 = _login(client, monkeypatch, vid=VID_B, mid=2)
-        _add(client, {'X-Session-Token': t2}, item={'keyword': 'B的梗'})
-        a = client.get('/api/favorites', headers={'X-Session-Token': t1}).get_json()['data']
-        b = client.get('/api/favorites', headers={'X-Session-Token': t2}).get_json()['data']
+        _add(client, _use_session(client, t2), item={'keyword': 'B的梗'})
+        a = client.get('/api/favorites', headers=_use_session(client, t1)).get_json()['data']
+        b = client.get('/api/favorites', headers=_use_session(client, t2)).get_json()['data']
         assert [f['keyword'] for f in a] == ['A的梗']
         assert [f['keyword'] for f in b] == ['B的梗']
 
     def test_user_cannot_delete_others(self, client, monkeypatch):
         """mid2 不能删除 mid1 的收藏（404 而非成功）"""
         t1 = _login(client, monkeypatch, vid=VID_A, mid=1)
-        _add(client, {'X-Session-Token': t1}, item={'keyword': 'A的梗'})
-        fav_id = client.get('/api/favorites', headers={'X-Session-Token': t1}).get_json()['data'][0]['id']
+        _add(client, _use_session(client, t1), item={'keyword': 'A的梗'})
+        fav_id = client.get('/api/favorites', headers=_use_session(client, t1)).get_json()['data'][0]['id']
         t2 = _login(client, monkeypatch, vid=VID_B, mid=2)
-        res = client.delete(f'/api/favorites/{fav_id}', headers={'X-Session-Token': t2})
+        res = client.delete(f'/api/favorites/{fav_id}', headers=_use_session(client, t2))
         assert res.status_code == 404
-        a = client.get('/api/favorites', headers={'X-Session-Token': t1}).get_json()['data']
+        a = client.get('/api/favorites', headers=_use_session(client, t1)).get_json()['data']
         assert len(a) == 1
 
     def test_owner_can_delete_own(self, client, monkeypatch):
         """mid 可删除自己的收藏"""
         token = _login(client, monkeypatch, mid=1)
-        _add(client, {'X-Session-Token': token}, item={'keyword': 'A的梗'})
-        fav_id = client.get('/api/favorites', headers={'X-Session-Token': token}).get_json()['data'][0]['id']
-        res = client.delete(f'/api/favorites/{fav_id}', headers={'X-Session-Token': token})
+        _add(client, _use_session(client, token), item={'keyword': 'A的梗'})
+        fav_id = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data'][0]['id']
+        res = client.delete(f'/api/favorites/{fav_id}', headers=_use_session(client, token))
         assert res.status_code == 200
-        a = client.get('/api/favorites', headers={'X-Session-Token': token}).get_json()['data']
+        a = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data']
         assert len(a) == 0
 
     def test_same_mid_cross_device(self, client, monkeypatch):
         """同一 mid 在不同浏览器登录 → 同一份收藏（跨设备持久，跟账号走）"""
         t1 = _login(client, monkeypatch, vid=VID_A, mid=1)
-        _add(client, {'X-Session-Token': t1}, item={'keyword': '管理员的梗'})
+        _add(client, _use_session(client, t1), item={'keyword': '管理员的梗'})
         # 换一台设备（不同 visitor id），同一 B站账号再次登录
         t2 = _login(client, monkeypatch, vid=VID_B, mid=1)
-        b = client.get('/api/favorites', headers={'X-Session-Token': t2}).get_json()['data']
+        b = client.get('/api/favorites', headers=_use_session(client, t2)).get_json()['data']
         assert [f['keyword'] for f in b] == ['管理员的梗']
 
     def test_favorites_invisible_to_other_users(self, client, monkeypatch):
         """mid1 的收藏对 mid2 不可见"""
         t1 = _login(client, monkeypatch, vid=VID_A, mid=1)
-        _add(client, {'X-Session-Token': t1}, item={'keyword': '管理员的梗'})
+        _add(client, _use_session(client, t1), item={'keyword': '管理员的梗'})
         t2 = _login(client, monkeypatch, vid=VID_B, mid=2)
-        visitor = client.get('/api/favorites', headers={'X-Session-Token': t2}).get_json()['data']
+        visitor = client.get('/api/favorites', headers=_use_session(client, t2)).get_json()['data']
         assert visitor == []
 
 
@@ -190,7 +198,7 @@ class TestLegacyClaim:
         token = _login(client, monkeypatch, mid=1)
 
         # 管理员会话首次读：迁移并返回
-        data = client.get('/api/favorites', headers={'X-Session-Token': token}).get_json()['data']
+        data = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data']
         assert sorted(f['keyword'] for f in data) == ['存量梗0', '存量梗1']
 
         # 落盘：owner 全部迁到 str(mid)
@@ -198,7 +206,7 @@ class TestLegacyClaim:
         assert [f['owner'] for f in saved['favorites']] == ['1', '1']
 
         # 幂等：二次访问不重复
-        again = client.get('/api/favorites', headers={'X-Session-Token': token}).get_json()['data']
+        again = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data']
         assert len(again) == 2
 
     def test_migration_not_triggered_by_plain_user(self, client, monkeypatch, tmp_path):
@@ -207,7 +215,7 @@ class TestLegacyClaim:
         token = _login(client, monkeypatch, mid=99)  # 99 不在名单
 
         # 普通用户读到空（无主收藏不属于他），且不迁移
-        data = client.get('/api/favorites', headers={'X-Session-Token': token}).get_json()['data']
+        data = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data']
         assert data == []
         saved = json.loads(db_file.read_text(encoding='utf-8'))
         assert 'owner' not in saved['favorites'][0]
@@ -258,12 +266,12 @@ class TestBiliAuthGuard:
         assert res.get_json()['data']['name'] == '站长'
 
     def test_logout_without_session_rejected(self, client):
-        """会话登出：无 X-Session-Token → 401（不做全局写口令要求）"""
+        """会话登出：无会话 Cookie → 401（不做全局写口令要求）"""
         res = client.post('/api/bili-auth/logout')
         assert res.status_code == 401
 
     def test_login_success_no_cookie_leak(self, client):
-        """凭证只留服务器：登录成功响应不得携带 SESSDATA/bili_jct，只发会话 token"""
+        """凭证与会话 token 只留服务器，响应体不得泄露。"""
         client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': VID_A})
         res = client.get(f'/api/bili-auth/check?key={QR_KEY}', headers={'X-Visitor-Id': VID_A})
         assert res.status_code == 200
@@ -271,7 +279,8 @@ class TestBiliAuthGuard:
         assert 'cookies' not in body, 'SESSDATA/bili_jct 不得回传浏览器'
         assert 'SESSDATA' not in str(body)
         assert body['success'] is True and body['status'] == 'success'
-        assert body.get('session_token'), '应签发会话 token'
+        assert 'session_token' not in body
+        assert client.get_cookie(app_module.SESSION_COOKIE_NAME) is not None
 
 
 # ==================== 管理员验证入口 ====================
@@ -296,12 +305,11 @@ class TestAdminVerify:
 
 class TestVerifyRateLimit:
 
-    def _fail(self, client, n, xff=None):
+    def _fail(self, client, n, remote_addr=None):
         for i in range(n):
             headers = {'X-Write-Token': f'bad-token-{i}'}
-            if xff:
-                headers['X-Forwarded-For'] = xff
-            client.post('/api/auth/verify', headers=headers)
+            environ = {'REMOTE_ADDR': remote_addr} if remote_addr else None
+            client.post('/api/auth/verify', headers=headers, environ_overrides=environ)
 
     def test_locked_after_5_failures(self, client):
         """15 分钟窗口内 5 次失败后，第 6 次错误口令直接 429（不再消耗比对）"""
@@ -325,9 +333,11 @@ class TestVerifyRateLimit:
         assert client.post('/api/auth/verify', headers={'X-Write-Token': ADMIN_TOKEN}).status_code == 200
 
     def test_rate_limit_isolated_per_ip(self, client):
-        """限速按客户端 IP 隔离（部署在反代后按 X-Forwarded-For 首段取真实 IP）"""
-        self._fail(client, 5, xff='9.9.9.9')
-        other = client.post('/api/auth/verify', headers={'X-Write-Token': 'bad', 'X-Forwarded-For': '8.8.8.8'})
+        """限速按 Werkzeug 已规范化的客户端 IP 隔离。"""
+        self._fail(client, 5, remote_addr='9.9.9.9')
+        other = client.post('/api/auth/verify', headers={'X-Write-Token': 'bad'},
+                            environ_overrides={'REMOTE_ADDR': '8.8.8.8'})
         assert other.status_code == 401  # 其他 IP 不受影响
-        ok = client.post('/api/auth/verify', headers={'X-Write-Token': ADMIN_TOKEN, 'X-Forwarded-For': '8.8.8.8'})
+        ok = client.post('/api/auth/verify', headers={'X-Write-Token': ADMIN_TOKEN},
+                         environ_overrides={'REMOTE_ADDR': '8.8.8.8'})
         assert ok.status_code == 200

@@ -166,9 +166,9 @@ export default function App() {
       setBiliUser(res.data.user || null)
     }
   }
-  // 身份登录成功（api.checkLogin 已保存 session token）：刷新身份与收藏归属后进入UP主动态
+  // 身份登录成功（会话已写入 HttpOnly Cookie）：刷新身份与收藏归属后进入UP主动态
   const handleLoginSuccess = async () => { await refreshIdentity(); await loadFavorites(); setActiveTab('up-trends') }
-  // 退出B站身份（api.logout 已清除本地 session token）；口令超管身份不受影响，重判即可
+  // 退出B站身份（api.logout 清除服务器会话与 HttpOnly Cookie）；口令超管身份不受影响，重判即可
   const handleLogout = async () => { await api.logout(); await refreshIdentity(); setActiveTab('dashboard') }
   const handleRefresh = async () => { const res = await api.refresh(); if (res.success || res.crawling) { crawlingRef.current = true; setCrawling(true) } }
   // 超管口令登录（应急后门）：成功后刷新身份（via=write_token）与（admin 归属的）收藏

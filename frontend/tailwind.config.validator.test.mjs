@@ -2321,13 +2321,13 @@ describe('[UP Requests · UpTrends/App] 文案改造与门禁接线', () => {
 // ═══════════════════════════════════════════════════════════════════
 // [Admin Identity] 管理员判定 = 特定B站账号扫码登录（后端 auth.db 名单）
 // 后端契约（test_admin_identity.py）：
-//   三态判定链：X-Write-Token 超管后门 / X-Session-Token 会话且 mid ∈ 名单 / 访客；
-//   身份登录全员开放，凭证只落服务器会话表，浏览器仅持 session token；
+//   三态判定链：X-Write-Token 超管后门 / HttpOnly Cookie 会话且 mid ∈ 名单 / 访客；
+//   身份登录全员开放，凭证和会话 token 只落服务器；
 //   采集登录（collect-*）管理员专属，写爬虫 Cookie 文件，与身份解耦；
 //   名单增删 /api/admin/accounts，删除保护"至少保留一名"。
 // ═══════════════════════════════════════════════════════════════════
 
-describe('[Admin Identity · api.js] 会话 token 与身份接口', () => {
+describe('[Admin Identity · api.js] 身份与采集接口', () => {
   let apiJs
   beforeAll(() => {
     const candidates = [
@@ -2338,26 +2338,7 @@ describe('[Admin Identity · api.js] 会话 token 与身份接口', () => {
     expect(apiJs, '找不到 api.js').not.toBe(null)
   })
 
-  it('1. 会话 token 持久化：kichu_session_token 存取函数', () => {
-    const hasKey = /kichu_session_token/.test(apiJs)
-    const hasGet = /getSessionToken/.test(apiJs)
-    const hasSet = /setSessionToken/.test(apiJs)
-    expect(hasKey && hasGet && hasSet, `key=${hasKey}, get=${hasGet}, set=${hasSet}`).toBe(true)
-  })
-
-  it('2. 请求携带 X-Session-Token 头（管理员名单判定依据）', () => {
-    const headerSet = /X-Session-Token/.test(apiJs)
-    expect(headerSet, '请求头必须包含 X-Session-Token').toBe(true)
-  })
-
-  it('3. checkLogin 成功保存 session_token；logout 清除本地 token（凭证永不落浏览器）', () => {
-    const saves = /checkLogin[\s\S]{0,400}setSessionToken\(body\.session_token\)/.test(apiJs)
-    const clears = /logout[\s\S]{0,400}setSessionToken\(''\)/.test(apiJs)
-    const noCookieStore = !/localStorage\.setItem\([^)]*(SESSDATA|bili_jct|cookie)/i.test(apiJs)
-    expect(saves && clears && noCookieStore, `登录保存=${saves}, 退出清除=${clears}, 无凭证落盘=${noCookieStore}`).toBe(true)
-  })
-
-  it('4. 身份与管理员名单接口：getAuthMe / adminAccounts / addAdminAccount / removeAdminAccount', () => {
+  it('1. 身份与管理员名单接口：getAuthMe / adminAccounts / addAdminAccount / removeAdminAccount', () => {
     const hasMe = /getAuthMe/.test(apiJs) && /\/auth\/me/.test(apiJs)
     const hasList = /adminAccounts/.test(apiJs) && /\/admin\/accounts/.test(apiJs)
     const hasAdd = /addAdminAccount/.test(apiJs)
@@ -2365,7 +2346,7 @@ describe('[Admin Identity · api.js] 会话 token 与身份接口', () => {
     expect(hasMe && hasList && hasAdd && hasRemove, `me=${hasMe}, list=${hasList}, add=${hasAdd}, remove=${hasRemove}`).toBe(true)
   })
 
-  it('5. 采集账号三件套（管理员专属）：collectLogin / collectCheck / collectLogout', () => {
+  it('2. 采集账号三件套（管理员专属）：collectLogin / collectCheck / collectLogout', () => {
     const hasLogin = /collectLogin/.test(apiJs) && /collect-login/.test(apiJs)
     const hasCheck = /collectCheck/.test(apiJs) && /collect-check/.test(apiJs)
     const hasLogout = /collectLogout/.test(apiJs) && /collect-logout/.test(apiJs)
@@ -2392,7 +2373,7 @@ describe('[Admin Identity · BilibiliLogin] 双模式扫码登录', () => {
 
   it('2. 不消费 B站凭证：组件不出现 cookies / SESSDATA / bili_jct', () => {
     const clean = !/(res\.cookies|\.SESSDATA|bili_jct)/.test(loginJsx)
-    expect(clean, '登录组件只处理 session_token/user/is_admin，不得触碰凭证字段').toBe(true)
+    expect(clean, '登录组件只处理 user/is_admin，不得触碰凭证字段').toBe(true)
   })
 })
 
