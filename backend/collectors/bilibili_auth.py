@@ -191,6 +191,8 @@ def parse_set_cookie(set_cookie_header):
     return cookies
 
 def save_cookie(cookie_dict):
+    if not COOKIE_WRITES_ENABLED:
+        raise PermissionError('collector cookie writes are disabled in this process')
     os.makedirs(os.path.dirname(COOKIE_FILE), exist_ok=True)
     data = {
         'cookies': cookie_dict,
@@ -290,6 +292,8 @@ def get_user_info():
     return get_user_info_with_cookie(get_cookie_str())
 
 def logout():
+    if not COOKIE_WRITES_ENABLED:
+        raise PermissionError('collector cookie writes are disabled in this process')
     if os.path.exists(COOKIE_FILE):
         os.remove(COOKIE_FILE)
     return True
