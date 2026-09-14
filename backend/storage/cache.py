@@ -9,7 +9,7 @@
 
 import os
 import threading
-from storage.database import load_data, save_data, get_db_path
+from storage.database import load_data, update_data, get_db_path
 
 _data_cache = None
 _data_version = 0        # 数据版本号：persist_data/invalidate 时递增，供响应级缓存判断数据是否变化
@@ -53,13 +53,14 @@ def persist_data(new_data):
     """合并新数据：A3 非空保护 + 落盘 + 更新缓存（含 mtime，避免落盘后误判重载）"""
     global _data_cache, _data_version, _cache_mtime
     with _data_lock:
-        current = _data_cache if _data_cache is not None else load_data()
-        for key, value in new_data.items():
-            if value:
-                current[key] = value
-            else:
-                print(f'  [警告] {key} 抓取为空，保留旧数据（可能限流）')
-        save_data(current)
+        def merge(current):
+            for key, value in new_data.items():
+                if value:
+                    current[key] = value
+                else:
+                    print(f'  [警告] {key} 抓取为空，保留旧数据（可能限流）')
+
+        current = update_data(merge)
         _data_cache = current
         _cache_mtime = _current_mtime()
         _data_version += 1

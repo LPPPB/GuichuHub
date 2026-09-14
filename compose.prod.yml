@@ -59,6 +59,7 @@ services:
     environment:
       <<: *backend-environment
       KICHU_WRITE_TOKEN_FILE: /run/secrets/write_token
+      KICHU_COOKIE_WRITES_ENABLED: "0"
     init: true
     logging: *default-logging
     networks:
@@ -78,7 +79,9 @@ services:
     build:
       context: ./backend
     command: ["python", "worker_entrypoint.py"]
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      KICHU_COOKIE_WRITES_ENABLED: "1"
     init: true
     logging: *default-logging
     networks:

@@ -11,6 +11,9 @@ from runtime_paths import RuntimePaths
 
 RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
 COOKIE_FILE = str(RUNTIME_PATHS.cookie_file)
+COOKIE_WRITES_ENABLED = os.environ.get('KICHU_COOKIE_WRITES_ENABLED', '1').strip().lower() not in {
+    '0', 'false', 'no', 'off'
+}
 
 def get_headers(cookie_str=None):
     headers = {
@@ -207,7 +210,7 @@ def _ensure_buvid3(cookies):
        （抓取线程读旧Cookie → 用户登录写新Cookie → 抓取线程覆盖旧Cookie+buvid3 会导致登录态丢失）
     2. 防异常冒泡：save_cookie 失败时仅内存补充，不阻断主流程
     """
-    if cookies.get('buvid3'):
+    if cookies.get('buvid3') or not COOKIE_WRITES_ENABLED:
         return cookies
 
     try:

@@ -1,5 +1,6 @@
 import sqlite3
 
+from ops.backup import backup
 from ops.backup.backup import create_backup
 
 
@@ -49,3 +50,29 @@ def test_create_backup_set_preserves_business_and_auth_databases(tmp_path):
         with sqlite3.connect(backups[label]) as db:
             assert db.execute("pragma quick_check").fetchone() == ("ok",)
             assert db.execute("select value from entries").fetchall() == [(value,)]
+
+
+def test_create_backup_opens_live_wal_source_read_only(tmp_path, monkeypatch):
+    source = tmp_path / "source.db"
+    destination_dir = tmp_path / "backups"
+    original_connect = backup.sqlite3.connect
+    calls = []
+
+    def observed_connect(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original_connect(*args, **kwargs)
+
+    with sqlite3.connect(source) as writer:
+        writer.execute("pragma journal_mode=wal")
+        writer.execute("create table entries (value text)")
+        writer.execute("insert into entries values (?)", ("online",))
+        writer.commit()
+        monkeypatch.setattr(backup.sqlite3, "connect", observed_connect)
+        destination = backup.create_backup(source, destination_dir)
+
+    source_args, source_kwargs = calls[0]
+    assert source_args[0].startswith("file:")
+    assert "mode=ro" in source_args[0]
+    assert source_kwargs["uri"] is True
+    with sqlite3.connect(destination) as database:
+        assert database.execute("select value from entries").fetchall() == [("online",)]

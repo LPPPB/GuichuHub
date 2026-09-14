@@ -21,7 +21,8 @@ def create_backup(source: Path, destination_dir: Path, label: str = "kichu_backu
         raise ValueError("backup label must contain only letters, digits, dashes, or underscores")
     destination = destination_dir / f"{label}_{timestamp}.db"
 
-    with sqlite3.connect(source) as source_db, sqlite3.connect(destination) as backup_db:
+    source_uri = f"{source.resolve().as_uri()}?mode=ro"
+    with sqlite3.connect(source_uri, uri=True) as source_db, sqlite3.connect(destination) as backup_db:
         source_db.backup(backup_db)
 
     return destination

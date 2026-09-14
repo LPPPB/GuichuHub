@@ -56,9 +56,13 @@ def test_write_token_secret_is_available_only_to_api(tmp_path):
 
 def test_api_has_read_only_cookie_mount_and_worker_owns_writes(tmp_path):
     config = _production_config(tmp_path)
+    api = config["services"]["api"]
+    worker = config["services"]["worker"]
     api_private = next(v for v in config["services"]["api"]["volumes"] if v["target"] == "/data/private")
     worker_private = next(v for v in config["services"]["worker"]["volumes"] if v["target"] == "/data/private")
 
     assert api_private["read_only"] is True
     assert worker_private.get("read_only", False) is False
     assert any(volume["target"] == "/data/auth" for volume in config["services"]["worker"]["volumes"])
+    assert api["environment"]["KICHU_COOKIE_WRITES_ENABLED"] == "0"
+    assert worker["environment"]["KICHU_COOKIE_WRITES_ENABLED"] == "1"

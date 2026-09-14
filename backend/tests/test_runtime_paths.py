@@ -1,6 +1,13 @@
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from runtime_paths import RuntimePaths
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_runtime_paths_use_explicit_environment_values(tmp_path):
@@ -72,3 +79,37 @@ def test_backup_db_uses_independently_configured_backup_directory(tmp_path, monk
     assert backup_path.parent == backup_dir
     assert backup_path.exists()
     assert not (tmp_path / "legacy-data" / "backups").exists()
+
+
+def test_current_state_updates_are_serialized_across_processes(tmp_path):
+    state_path = tmp_path / "state" / "inspiration_db.json"
+    environment = os.environ.copy()
+    environment["KICHU_STATE_PATH"] = str(state_path)
+    environment["PYTHONPATH"] = str(BACKEND_ROOT)
+    script = """
+import time
+from storage.database import update_data
+
+def increment(data):
+    value = data.get('counter', 0)
+    time.sleep(0.2)
+    data['counter'] = value + 1
+
+update_data(increment)
+"""
+
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-c", script],
+            cwd=BACKEND_ROOT,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for _ in range(2)
+    ]
+    results = [process.communicate(timeout=10) for process in processes]
+
+    assert all(process.returncode == 0 for process in processes), results
+    assert json.loads(state_path.read_text(encoding="utf-8"))["counter"] == 2

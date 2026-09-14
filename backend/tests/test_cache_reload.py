@@ -25,7 +25,13 @@ def fresh_cache(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cache, 'get_db_path', lambda: str(db_file))
     monkeypatch.setattr(cache, 'load_data', lambda: json.loads(db_file.read_text(encoding='utf-8')))
-    monkeypatch.setattr(cache, 'save_data', lambda data: _write(data))
+    def _update(mutator):
+        data = json.loads(db_file.read_text(encoding='utf-8'))
+        mutator(data)
+        _write(data)
+        return data
+
+    monkeypatch.setattr(cache, 'update_data', _update)
 
     cache._data_cache = None
     cache._cache_mtime = None
@@ -80,7 +86,7 @@ def test_persist_updates_cache_without_spurious_reload(fresh_cache):
         result = cache.persist_data({'hot_videos': [{'title': 'v'}]})
         assert result['hot_videos'] == [{'title': 'v'}]
         assert cache.get_data() is result          # 落盘后立即命中内存缓存
-        assert len(calls) == 1                     # 仅首次加载，persist 后无重读
+        assert len(calls) == 0                     # 持久化在锁内直接读磁盘快照，无缓存重读
     finally:
         monkey.undo()
 
