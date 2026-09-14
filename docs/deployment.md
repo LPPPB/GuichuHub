@@ -14,7 +14,18 @@
 /srv/kichu/backups
 ```
 
-安装 Docker Engine 与 Compose plugin，创建上述目录，并让运行 Docker 的服务账户能读取 `config`、`secrets`，以及读写 `data`、`logs`、`backups`。密钥文件应仅允许其所有者读取。
+安装 Docker Engine 与 Compose plugin 后，先创建目录。API、Worker 与备份镜像固定以 UID/GID `10001` 运行，因此这些可写 bind mount 必须由该 UID/GID 拥有；仅让 Docker 命令执行者有权限并不足够：
+
+```bash
+sudo install -d -m 0750 /srv/kichu/config
+sudo install -d -m 0700 /srv/kichu/secrets
+sudo install -d -o 10001 -g 10001 -m 0750 \
+  /srv/kichu/data/db /srv/kichu/data/auth /srv/kichu/data/state \
+  /srv/kichu/data/private /srv/kichu/logs /srv/kichu/backups
+sudo install -m 0600 -o root -g root /dev/null /srv/kichu/secrets/write_token
+```
+
+在仓库外填写 `production.env`，并以安全方式写入 `write_token`。`production.env` 应只对部署操作员可读；`write_token` 保持 `root:root`、`0600`，由 Docker daemon 读取并挂载为容器 secret，**不要**为此将宿主机密钥文件改为 UID `10001`。运行 Docker 的操作员仍需能调用 Docker Compose。
 
 防火墙与安全组只允许 22、80、443；API、Frontend、Worker、SQLite 均不开放主机端口。DNS 在部署前指向该主机，Caddy 使用 `KICHU_DOMAIN` 自动处理 TLS。
 
