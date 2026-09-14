@@ -1,19 +1,24 @@
-# === builder 阶段 ===
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# 先复制依赖文件，利用 Docker 缓存
 COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
 RUN npm run build
 
-# === 运行阶段：pin nginx 版本，不用 latest ===
 FROM nginx:1.27-alpine
+
+RUN addgroup -S -g 10001 app && \
+    adduser -S -D -H -u 10001 -G app app && \
+    mkdir -p /var/cache/nginx /var/run && \
+    touch /var/run/nginx.pid && \
+    chown -R app:app /var/cache/nginx /var/run
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+RUN sed -i 's/listen 80;/listen 8080;/' /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+USER app
+EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
