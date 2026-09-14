@@ -1,0 +1,122 @@
+name: kichiku-v3
+
+x-backend-environment: &backend-environment
+  KICHU_ENV: production
+  KICHU_TRUST_PROXY: "1"
+  KICHU_DB_PATH: /data/db/kichu_board.db
+  KICHU_AUTH_DB_PATH: /data/auth/auth.db
+  KICHU_COOKIE_PATH: /data/private/bilibili_cookie.json
+  KICHU_LOG_DIR: /logs
+  KICHU_BACKUP_DIR: /backups
+  KICHU_WRITE_TOKEN: ${KICHU_WRITE_TOKEN:?set KICHU_WRITE_TOKEN in the external production environment file}
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on:
+      - api
+      - frontend
+    environment:
+      KICHU_DOMAIN: ${KICHU_DOMAIN:-localhost}
+    logging: *default-logging
+    networks:
+      - edge
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    restart: unless-stopped
+    volumes:
+      - ./ops/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  frontend:
+    build:
+      context: ./frontend
+    logging: *default-logging
+    networks:
+      - edge
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+    command:
+      - gunicorn
+      - --bind=0.0.0.0:5000
+      - --workers=2
+      - --threads=4
+      - --access-logfile=-
+      - --error-logfile=-
+      - api_entrypoint:app
+    environment: *backend-environment
+    init: true
+    logging: *default-logging
+    networks:
+      - edge
+      - core
+    restart: unless-stopped
+    volumes:
+      - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db
+      - ${KICHU_HOST_DATA_DIR:-../data}/auth:/data/auth
+      - ${KICHU_HOST_DATA_DIR:-../data}/private:/data/private
+      - ${KICHU_HOST_LOG_DIR:-../logs}:/logs
+      - ${KICHU_HOST_SECRETS_DIR:-../secrets}:/secrets:ro
+
+  worker:
+    build:
+      context: ./backend
+    command: ["python", "worker_entrypoint.py"]
+    environment: *backend-environment
+    init: true
+    logging: *default-logging
+    networks:
+      - core
+      - egress
+    restart: unless-stopped
+    volumes:
+      - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db
+      - ${KICHU_HOST_DATA_DIR:-../data}/private:/data/private
+      - ${KICHU_HOST_LOG_DIR:-../logs}:/logs
+      - ${KICHU_HOST_SECRETS_DIR:-../secrets}:/secrets:ro
+
+  backup:
+    profiles: ["maintenance"]
+    build:
+      context: ./backend
+    command:
+      - python
+      - /opt/kichu/backup.py
+      - --source
+      - /data/db/kichu_board.db
+      - --destination
+      - /backups
+    environment:
+      KICHU_BACKUP_DIR: /backups
+      KICHU_DB_PATH: /data/db/kichu_board.db
+    init: true
+    logging: *default-logging
+    networks:
+      - core
+    volumes:
+      - ./ops/backup/backup.py:/opt/kichu/backup.py:ro
+      - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db:ro
+      - ${KICHU_HOST_DATA_DIR:-../data}/auth:/data/auth:ro
+      - ${KICHU_HOST_BACKUP_DIR:-../backups}:/backups
+
+networks:
+  edge:
+  core:
+    internal: true
+  egress:
+
+volumes:
+  caddy_config:
+  caddy_data:

@@ -1,0 +1,72 @@
+name: kichiku-v3-dev
+
+x-backend-environment: &backend-environment
+  KICHU_ENV: development
+  KICHU_DB_PATH: /app/runtime/dev/data/kichu_board.db
+  KICHU_AUTH_DB_PATH: /app/runtime/dev/auth/auth.db
+  KICHU_COOKIE_PATH: /app/runtime/dev/private/bilibili_cookie.json
+  KICHU_LOG_DIR: /app/runtime/dev/logs
+  KICHU_BACKUP_DIR: /app/runtime/dev/backups
+
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  api:
+    build:
+      context: ./backend
+      target: builder
+    command:
+      - /app/.venv/bin/flask
+      - --app
+      - api_entrypoint:app
+      - run
+      - --host=0.0.0.0
+      - --port=5000
+      - --debug
+    environment: *backend-environment
+    init: true
+    logging: *default-logging
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./backend:/app
+      - backend_venv:/app/.venv
+      - ./runtime/dev:/app/runtime/dev
+
+  worker:
+    build:
+      context: ./backend
+      target: builder
+    command: ["/app/.venv/bin/python", "worker_entrypoint.py"]
+    environment: *backend-environment
+    init: true
+    logging: *default-logging
+    volumes:
+      - ./backend:/app
+      - backend_venv:/app/.venv
+      - ./runtime/dev:/app/runtime/dev
+
+  frontend:
+    build:
+      context: ./frontend
+      target: builder
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    depends_on:
+      - api
+    environment:
+      VITE_API_PROXY_TARGET: http://api:5000
+    init: true
+    logging: *default-logging
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+volumes:
+  backend_venv:
+  frontend_node_modules:

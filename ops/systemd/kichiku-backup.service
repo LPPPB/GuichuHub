@@ -1,0 +1,12 @@
+[Unit]
+Description=Kichiku Dashboard consistent SQLite backup
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/srv/kichu/app/compose.prod.yml
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/kichu/app
+EnvironmentFile=/srv/kichu/config/production.env
+ExecStart=/usr/bin/docker compose -f compose.prod.yml --profile maintenance run --rm backup
