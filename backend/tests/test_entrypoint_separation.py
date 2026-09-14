@@ -18,6 +18,7 @@ def test_cold_importing_api_entrypoint_does_not_start_scheduler(tmp_path):
             "ENTRYPOINT_TEST_DATA_DIR": str(tmp_path / "cache"),
             "KICHU_DB_PATH": str(tmp_path / "db" / "business.db"),
             "KICHU_AUTH_DB_PATH": str(tmp_path / "auth" / "auth.db"),
+            "KICHU_STATE_PATH": str(tmp_path / "state" / "state.json"),
             "KICHU_COOKIE_PATH": str(tmp_path / "private" / "cookie.json"),
             "KICHU_LOG_DIR": str(tmp_path / "logs"),
             "KICHU_BACKUP_DIR": str(tmp_path / "backups"),
@@ -71,6 +72,12 @@ def test_worker_entrypoint_initializes_services_once_then_waits(monkeypatch):
     )
     monkeypatch.setattr(
         worker_entrypoint,
+        "ensure_collector_handoff_worker",
+        lambda: calls.append("collector-handoff"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        worker_entrypoint,
         "_crawl_once",
         lambda reason: calls.append(f"crawl:{reason}"),
         raising=False,
@@ -101,6 +108,7 @@ def test_worker_entrypoint_initializes_services_once_then_waits(monkeypatch):
         "database",
         "scheduler",
         "calendar",
+        "collector-handoff",
         "crawl:startup",
         "wait",
     ]

@@ -1,14 +1,17 @@
 import json
 import os
 from datetime import datetime, timezone, timedelta
+from runtime_paths import RuntimePaths
 
 # 中国时区：显式 UTC+8，不依赖系统本地时区
 CN_TZ = timezone(timedelta(hours=8))
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
+DATA_DIR = str(RUNTIME_PATHS.current_state.parent)
+STATE_FILENAME = RUNTIME_PATHS.current_state.name
 
 def get_db_path():
-    return os.path.join(DATA_DIR, 'inspiration_db.json')
+    return os.path.join(DATA_DIR, STATE_FILENAME)
 
 def init_db():
     if not os.path.exists(DATA_DIR):

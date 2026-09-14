@@ -4,6 +4,7 @@ x-backend-environment: &backend-environment
   KICHU_ENV: development
   KICHU_DB_PATH: /app/runtime/dev/data/kichu_board.db
   KICHU_AUTH_DB_PATH: /app/runtime/dev/auth/auth.db
+  KICHU_STATE_PATH: /app/runtime/dev/state/inspiration_db.json
   KICHU_COOKIE_PATH: /app/runtime/dev/private/bilibili_cookie.json
   KICHU_LOG_DIR: /app/runtime/dev/logs
   KICHU_BACKUP_DIR: /app/runtime/dev/backups

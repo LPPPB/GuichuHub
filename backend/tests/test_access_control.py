@@ -49,7 +49,7 @@ def client(monkeypatch, tmp_path):
                         lambda cs: {'mid': 1, 'name': '站长', 'face': '', 'level': 6,
                                     'vip_status': 0, 'vip_type': 0, 'is_login': True})
     monkeypatch.setattr(app_module, 'get_user_info', lambda: {'name': '站长', 'face': '', 'mid': 1})
-    monkeypatch.setattr(app_module, 'bili_logout', lambda: True)
+    monkeypatch.setattr(app_module, 'request_collector_logout', lambda requested_by: True)
 
     app_module.app.config['TESTING'] = True
     # 限速器状态隔离：每个用例从零失败开始（缺实现时 AttributeError = TDD 红）

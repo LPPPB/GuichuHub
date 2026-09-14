@@ -5,10 +5,10 @@ x-backend-environment: &backend-environment
   KICHU_TRUST_PROXY: "1"
   KICHU_DB_PATH: /data/db/kichu_board.db
   KICHU_AUTH_DB_PATH: /data/auth/auth.db
+  KICHU_STATE_PATH: /data/state/inspiration_db.json
   KICHU_COOKIE_PATH: /data/private/bilibili_cookie.json
   KICHU_LOG_DIR: /logs
   KICHU_BACKUP_DIR: /backups
-  KICHU_WRITE_TOKEN: ${KICHU_WRITE_TOKEN:?set KICHU_WRITE_TOKEN in the external production environment file}
 
 x-default-logging: &default-logging
   driver: json-file
@@ -56,19 +56,23 @@ services:
       - --access-logfile=-
       - --error-logfile=-
       - api_entrypoint:app
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      KICHU_WRITE_TOKEN_FILE: /run/secrets/write_token
     init: true
     logging: *default-logging
     networks:
       - edge
       - core
     restart: unless-stopped
+    secrets:
+      - write_token
     volumes:
       - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db
       - ${KICHU_HOST_DATA_DIR:-../data}/auth:/data/auth
-      - ${KICHU_HOST_DATA_DIR:-../data}/private:/data/private
+      - ${KICHU_HOST_DATA_DIR:-../data}/state:/data/state
+      - ${KICHU_HOST_DATA_DIR:-../data}/private:/data/private:ro
       - ${KICHU_HOST_LOG_DIR:-../logs}:/logs
-      - ${KICHU_HOST_SECRETS_DIR:-../secrets}:/secrets:ro
 
   worker:
     build:
@@ -83,9 +87,10 @@ services:
     restart: unless-stopped
     volumes:
       - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db
+      - ${KICHU_HOST_DATA_DIR:-../data}/auth:/data/auth
+      - ${KICHU_HOST_DATA_DIR:-../data}/state:/data/state
       - ${KICHU_HOST_DATA_DIR:-../data}/private:/data/private
       - ${KICHU_HOST_LOG_DIR:-../logs}:/logs
-      - ${KICHU_HOST_SECRETS_DIR:-../secrets}:/secrets:ro
 
   backup:
     profiles: ["maintenance"]
@@ -94,13 +99,16 @@ services:
     command:
       - python
       - /opt/kichu/backup.py
-      - --source
+      - --business-source
       - /data/db/kichu_board.db
+      - --auth-source
+      - /data/auth/auth.db
       - --destination
       - /backups
     environment:
       KICHU_BACKUP_DIR: /backups
       KICHU_DB_PATH: /data/db/kichu_board.db
+      KICHU_AUTH_DB_PATH: /data/auth/auth.db
     init: true
     logging: *default-logging
     networks:
@@ -116,6 +124,10 @@ networks:
   core:
     internal: true
   egress:
+
+secrets:
+  write_token:
+    file: ${KICHU_HOST_WRITE_TOKEN_FILE:-../secrets/write_token}
 
 volumes:
   caddy_config:

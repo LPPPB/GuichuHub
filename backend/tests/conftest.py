@@ -9,8 +9,11 @@ import tempfile
 
 import pytest
 
-# 把 backend/ 加入 sys.path（替代 V1 每个测试文件的 sys.path.insert）
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 把 backend/ 与仓库根目录加入 sys.path（替代 V1 每个测试文件的 sys.path.insert）。
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPOSITORY_ROOT = os.path.dirname(BACKEND_DIR)
+sys.path.insert(0, REPOSITORY_ROOT)
+sys.path.insert(0, BACKEND_DIR)
 
 
 @pytest.fixture

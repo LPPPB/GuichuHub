@@ -1,7 +1,9 @@
 # Backup target boundary
 
-`backup.py` always creates a local, transactionally consistent SQLite backup
-before any off-host transfer is considered. The application and the Compose
+`backup.py` always creates local, transactionally consistent snapshots of both
+the business and authentication SQLite databases before any off-host transfer
+is considered. The files use distinct `business_*.db` and `auth_*.db` names and
+each snapshot must pass SQLite `quick_check`. The application and the Compose
 topology do not depend on an object-storage provider.
 
 An optional uploader is a replaceable host-side adapter. It is intentionally

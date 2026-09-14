@@ -174,19 +174,19 @@ RETRY_BACKOFF_BASE = float(os.getenv('RETRY_BACKOFF_BASE', '1.5'))
 
 # ==================== 写操作访问口令 ====================
 # 局域网共享时防止他人随意触发写接口（抓取/改配置/删收藏等）。
-# 优先级：环境变量 KICHU_WRITE_TOKEN > data/api_token.txt（首次启动自动生成并持久化，重启不变）
+# 优先级：环境变量 KICHU_WRITE_TOKEN > KICHU_WRITE_TOKEN_FILE > 本地开发 token 文件。
 
 def get_write_token():
     env_token = os.getenv('KICHU_WRITE_TOKEN')
     if env_token:
         return env_token.strip()
-    token_file = os.path.join(DATA_DIR, 'api_token.txt')
+    token_file = os.getenv('KICHU_WRITE_TOKEN_FILE') or os.path.join(DATA_DIR, 'api_token.txt')
     if os.path.exists(token_file):
         with open(token_file, 'r', encoding='utf-8') as f:
             t = f.read().strip()
             if t:
                 return t
-    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(token_file) or '.', exist_ok=True)
     t = secrets.token_hex(16)
     with open(token_file, 'w', encoding='utf-8') as f:
         f.write(t)

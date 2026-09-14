@@ -6,6 +6,7 @@
 表结构：
   admin_accounts  管理员名单（B站 mid → 站长授权的管理员）
   bili_sessions   访客B站登录会话（凭证只落此处，浏览器仅持 token）
+  collector_credential_handoffs  管理员授权、Worker 消费的采集凭证动作
 
 安全约定：
   - cookies 字段（SESSDATA/bili_jct 明文）绝不出本模块以外的 API 响应；
@@ -15,6 +16,7 @@
 """
 
 import os
+import json
 import secrets
 import sqlite3
 import threading
@@ -74,6 +76,14 @@ def _init_schema(conn):
         )''')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_visitor ON bili_sessions(visitor_id)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_mid ON bili_sessions(mid)')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS collector_credential_handoffs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            action       TEXT NOT NULL CHECK(action IN ('replace', 'delete')),
+            payload      TEXT NOT NULL DEFAULT '',
+            requested_by TEXT NOT NULL,
+            requested_at INTEGER NOT NULL
+        )''')
     conn.commit()
 
 
@@ -221,3 +231,49 @@ def purge_expired_sessions():
     cur = conn.execute('DELETE FROM bili_sessions WHERE expires_at < ?', (int(time.time()),))
     conn.commit()
     return cur.rowcount
+
+
+# ==================== 采集凭证交接队列 ====================
+
+def request_collector_cookie_update(cookies, requested_by):
+    """记录管理员已授权的采集凭证更新，由 Worker 持久化到私有 Cookie 文件。"""
+    if not requested_by:
+        raise ValueError('collector handoff requires an authenticated requester')
+    payload = json.dumps(cookies or {}, ensure_ascii=False)
+    conn = _conn()
+    cur = conn.execute(
+        'INSERT INTO collector_credential_handoffs '
+        '(action, payload, requested_by, requested_at) VALUES (?,?,?,?)',
+        ('replace', payload, str(requested_by), int(time.time())))
+    conn.commit()
+    return cur.lastrowid
+
+
+def request_collector_logout(requested_by):
+    """记录管理员已授权的采集账号退出，由 Worker 删除私有 Cookie 文件。"""
+    if not requested_by:
+        raise ValueError('collector handoff requires an authenticated requester')
+    conn = _conn()
+    cur = conn.execute(
+        'INSERT INTO collector_credential_handoffs '
+        '(action, payload, requested_by, requested_at) VALUES (?,?,?,?)',
+        ('delete', '', str(requested_by), int(time.time())))
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_pending_collector_action():
+    """返回最早的待处理动作；Worker 成功处理前记录保持持久。"""
+    row = _conn().execute(
+        'SELECT id, action, payload, requested_by, requested_at '
+        'FROM collector_credential_handoffs ORDER BY id LIMIT 1').fetchone()
+    return dict(row) if row is not None else None
+
+
+def complete_collector_action(action_id):
+    """仅在 Worker 完成幂等文件操作后确认并删除队列记录。"""
+    conn = _conn()
+    cur = conn.execute(
+        'DELETE FROM collector_credential_handoffs WHERE id = ?', (int(action_id),))
+    conn.commit()
+    return cur.rowcount > 0

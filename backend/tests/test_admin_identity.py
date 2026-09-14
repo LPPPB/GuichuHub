@@ -314,18 +314,22 @@ class TestCollectLogin:
         res = client.get('/api/bili-auth/collect-check?key=x')
         assert res.status_code == 403
 
-    def test_collect_login_writes_crawl_cookie(self, client, monkeypatch):
-        """采集登录：check_login_status 以 save=True 调用（写 bilibili_cookie.json）"""
+    def test_collect_login_hands_cookie_to_authenticated_worker(self, client, monkeypatch):
+        """API 只轮询凭证，采集 Cookie 必须交给 Worker 持久化。"""
         calls = []
+        handed_off = []
         monkeypatch.setattr(app_module, 'check_login_status',
                             lambda key, save=True: (calls.append(save), _fake_check(key))[1])
+        monkeypatch.setattr(app_module, 'request_collector_cookie_update',
+                            lambda cookies, requested_by: handed_off.append((cookies, requested_by)))
         res = client.get('/api/bili-auth/collect-login',
                          headers={'X-Write-Token': ADMIN_TOKEN})
         assert res.status_code == 200
         res = client.get(f'/api/bili-auth/collect-check?key={QR_KEY}',
                          headers={'X-Write-Token': ADMIN_TOKEN})
         assert res.status_code == 200
-        assert calls == [True], '采集登录必须 save=True 写爬虫 Cookie'
+        assert calls == [False], 'API 不得直接写爬虫 Cookie'
+        assert handed_off == [(_fake_check(QR_KEY)['cookies'], 'write_token')]
         assert 'cookies' not in res.get_json()
 
     def test_collect_logout_requires_admin(self, client):
@@ -334,11 +338,12 @@ class TestCollectLogin:
 
     def test_collect_logout_clears_crawl_cookie(self, client, monkeypatch):
         cleared = []
-        monkeypatch.setattr(app_module, 'bili_logout', lambda: cleared.append(True))
+        monkeypatch.setattr(app_module, 'request_collector_logout',
+                            lambda requested_by: cleared.append(requested_by))
         res = client.post('/api/bili-auth/collect-logout',
                           headers={'X-Write-Token': ADMIN_TOKEN})
         assert res.status_code == 200
-        assert cleared == [True]
+        assert cleared == ['write_token']
 
     def test_crawl_user_info_still_admin_only(self, client):
         """采集账号信息（昵称/头像）仍不对访客暴露"""

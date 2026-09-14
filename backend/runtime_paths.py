@@ -12,6 +12,7 @@ _DEVELOPMENT_DATA_DIR = _BACKEND_DIR / "data"
 class RuntimePaths:
     business_db: Path
     auth_db: Path
+    current_state: Path
     cookie_file: Path
     log_dir: Path
     backup_dir: Path
@@ -21,6 +22,7 @@ class RuntimePaths:
         defaults = {
             "KICHU_DB_PATH": _DEVELOPMENT_DATA_DIR / "kichu_board.db",
             "KICHU_AUTH_DB_PATH": _DEVELOPMENT_DATA_DIR / "auth.db",
+            "KICHU_STATE_PATH": _DEVELOPMENT_DATA_DIR / "inspiration_db.json",
             "KICHU_COOKIE_PATH": _DEVELOPMENT_DATA_DIR / "bilibili_cookie.json",
             "KICHU_LOG_DIR": _DEVELOPMENT_DATA_DIR / "logs",
             "KICHU_BACKUP_DIR": _DEVELOPMENT_DATA_DIR / "backups",
@@ -32,6 +34,7 @@ class RuntimePaths:
         return cls(
             business_db=resolve("KICHU_DB_PATH"),
             auth_db=resolve("KICHU_AUTH_DB_PATH"),
+            current_state=resolve("KICHU_STATE_PATH"),
             cookie_file=resolve("KICHU_COOKIE_PATH"),
             log_dir=resolve("KICHU_LOG_DIR"),
             backup_dir=resolve("KICHU_BACKUP_DIR"),
@@ -41,6 +44,7 @@ class RuntimePaths:
         for directory in (
             self.business_db.parent,
             self.auth_db.parent,
+            self.current_state.parent,
             self.cookie_file.parent,
             self.log_dir,
             self.backup_dir,

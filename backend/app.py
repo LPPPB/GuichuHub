@@ -27,7 +27,7 @@ from storage.database import (
     migrate_legacy_favorites,
 )
 from collectors.bilibili_auth import (
-    generate_qrcode, check_login_status, get_user_info, logout as bili_logout,
+    generate_qrcode, check_login_status, get_user_info,
     is_logged_in, get_user_info_with_cookie, cookie_dict_to_str,
 )
 from collectors.bilibili_user import (
@@ -46,6 +46,7 @@ from storage.auth_store import (
     list_admin_accounts, add_admin_account, remove_admin_account,
     is_admin_mid, update_admin_profile,
     create_session, get_session, delete_session, list_recent_logins,
+    request_collector_cookie_update, request_collector_logout,
 )
 
 # ── 四层分离导入 ──
@@ -90,9 +91,9 @@ init_db()
 
 # ── 写操作访问口令（局域网共享防护）──
 # 所有 POST/PUT/DELETE 必须携带 X-Write-Token 头，防止同网段设备随意触发抓取/改配置/删收藏。
-# 口令来源：环境变量 KICHU_WRITE_TOKEN，或 data/api_token.txt（首次启动自动生成，见 config.get_write_token）。
+# 口令来源：运行时 secret 文件、环境变量，或本地开发 token 文件（见 config.get_write_token）。
 WRITE_TOKEN = get_write_token()
-print(f'[API] 写操作口令已启用（写接口需 X-Write-Token 请求头）：{WRITE_TOKEN}')
+print('[API] 写操作口令已启用（写接口需 X-Write-Token 请求头）')
 
 
 def _current_identity():
@@ -739,7 +740,7 @@ def route_bili_collect_login():
 
 @app.route('/api/bili-auth/collect-check', methods=['GET'])
 def route_bili_collect_check():
-    """采集账号登录完成（管理员专属）：写入 bilibili_cookie.json。
+    """采集账号登录完成（管理员专属）：持久交接给 Worker 写入 Cookie。
 
     安全：凭证只落服务器磁盘，绝不回传浏览器。
     """
@@ -752,10 +753,11 @@ def route_bili_collect_check():
     pending = _qr_lookup(key)
     if not pending or pending.get('purpose') != 'collect':
         return jsonify({'success': False, 'message': '登录二维码不存在或已过期，请刷新'}), 404
-    result = check_login_status(key, save=True)  # 写采集 Cookie
+    result = check_login_status(key, save=False)
     if isinstance(result, dict):
-        result.pop('cookies', None)
+        cookies = result.pop('cookies', None) or {}
         if result.get('success'):
+            request_collector_cookie_update(cookies, _current_identity()['via'])
             with _qr_lock:
                 _QR_PENDING.pop(key, None)
     return jsonify(result)
@@ -763,11 +765,11 @@ def route_bili_collect_check():
 
 @app.route('/api/bili-auth/collect-logout', methods=['POST'])
 def route_bili_collect_logout():
-    """采集账号退出（管理员专属）：清除爬虫 Cookie 文件"""
+    """采集账号退出（管理员专属）：请求 Worker 清除爬虫 Cookie 文件"""
     guard = _require_admin()
     if guard:
         return guard
-    bili_logout()
+    request_collector_logout(_current_identity()['via'])
     return jsonify({'success': True, 'message': '采集账号已退出'})
 
 
