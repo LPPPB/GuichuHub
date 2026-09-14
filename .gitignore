@@ -15,6 +15,7 @@ backend/.uv-cache/
 __pycache__/
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 *.db
 *.sqlite
