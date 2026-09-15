@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, calendar_video_authors, calendar_videos, crawl_runs, up_observations, ups, video_observations, video_snapshot_documents, videos, word_observations
+from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, calendar_video_authors, calendar_videos, crawl_runs, up_card_cache, up_observations, ups, video_observations, video_snapshot_documents, videos, word_observations
 
 
 class BusinessRepository:
@@ -186,6 +186,32 @@ class BusinessRepository:
                 .outerjoin(ups, ups.c.mid == up_observations.c.mid)
                 .where(up_observations.c.ts == ts)
             ).mappings()]
+
+    def write_up_card_cache(self, mid: int, card: dict, fetched_at: int) -> None:
+        with self._sessions.begin() as session:
+            session.execute(insert(up_card_cache).values(
+                mid=mid, payload=card, fetched_at=fetched_at,
+            ).on_conflict_do_update(
+                index_elements=[up_card_cache.c.mid],
+                set_={"payload": card, "fetched_at": fetched_at},
+            ))
+
+    def up_card_cache(self, mid: int) -> dict | None:
+        with self._sessions() as session:
+            row = session.execute(
+                select(up_card_cache.c.payload).where(up_card_cache.c.mid == mid)
+            ).mappings().first()
+            return row["payload"] if row else None
+
+    def read_up_card_cache(self, mid: int, now: int, ttl: int) -> dict | None:
+        with self._sessions() as session:
+            row = session.execute(
+                select(up_card_cache.c.payload, up_card_cache.c.fetched_at)
+                .where(up_card_cache.c.mid == mid)
+            ).mappings().first()
+            if row is None or now - row["fetched_at"] > ttl:
+                return None
+            return row["payload"]
 
     def upsert_calendar_videos(self, rows: list[dict], authors: set[tuple[str, int]], fetched: int, now: int) -> dict:
         """Persist a normalized calendar batch and its complete author relation."""

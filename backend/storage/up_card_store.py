@@ -8,13 +8,20 @@
 
 import json
 import time
-from storage.db import get_conn
+from storage.db import get_business_repository, get_conn
 
 CACHE_TTL = 86400  # 1 天
 
 
 def read_up_card_cache(mid):
     """读取未过期的 UP 卡片缓存，无/过期/损坏返回 None"""
+    repository = get_business_repository()
+    if repository is not None:
+        data = repository.read_up_card_cache(mid, int(time.time()), CACHE_TTL)
+        if not isinstance(data, dict) or 'last_7d_views' not in data:
+            return None
+        return data
+
     conn = get_conn()
     row = conn.execute(
         'SELECT payload_json, fetched_at FROM up_card_cache WHERE mid=?', (mid,)
@@ -37,6 +44,11 @@ def read_up_card_cache(mid):
 
 def write_up_card_cache(mid, card):
     """幂等写入 UP 卡片缓存"""
+    repository = get_business_repository()
+    if repository is not None:
+        repository.write_up_card_cache(mid, card, int(time.time()))
+        return
+
     conn = get_conn()
     conn.execute(
         'INSERT OR REPLACE INTO up_card_cache (mid, payload_json, fetched_at) VALUES (?, ?, ?)',

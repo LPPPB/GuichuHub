@@ -237,3 +237,13 @@ def test_up_observation_reader_builds_postgresql_creator_summary_and_details(bus
         "total_recent_views": 10, "latest_pub_date": 100, "avg_views": 5,
         "video_count": 8, "recent_video_count": 2,
     }]
+
+
+def test_up_card_cache_uses_configured_postgresql_repository(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    from storage.up_card_store import read_up_card_cache, write_up_card_cache
+
+    write_up_card_cache(501, {"last_7d_views": 12, "keywords": ["梗"]})
+
+    assert business_repository.up_card_cache(501) == {"last_7d_views": 12, "keywords": ["梗"]}
+    assert read_up_card_cache(501) == {"last_7d_views": 12, "keywords": ["梗"]}
