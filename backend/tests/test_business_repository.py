@@ -1,0 +1,62 @@
+"""PostgreSQL business repository contracts."""
+
+import subprocess
+import time
+
+import pytest
+from sqlalchemy import create_engine, text
+
+from storage.migrations import upgrade_database
+from storage.repositories.business import BusinessRepository
+
+
+@pytest.fixture(scope="module")
+def business_repository():
+    container_id = subprocess.check_output(
+        [
+            "docker", "run", "--rm", "-d", "-e", "POSTGRES_PASSWORD=test-password",
+            "-e", "POSTGRES_DB=kichu_test", "-p", "127.0.0.1::5432", "postgres:16-alpine",
+        ],
+        text=True,
+    ).strip()
+    try:
+        port = subprocess.check_output(
+            ["docker", "port", container_id, "5432/tcp"], text=True
+        ).strip().rsplit(":", 1)[1]
+        url = f"postgresql+psycopg://postgres:test-password@127.0.0.1:{port}/kichu_test"
+        engine = create_engine(url)
+        for _ in range(30):
+            try:
+                with engine.connect() as connection:
+                    connection.execute(text("SELECT 1"))
+                break
+            except Exception:
+                time.sleep(1)
+        else:
+            pytest.fail("disposable PostgreSQL did not become ready")
+        upgrade_database(url)
+        yield BusinessRepository.from_url(url)
+    finally:
+        subprocess.run(["docker", "stop", container_id], check=False)
+
+
+def test_observation_upsert_preserves_null_and_zero(business_repository):
+    """Replacing NULL with zero, or making upsert append rows, must fail this contract."""
+    business_repository.record_video({"bvid": "BV1", "first_seen": 100, "title": "test"})
+    business_repository.record_observation("BV1", 100, {"views": None, "likes": 0})
+    business_repository.record_observation("BV1", 100, {"views": None, "likes": 0})
+
+    assert business_repository.video_trend("BV1", start_ts=0) == [
+        {"ts": 100, "views": None, "likes": 0}
+    ]
+
+
+def test_two_workers_claim_distinct_calendar_items(business_repository):
+    """Removing SKIP LOCKED or transactional status updates must fail this claim contract."""
+    business_repository.enqueue_calendar_items("job-1", [101, 202])
+
+    first = business_repository.claim_calendar_item("worker-a")
+    second = business_repository.claim_calendar_item("worker-b")
+
+    assert {first["mid"], second["mid"]} == {101, 202}
+    assert {first["worker_id"], second["worker_id"]} == {"worker-a", "worker-b"}
