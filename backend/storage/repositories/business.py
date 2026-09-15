@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, crawl_runs, video_observations, video_snapshot_documents, videos, word_observations
+from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, crawl_runs, up_observations, ups, video_observations, video_snapshot_documents, videos, word_observations
 
 
 class BusinessRepository:
@@ -114,6 +114,27 @@ class BusinessRepository:
                     set_={"payload": row["payload"], "item_count": row["item_count"]},
                 ))
         return len(rows)
+
+    def upsert_up_observations(self, ts: int, observations: list[dict]) -> int:
+        rows = [row for row in observations if row.get("mid") is not None]
+        with self._sessions.begin() as session:
+            for row in rows:
+                session.execute(insert(ups).values(
+                    mid=row["mid"], name=row.get("name"), face=row.get("face"), tracked=False
+                ).on_conflict_do_nothing(index_elements=[ups.c.mid]))
+                session.execute(insert(up_observations).values(
+                    mid=row["mid"], ts=ts, payload=row
+                ).on_conflict_do_update(
+                    index_elements=[up_observations.c.mid, up_observations.c.ts], set_={"payload": row}
+                ))
+        return len(rows)
+
+    def up_observation(self, mid: int, ts: int) -> dict:
+        with self._sessions() as session:
+            return dict(session.execute(
+                select(up_observations.c.mid, up_observations.c.payload)
+                .where(up_observations.c.mid == mid, up_observations.c.ts == ts)
+            ).mappings().one())
 
     def enqueue_calendar_items(self, job_id: str, mids: list[int]) -> None:
         with self._sessions.begin() as session:

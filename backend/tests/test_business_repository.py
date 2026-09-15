@@ -111,3 +111,14 @@ def test_legacy_snapshot_batch_rejects_invalid_field_without_partial_write(busin
 
     with pytest.raises(Exception):
         business_repository.snapshot_document(500, "hot_videos")
+
+
+def test_legacy_up_observation_adapter_upserts_jsonb_batch(business_repository):
+    """Appending duplicate UP observations for one batch must fail this compatibility contract."""
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_up_obs(600, [{"mid": 42, "name": "UP", "follower_count": 1}])
+    legacy_db.upsert_up_obs(600, [{"mid": 42, "name": "UP", "follower_count": 2}])
+
+    assert business_repository.up_observation(42, 600) == {
+        "mid": 42, "payload": {"mid": 42, "name": "UP", "follower_count": 2}
+    }
