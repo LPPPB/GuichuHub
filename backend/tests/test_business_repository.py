@@ -94,3 +94,20 @@ def test_legacy_video_snapshot_adapter_upserts_jsonb_document(business_repositor
     assert business_repository.snapshot_document(400, "hot_videos") == {
         "payload": [{"bvid": "BV3", "views": 2}], "item_count": 1
     }
+
+
+def test_legacy_snapshot_batch_rejects_invalid_field_without_partial_write(business_repository):
+    """Removing pre-validation must fail because the valid first document would be persisted."""
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_video_obs_snapshot_batch(499, {"hot_videos": [{"bvid": "BV4"}]})
+    assert business_repository.snapshot_document(499, "hot_videos") == {
+        "payload": [{"bvid": "BV4"}], "item_count": 1
+    }
+
+    with pytest.raises(ValueError, match="非法 field"):
+        legacy_db.upsert_video_obs_snapshot_batch(500, {
+            "hot_videos": [{"bvid": "BV4"}], "not_a_field": []
+        })
+
+    with pytest.raises(Exception):
+        business_repository.snapshot_document(500, "hot_videos")

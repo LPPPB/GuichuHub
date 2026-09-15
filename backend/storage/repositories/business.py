@@ -101,6 +101,20 @@ class BusinessRepository:
                 .where(video_snapshot_documents.c.ts == ts, video_snapshot_documents.c.field == field)
             ).mappings().one())
 
+    def upsert_snapshot_batch(self, ts: int, fields: dict[str, list | dict]) -> int:
+        rows = [
+            {"ts": ts, "field": field, "payload": payload,
+             "item_count": len(payload) if isinstance(payload, list) else 1}
+            for field, payload in fields.items()
+        ]
+        with self._sessions.begin() as session:
+            for row in rows:
+                session.execute(insert(video_snapshot_documents).values(**row).on_conflict_do_update(
+                    index_elements=[video_snapshot_documents.c.ts, video_snapshot_documents.c.field],
+                    set_={"payload": row["payload"], "item_count": row["item_count"]},
+                ))
+        return len(rows)
+
     def enqueue_calendar_items(self, job_id: str, mids: list[int]) -> None:
         with self._sessions.begin() as session:
             session.execute(insert(calendar_backfill_jobs).values(
