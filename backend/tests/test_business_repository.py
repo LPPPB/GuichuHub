@@ -180,3 +180,60 @@ def test_snapshot_history_reader_uses_configured_postgresql_repository(business_
         {"created_at": 1000, "analysis": {"timeline": [{"views": 1}]}},
         {"created_at": 2000, "analysis": {"timeline": [{"views": 2}]}},
     ]
+
+
+def test_up_observation_reader_uses_configured_postgresql_repository(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_up_obs(
+        3000,
+        [{
+            "mid": 301, "name": "排行 UP", "face": "face", "total_recent_views": 9,
+            "avg_views": 3, "video_count": 4, "follower_count": 5,
+            "kichu_video_count": 6, "latest_pub_date": 7,
+        }],
+        play_ranking=[{"mid": 301}],
+    )
+
+    from storage.up_obs_reader import get_latest_batch_ts, get_play_ranking
+
+    assert get_latest_batch_ts() == 3000
+    assert get_play_ranking(3000) == [{
+        "mid": 301, "name": "排行 UP", "face": "face", "total_recent_views": 9,
+        "avg_views": 3, "video_count": 4, "follower_count": 5,
+        "kichu_video_count": 6, "latest_pub_date": 7,
+    }]
+
+
+def test_up_observation_reader_builds_postgresql_creator_summary_and_details(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_up_obs(
+        4000,
+        [{
+            "mid": 401, "name": "详情 UP", "face": "face", "total_recent_views": 10,
+            "avg_views": 5, "video_count": 8, "recent_video_count": 2,
+            "follower_count": 3, "kichu_video_count": 1, "recent_kichu_count": 1,
+            "latest_pub_date": 100, "sign": "签名", "following_count": 4,
+            "latest_videos": [{"bvid": "BV401"}],
+        }],
+        active_ranking=[{"mid": 401}],
+    )
+
+    from storage.up_obs_reader import get_creator_ranking, get_summary, get_up_details
+
+    assert get_creator_ranking(4000) == [{
+        "mid": 401, "name": "详情 UP", "face": "face", "recent_video_count": 2,
+        "total_recent_views": 10, "avg_views": 5, "follower_count": 3,
+        "kichu_video_count": 1, "latest_pub_date": 100,
+    }]
+    assert get_summary(4000, now=101) == {
+        "total_ups": 1, "total_videos": 2, "total_views": 10,
+        "avg_views_per_video": 5, "kichu_up_count": 1,
+        "kichu_video_count": 1, "active_up_count": 1,
+    }
+    assert get_up_details(4000) == [{
+        "mid": 401, "name": "详情 UP", "face": "face", "sign": "签名",
+        "follower_count": 3, "following_count": 4,
+        "latest_videos": [{"bvid": "BV401"}], "kichu_video_count": 1,
+        "total_recent_views": 10, "latest_pub_date": 100, "avg_views": 5,
+        "video_count": 8, "recent_video_count": 2,
+    }]

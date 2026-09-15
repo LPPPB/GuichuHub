@@ -174,6 +174,19 @@ class BusinessRepository:
                 .where(up_observations.c.mid == mid, up_observations.c.ts == ts)
             ).mappings().one())
 
+    def latest_up_observation_ts(self) -> int | None:
+        with self._sessions() as session:
+            return session.execute(select(func.max(up_observations.c.ts))).scalar_one()
+
+    def up_observation_rows(self, ts: int) -> list[dict]:
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(
+                select(up_observations.c.mid, up_observations.c.payload,
+                       ups.c.name, ups.c.face)
+                .outerjoin(ups, ups.c.mid == up_observations.c.mid)
+                .where(up_observations.c.ts == ts)
+            ).mappings()]
+
     def upsert_calendar_videos(self, rows: list[dict], authors: set[tuple[str, int]], fetched: int, now: int) -> dict:
         """Persist a normalized calendar batch and its complete author relation."""
         bvids = [row["bvid"] for row in rows]

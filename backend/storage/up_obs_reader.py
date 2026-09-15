@@ -27,7 +27,7 @@ summary 聚合：
 """
 import json
 import time
-from storage.db import get_conn
+from storage.db import get_business_repository, get_conn
 
 
 def _loads(s):
@@ -42,6 +42,9 @@ def _loads(s):
 
 def get_latest_batch_ts():
     """返回最新批次 ts，无数据返回 None"""
+    repository = get_business_repository()
+    if repository is not None:
+        return repository.latest_up_observation_ts()
     conn = get_conn()
     row = conn.execute('SELECT MAX(ts) AS ts FROM up_obs').fetchone()
     return row['ts'] if row and row['ts'] else None
@@ -52,6 +55,23 @@ def get_play_ranking(ts, limit=10):
 
     V3 后 video_count_total 列已补齐，可完整对应 play_ranking.video_count。
     """
+    repository = get_business_repository()
+    if repository is not None:
+        rows = sorted(
+            repository.up_observation_rows(ts),
+            key=lambda row: row['payload'].get('play_rank', 0),
+        )
+        rows = [row for row in rows if row['payload'].get('play_rank', 0) > 0][:limit]
+        return [{
+            'mid': row['mid'], 'name': row['name'] or '', 'face': row['face'] or '',
+            'total_recent_views': row['payload'].get('total_recent_views'),
+            'avg_views': row['payload'].get('avg_views'),
+            'video_count': row['payload'].get('video_count'),
+            'follower_count': row['payload'].get('follower_count'),
+            'kichu_video_count': row['payload'].get('kichu_video_count'),
+            'latest_pub_date': row['payload'].get('latest_pub_date'),
+        } for row in rows]
+
     conn = get_conn()
     rows = conn.execute('''
         SELECT o.mid, o.kichu_count, o.video_count_30d, o.views_30d,
@@ -82,6 +102,23 @@ def get_creator_ranking(ts, limit=10):
 
     creator_ranking 的所有字段都能在 up_obs 找到对应，可完整切读。
     """
+    repository = get_business_repository()
+    if repository is not None:
+        rows = sorted(
+            repository.up_observation_rows(ts),
+            key=lambda row: row['payload'].get('activity_rank', 0),
+        )
+        rows = [row for row in rows if row['payload'].get('activity_rank', 0) > 0][:limit]
+        return [{
+            'mid': row['mid'], 'name': row['name'] or '', 'face': row['face'] or '',
+            'recent_video_count': row['payload'].get('recent_video_count'),
+            'total_recent_views': row['payload'].get('total_recent_views'),
+            'avg_views': row['payload'].get('avg_views'),
+            'follower_count': row['payload'].get('follower_count'),
+            'kichu_video_count': row['payload'].get('kichu_video_count'),
+            'latest_pub_date': row['payload'].get('latest_pub_date'),
+        } for row in rows]
+
     conn = get_conn()
     rows = conn.execute('''
         SELECT o.mid, o.kichu_count, o.video_count_30d, o.views_30d,
@@ -125,6 +162,24 @@ def get_summary(ts, now=None):
     """
     now = now or int(time.time())
     week_ago = now - 7 * 86400
+    repository = get_business_repository()
+    if repository is not None:
+        payloads = [row['payload'] for row in repository.up_observation_rows(ts)]
+        total_videos = sum(payload.get('recent_video_count') or 0 for payload in payloads)
+        total_views = sum(payload.get('total_recent_views') or 0 for payload in payloads)
+        kichu = sum(payload.get('recent_kichu_count') or 0 for payload in payloads)
+        if kichu == 0:
+            kichu = min(sum(payload.get('kichu_video_count') or 0 for payload in payloads), total_videos)
+        return {
+            'total_ups': len(payloads),
+            'total_videos': total_videos,
+            'total_views': total_views,
+            'avg_views_per_video': int(total_views / total_videos) if total_videos else 0,
+            'kichu_up_count': sum(1 for payload in payloads if (payload.get('kichu_video_count') or 0) > 0),
+            'kichu_video_count': kichu,
+            'active_up_count': sum(1 for payload in payloads if (payload.get('latest_pub_date') or 0) > week_ago),
+        }
+
     conn = get_conn()
     row = conn.execute('''
         SELECT
@@ -162,6 +217,27 @@ def get_up_details(ts):
       latest_videos / kichu_video_count / total_recent_views / latest_pub_date /
       avg_views / video_count / recent_video_count
     """
+    repository = get_business_repository()
+    if repository is not None:
+        rows = sorted(
+            repository.up_observation_rows(ts),
+            key=lambda row: row['payload'].get('latest_pub_date') or 0,
+            reverse=True,
+        )
+        return [{
+            'mid': row['mid'], 'name': row['name'] or '', 'face': row['face'] or '',
+            'sign': row['payload'].get('sign') or '',
+            'follower_count': row['payload'].get('follower_count'),
+            'following_count': row['payload'].get('following_count') or 0,
+            'latest_videos': row['payload'].get('latest_videos') or [],
+            'kichu_video_count': row['payload'].get('kichu_video_count'),
+            'total_recent_views': row['payload'].get('total_recent_views'),
+            'latest_pub_date': row['payload'].get('latest_pub_date'),
+            'avg_views': row['payload'].get('avg_views'),
+            'video_count': row['payload'].get('video_count'),
+            'recent_video_count': row['payload'].get('recent_video_count'),
+        } for row in rows]
+
     conn = get_conn()
     rows = conn.execute('''
         SELECT o.mid, o.kichu_count, o.video_count_30d, o.views_30d,
