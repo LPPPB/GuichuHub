@@ -111,7 +111,7 @@ Run: `git add backend/storage/models.py backend/alembic.ini backend/alembic back
 **Interfaces:**
 - Produces `BusinessRepository.record_video`, `record_observation`, `upsert_up_observations`, `claim_calendar_item`, and existing public storage functions delegated to it.
 
-- [ ] **Step 1: Write failing repository behavior tests**
+- [x] **Step 1: Write failing repository behavior tests**
 
 ```python
 def test_video_observation_upsert_preserves_null_and_zero(repository):
@@ -123,11 +123,11 @@ def test_two_workers_claim_distinct_calendar_items(repository):
     assert {repository.claim_calendar_item("a")["mid"], repository.claim_calendar_item("b")["mid"]} == {1, 2}
 ```
 
-- [ ] **Step 2: Run tests and observe absent repository failures**
+- [x] **Step 2: Run tests and observe absent repository failures**
 
 Run: `uv run pytest tests/test_business_repository.py -q --no-cov`
 
-- [ ] **Step 3: Implement repository transactions using `on_conflict_do_update` and `FOR UPDATE SKIP LOCKED`**
+- [x] **Step 3: Implement repository transactions using `on_conflict_do_update` and `FOR UPDATE SKIP LOCKED`**
 
 ```python
 stmt = insert(VideoObservation).values(**row).on_conflict_do_update(
@@ -136,11 +136,11 @@ stmt = insert(VideoObservation).values(**row).on_conflict_do_update(
 claimed = session.execute(select(CalendarItem).with_for_update(skip_locked=True).limit(1)).scalar_one_or_none()
 ```
 
-- [ ] **Step 4: Run repository and existing reader tests**
+- [x] **Step 4: Run repository and existing reader tests**
 
 Run: `uv run pytest tests/test_business_repository.py tests/test_calendar_reliability.py -q --no-cov`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add backend/storage/repositories backend/storage/db.py backend/storage/up_obs_reader.py backend/storage/up_trends_reader.py backend/storage/video_snapshot_reader.py backend/storage/up_card_store.py backend/tests/test_business_repository.py && git commit -m "feat: move business storage to PostgreSQL"`
 
