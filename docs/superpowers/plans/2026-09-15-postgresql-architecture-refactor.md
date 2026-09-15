@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces `DatabaseSettings.from_environment(env, role) -> DatabaseSettings` and `create_session_factory(settings) -> sessionmaker`.
 
-- [ ] **Step 1: Write the failing settings tests**
+- [x] **Step 1: Write the failing settings tests**
 
 ```python
 def test_api_role_reads_postgresql_url_only_from_file(tmp_path):
@@ -46,11 +46,11 @@ def test_sqlite_url_is_rejected_before_connecting(tmp_path):
         DatabaseSettings.from_environment({"KICHU_API_DATABASE_URL_FILE": str(path)}, "api")
 ```
 
-- [ ] **Step 2: Run the focused test and observe missing-module failure**
+- [x] **Step 2: Run the focused test and observe missing-module failure**
 
 Run: `uv run pytest tests/test_postgres_settings.py -q --no-cov`
 
-- [ ] **Step 3: Add pinned SQLAlchemy/Alembic/psycopg dependencies and minimal file-only configuration**
+- [x] **Step 3: Add pinned SQLAlchemy/Alembic/psycopg dependencies and minimal file-only configuration**
 
 ```python
 URL_FILE_BY_ROLE = {"api": "KICHU_API_DATABASE_URL_FILE", "worker": "KICHU_WORKER_DATABASE_URL_FILE", "migration": "KICHU_MIGRATION_DATABASE_URL_FILE"}
@@ -58,11 +58,11 @@ if make_url(raw_url).get_backend_name() != "postgresql":
     raise ConfigurationError("PostgreSQL database URL is required")
 ```
 
-- [ ] **Step 4: Run settings tests and regenerate the frozen lockfile**
+- [x] **Step 4: Run settings tests and regenerate the frozen lockfile**
 
 Run: `uv lock && uv run pytest tests/test_postgres_settings.py -q --no-cov`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add backend/pyproject.toml backend/uv.lock backend/storage/settings.py backend/storage/postgres.py backend/tests/test_postgres_settings.py && git commit -m "feat: add PostgreSQL runtime settings"`
 

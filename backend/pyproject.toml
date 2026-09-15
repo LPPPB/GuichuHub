@@ -12,6 +12,9 @@ dependencies = [
     "qrcode>=7.4,<8.0",
     "jieba>=0.42,<0.50",
     "python-dotenv>=1.0,<2.0",
+    "sqlalchemy>=2.0,<3.0",
+    "alembic>=1.14,<2.0",
+    "psycopg[binary]>=3.2,<4.0",
 ]
 
 [project.optional-dependencies]
