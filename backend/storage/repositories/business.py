@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, crawl_runs, video_observations, videos, word_observations
+from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, crawl_runs, video_observations, video_snapshot_documents, videos, word_observations
 
 
 class BusinessRepository:
@@ -82,6 +82,24 @@ class BusinessRepository:
         with self._sessions() as session:
             row = session.execute(select(crawl_runs.c.status, crawl_runs.c.stats).where(crawl_runs.c.id == run_id)).mappings().one()
             return dict(row)
+
+    def upsert_snapshot_document(self, ts: int, field: str, payload: list | dict) -> int:
+        item_count = len(payload) if isinstance(payload, list) else 1
+        with self._sessions.begin() as session:
+            session.execute(insert(video_snapshot_documents).values(
+                ts=ts, field=field, payload=payload, item_count=item_count
+            ).on_conflict_do_update(
+                index_elements=[video_snapshot_documents.c.ts, video_snapshot_documents.c.field],
+                set_={"payload": payload, "item_count": item_count},
+            ))
+        return item_count
+
+    def snapshot_document(self, ts: int, field: str) -> dict:
+        with self._sessions() as session:
+            return dict(session.execute(
+                select(video_snapshot_documents.c.payload, video_snapshot_documents.c.item_count)
+                .where(video_snapshot_documents.c.ts == ts, video_snapshot_documents.c.field == field)
+            ).mappings().one())
 
     def enqueue_calendar_items(self, job_id: str, mids: list[int]) -> None:
         with self._sessions.begin() as session:

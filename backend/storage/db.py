@@ -872,6 +872,8 @@ def upsert_video_obs_snapshot(ts, field, payload):
     """
     if field not in _VIDEO_SNAPSHOT_FIELDS:
         raise ValueError(f'非法 field: {field}，允许: {sorted(_VIDEO_SNAPSHOT_FIELDS)}')
+    if _business_repository is not None:
+        return _business_repository.upsert_snapshot_document(ts, field, payload)
 
     payload_json = json.dumps(payload, ensure_ascii=False)
     with _write_lock:

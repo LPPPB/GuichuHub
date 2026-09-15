@@ -83,3 +83,14 @@ def test_legacy_words_and_crawl_run_adapters_persist_to_postgresql(business_repo
 
     assert business_repository.word_rows(300) == [{"word": "梗", "count": 3, "scope": "danmaku"}]
     assert business_repository.crawl_run(run_id) == {"status": "success", "stats": {"videos": 1}}
+
+
+def test_legacy_video_snapshot_adapter_upserts_jsonb_document(business_repository):
+    """Appending a second document for one timestamp/field must fail this snapshot contract."""
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_video_obs_snapshot(400, "hot_videos", [{"bvid": "BV3", "views": 1}])
+    legacy_db.upsert_video_obs_snapshot(400, "hot_videos", [{"bvid": "BV3", "views": 2}])
+
+    assert business_repository.snapshot_document(400, "hot_videos") == {
+        "payload": [{"bvid": "BV3", "views": 2}], "item_count": 1
+    }
