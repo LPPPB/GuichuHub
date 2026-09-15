@@ -122,3 +122,16 @@ def test_legacy_up_observation_adapter_upserts_jsonb_batch(business_repository):
     assert business_repository.up_observation(42, 600) == {
         "mid": 42, "payload": {"mid": 42, "name": "UP", "follower_count": 2}
     }
+
+
+def test_legacy_calendar_adapter_upserts_postgresql_video(business_repository):
+    """Appending calendar rows for the same video/author must fail this calendar contract."""
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_calendar_videos([{
+        "bvid": "BV5", "mid": 88, "pub_date": 700, "pub_date_str": "09-15", "views": 1, "title": "calendar"
+    }])
+    legacy_db.upsert_calendar_videos([{
+        "bvid": "BV5", "mid": 88, "pub_date": 700, "pub_date_str": "09-15", "views": 2, "title": "calendar"
+    }])
+
+    assert business_repository.calendar_video("BV5", 88) == {"views": 2, "pub_date_str": "01-01"}

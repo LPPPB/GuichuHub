@@ -997,6 +997,10 @@ def upsert_calendar_videos(videos, tracked_mids=None):
         }
 
     now = int(time.time())
+    if _business_repository is not None:
+        return _business_repository.upsert_calendar_videos(
+            list(normalized.values()), authors, fetched, now,
+        )
     with _write_lock:
         conn = get_conn()
         existing = {}

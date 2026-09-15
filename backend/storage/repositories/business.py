@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, crawl_runs, up_observations, ups, video_observations, video_snapshot_documents, videos, word_observations
+from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, calendar_video_authors, calendar_videos, crawl_runs, up_observations, ups, video_observations, video_snapshot_documents, videos, word_observations
 
 
 class BusinessRepository:
@@ -134,6 +134,70 @@ class BusinessRepository:
             return dict(session.execute(
                 select(up_observations.c.mid, up_observations.c.payload)
                 .where(up_observations.c.mid == mid, up_observations.c.ts == ts)
+            ).mappings().one())
+
+    def upsert_calendar_videos(self, rows: list[dict], authors: set[tuple[str, int]], fetched: int, now: int) -> dict:
+        """Persist a normalized calendar batch and its complete author relation."""
+        bvids = [row["bvid"] for row in rows]
+        with self._sessions.begin() as session:
+            existing = {
+                row["bvid"]: dict(row)
+                for row in session.execute(
+                    select(calendar_videos.c.bvid, calendar_videos.c.pub_date,
+                           calendar_videos.c.views, calendar_videos.c.title)
+                    .where(calendar_videos.c.bvid.in_(bvids))
+                    .order_by(calendar_videos.c.bvid, calendar_videos.c.views.desc())
+                ).mappings()
+            }
+            inserted = updated = unchanged = 0
+            for row in rows:
+                old = existing.get(row["bvid"])
+                if old is None:
+                    inserted += 1
+                elif (old["pub_date"] == row["pub_date"] and old["views"] == row["views"]
+                      and (old["title"] or "") == row["title"]):
+                    unchanged += 1
+                else:
+                    updated += 1
+
+            for bvid, mid in authors:
+                session.execute(insert(ups).values(mid=mid, tracked=False).on_conflict_do_nothing(
+                    index_elements=[ups.c.mid]
+                ))
+            for row in rows:
+                session.execute(insert(videos).values(
+                    bvid=row["bvid"], mid=row["mid"], title=row["title"],
+                    pub_date=row["pub_date"], first_seen=now, source="calendar"
+                ).on_conflict_do_nothing(index_elements=[videos.c.bvid]))
+                session.execute(insert(calendar_videos).values(
+                    **row, fetched_at=now, last_seen_at=now, missing_count=0, status="active"
+                ).on_conflict_do_update(
+                    index_elements=[calendar_videos.c.bvid, calendar_videos.c.mid],
+                    set_={
+                        "pub_date": row["pub_date"], "pub_date_str": row["pub_date_str"],
+                        "views": func.greatest(calendar_videos.c.views, row["views"]),
+                        "title": row["title"], "fetched_at": now, "last_seen_at": now,
+                        "missing_count": 0, "status": "active",
+                    },
+                ))
+            session.execute(insert(calendar_video_authors).values([
+                {"bvid": bvid, "mid": mid, "last_seen_at": now,
+                 "missing_count": 0, "status": "active"}
+                for bvid, mid in authors
+            ]).on_conflict_do_update(
+                index_elements=[calendar_video_authors.c.bvid, calendar_video_authors.c.mid],
+                set_={"last_seen_at": now, "missing_count": 0, "status": "active"},
+            ))
+        return {
+            "fetched": fetched, "valid": len(rows), "inserted": inserted,
+            "updated": updated, "unchanged": unchanged, "invalid": fetched - len(authors),
+        }
+
+    def calendar_video(self, bvid: str, mid: int) -> dict:
+        with self._sessions() as session:
+            return dict(session.execute(
+                select(calendar_videos.c.views, calendar_videos.c.pub_date_str)
+                .where(calendar_videos.c.bvid == bvid, calendar_videos.c.mid == mid)
             ).mappings().one())
 
     def enqueue_calendar_items(self, job_id: str, mids: list[int]) -> None:
