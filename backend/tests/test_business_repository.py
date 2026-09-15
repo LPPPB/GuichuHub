@@ -135,3 +135,21 @@ def test_legacy_calendar_adapter_upserts_postgresql_video(business_repository):
     }])
 
     assert business_repository.calendar_video("BV5", 88) == {"views": 2, "pub_date_str": "01-01"}
+
+
+def test_legacy_up_observation_adapter_keeps_rankings(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_up_obs(
+        901,
+        [{"mid": 91, "name": "UP", "total_recent_views": 8}],
+        play_ranking=[{"mid": 91}],
+        active_ranking=[{"mid": 91}],
+    )
+
+    assert business_repository.up_observation(91, 901)["payload"] == {
+        "mid": 91,
+        "name": "UP",
+        "total_recent_views": 8,
+        "play_rank": 1,
+        "activity_rank": 1,
+    }

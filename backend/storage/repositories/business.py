@@ -115,17 +115,27 @@ class BusinessRepository:
                 ))
         return len(rows)
 
-    def upsert_up_observations(self, ts: int, observations: list[dict]) -> int:
+    def upsert_up_observations(
+        self, ts: int, observations: list[dict], play_ranking: list[dict] | None = None,
+        active_ranking: list[dict] | None = None,
+    ) -> int:
         rows = [row for row in observations if row.get("mid") is not None]
+        play_rank = {row.get("mid"): index for index, row in enumerate(play_ranking or [], 1)}
+        activity_rank = {row.get("mid"): index for index, row in enumerate(active_ranking or [], 1)}
         with self._sessions.begin() as session:
             for row in rows:
                 session.execute(insert(ups).values(
                     mid=row["mid"], name=row.get("name"), face=row.get("face"), tracked=False
                 ).on_conflict_do_nothing(index_elements=[ups.c.mid]))
+                payload = dict(row)
+                if play_ranking is not None:
+                    payload["play_rank"] = play_rank.get(row["mid"], 0)
+                if active_ranking is not None:
+                    payload["activity_rank"] = activity_rank.get(row["mid"], 0)
                 session.execute(insert(up_observations).values(
-                    mid=row["mid"], ts=ts, payload=row
+                    mid=row["mid"], ts=ts, payload=payload
                 ).on_conflict_do_update(
-                    index_elements=[up_observations.c.mid, up_observations.c.ts], set_={"payload": row}
+                    index_elements=[up_observations.c.mid, up_observations.c.ts], set_={"payload": payload}
                 ))
         return len(rows)
 

@@ -773,7 +773,9 @@ def upsert_up_obs(ts, up_list, play_ranking=None, active_ranking=None):
     if not up_list:
         return 0
     if _business_repository is not None:
-        return _business_repository.upsert_up_observations(ts, up_list)
+        return _business_repository.upsert_up_observations(
+            ts, up_list, play_ranking, active_ranking,
+        )
 
     # 预构建 mid → rank 映射（排名从 1 开始）
     play_rank_map = {}
