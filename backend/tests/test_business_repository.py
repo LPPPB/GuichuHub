@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, text
 
 from storage.migrations import upgrade_database
 from storage.repositories.business import BusinessRepository
+from storage import db as legacy_db
 
 
 @pytest.fixture(scope="module")
@@ -60,3 +61,14 @@ def test_two_workers_claim_distinct_calendar_items(business_repository):
 
     assert {first["mid"], second["mid"]} == {101, 202}
     assert {first["worker_id"], second["worker_id"]} == {"worker-a", "worker-b"}
+
+
+def test_legacy_record_obs_adapter_persists_to_postgresql(business_repository):
+    """Leaving the public adapter on SQLite must fail this compatibility contract."""
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.record_video({"bvid": "BV2", "first_seen": 200, "title": "adapter"}, 200, "test")
+    legacy_db.record_obs("BV2", 200, {"views": 7, "likes": 0})
+
+    assert business_repository.video_trend("BV2", start_ts=0) == [
+        {"ts": 200, "views": 7, "likes": 0}
+    ]

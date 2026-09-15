@@ -30,6 +30,17 @@ BACKUP_DIR = str(RUNTIME_PATHS.backup_dir)
 
 _thread_local = threading.local()
 _write_lock = threading.Lock()   # 单写者多读者
+_business_repository = None
+
+
+def configure_business_repository(repository):
+    """Install the PostgreSQL repository used by public storage adapters.
+
+    This transitional injection point lets callers retain the existing public
+    functions while the SQLite implementation is replaced function by function.
+    """
+    global _business_repository
+    _business_repository = repository
 
 # ==================== 连接与迁移 ====================
 
@@ -430,6 +441,12 @@ def record_video(video, ts, source):
     B7: ts 传批次时刻（一批抓取共用一个 ts），INSERT OR REPLACE 幂等。
     C13: 所有发现过的视频都登记（含落选者），保留假阴性分析能力。
     """
+    if _business_repository is not None:
+        payload = dict(video)
+        payload.setdefault('first_seen', ts)
+        payload.setdefault('source', source)
+        _business_repository.record_video(payload)
+        return
     bvid = video.get('bvid')
     if not bvid:
         return
@@ -491,6 +508,9 @@ def record_obs(bvid, ts, metrics):
 
     metrics 中缺失的键落库为 NULL（A2）。
     """
+    if _business_repository is not None:
+        _business_repository.record_observation(bvid, ts, metrics)
+        return
     with _write_lock:
         conn = get_conn()
         conn.execute('''
