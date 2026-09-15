@@ -413,6 +413,8 @@ def _migrate(conn):
 
 def begin_crawl_run(trigger):
     """开始一个抓取批次，返回 run_id"""
+    if _business_repository is not None:
+        return _business_repository.begin_crawl_run(trigger, int(time.time()))
     with _write_lock:
         conn = get_conn()
         cur = conn.execute(
@@ -424,6 +426,9 @@ def begin_crawl_run(trigger):
 
 
 def finish_crawl_run(run_id, status, stats=None):
+    if _business_repository is not None:
+        _business_repository.finish_crawl_run(run_id, status, stats or {}, int(time.time()))
+        return
     with _write_lock:
         conn = get_conn()
         conn.execute(
@@ -528,6 +533,9 @@ def record_obs(bvid, ts, metrics):
 
 def record_words(words, ts, scope='danmaku'):
     """写入弹幕热词观测。words: [{'word': w, 'count': c}, ...]"""
+    if _business_repository is not None:
+        _business_repository.record_words(words, ts, scope)
+        return
     with _write_lock:
         conn = get_conn()
         conn.executemany('''

@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, video_observations, videos
+from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, crawl_runs, video_observations, videos, word_observations
 
 
 class BusinessRepository:
@@ -48,6 +48,40 @@ class BusinessRepository:
                 .order_by(video_observations.c.ts)
             ).mappings()
             return [dict(row) for row in rows]
+
+    def begin_crawl_run(self, trigger: str, started_at: int) -> int:
+        with self._sessions.begin() as session:
+            return session.execute(insert(crawl_runs).values(
+                started_at=started_at, status="running", trigger_source=trigger, stats={}
+            ).returning(crawl_runs.c.id)).scalar_one()
+
+    def finish_crawl_run(self, run_id: int, status: str, stats: dict, finished_at: int) -> None:
+        with self._sessions.begin() as session:
+            session.execute(crawl_runs.update().where(crawl_runs.c.id == run_id).values(
+                status=status, stats=stats, finished_at=finished_at
+            ))
+
+    def record_words(self, words: list[dict], ts: int, scope: str) -> None:
+        rows = [{"word": word["word"], "count": word["count"], "ts": ts, "scope": scope} for word in words if word.get("word")]
+        if not rows:
+            return
+        with self._sessions.begin() as session:
+            session.execute(insert(word_observations).values(rows).on_conflict_do_update(
+                index_elements=[word_observations.c.word, word_observations.c.ts, word_observations.c.scope],
+                set_={"count": insert(word_observations).excluded.count},
+            ))
+
+    def word_rows(self, ts: int) -> list[dict]:
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(
+                select(word_observations.c.word, word_observations.c.count, word_observations.c.scope)
+                .where(word_observations.c.ts == ts).order_by(word_observations.c.word)
+            ).mappings()]
+
+    def crawl_run(self, run_id: int) -> dict:
+        with self._sessions() as session:
+            row = session.execute(select(crawl_runs.c.status, crawl_runs.c.stats).where(crawl_runs.c.id == run_id)).mappings().one()
+            return dict(row)
 
     def enqueue_calendar_items(self, job_id: str, mids: list[int]) -> None:
         with self._sessions.begin() as session:

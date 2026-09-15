@@ -72,3 +72,14 @@ def test_legacy_record_obs_adapter_persists_to_postgresql(business_repository):
     assert business_repository.video_trend("BV2", start_ts=0) == [
         {"ts": 200, "views": 7, "likes": 0}
     ]
+
+
+def test_legacy_words_and_crawl_run_adapters_persist_to_postgresql(business_repository):
+    """Keeping these public write APIs on SQLite must fail this batch-persistence contract."""
+    legacy_db.configure_business_repository(business_repository)
+    run_id = legacy_db.begin_crawl_run("scheduled")
+    legacy_db.record_words([{"word": "梗", "count": 3}], 300)
+    legacy_db.finish_crawl_run(run_id, "success", {"videos": 1})
+
+    assert business_repository.word_rows(300) == [{"word": "梗", "count": 3, "scope": "danmaku"}]
+    assert business_repository.crawl_run(run_id) == {"status": "success", "stats": {"videos": 1}}
