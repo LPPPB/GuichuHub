@@ -74,7 +74,7 @@ Run: `git add backend/pyproject.toml backend/uv.lock backend/storage/settings.py
 **Interfaces:**
 - Produces `Base.metadata`, `alembic_heads() -> list[str]`, and `current_revision(connection) -> str | None`.
 
-- [ ] **Step 1: Write failing empty-upgrade and one-head tests**
+- [x] **Step 1: Write failing empty-upgrade and one-head tests**
 
 ```python
 def test_empty_postgres_upgrades_to_the_only_head(postgres_url):
@@ -86,19 +86,19 @@ def test_alembic_has_one_head():
     assert alembic_heads() == ["0001_postgresql_v3_baseline"]
 ```
 
-- [ ] **Step 2: Run the tests and observe missing Alembic/model failures**
+- [x] **Step 2: Run the tests and observe missing Alembic/model failures**
 
 Run: `uv run pytest tests/test_alembic.py -q --no-cov`
 
-- [ ] **Step 3: Define app/auth ORM tables and baseline DDL**
+- [x] **Step 3: Define app/auth ORM tables and baseline DDL**
 
 The revision must create both schemas and all tables named in the spec, JSONB columns, primary/foreign keys, indexes, `app.alembic_version`, and no historical data transforms.
 
-- [ ] **Step 4: Run Alembic tests against disposable PostgreSQL**
+- [x] **Step 4: Run Alembic tests against disposable PostgreSQL**
 
 Run: `uv run pytest tests/test_alembic.py -q --no-cov`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add backend/storage/models.py backend/alembic.ini backend/alembic backend/tests/test_alembic.py && git commit -m "feat: add PostgreSQL Alembic baseline"`
 
