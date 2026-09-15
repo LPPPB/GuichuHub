@@ -10,7 +10,7 @@
 """
 import json
 from collections import defaultdict
-from storage.db import get_conn
+from storage.db import get_business_repository, get_conn
 
 
 # 合法字段白名单（与 db.py._VIDEO_SNAPSHOT_FIELDS 对齐）
@@ -32,6 +32,10 @@ def get_video_snapshot_fields(ts, fields=None):
     for f in wanted:
         if f not in _FIELDS:
             raise ValueError(f'非法 field: {f}，允许: {sorted(_FIELDS)}')
+
+    repository = get_business_repository()
+    if repository is not None:
+        return repository.snapshot_fields(ts, wanted)
 
     conn = get_conn()
     placeholders = ','.join('?' * len(wanted))
@@ -57,6 +61,14 @@ def get_timeline_history(start_ts, end_ts):
       start_ts: 起始时刻（含）
       end_ts: 结束时刻（含）
     """
+    repository = get_business_repository()
+    if repository is not None:
+        rows = repository.snapshot_documents_between(('timeline',), start_ts, end_ts)
+        return [{
+            'created_at': row['ts'],
+            'analysis': {'timeline': row['payload']},
+        } for row in rows]
+
     conn = get_conn()
     rows = conn.execute('''
         SELECT ts, payload_json FROM video_obs_snapshot
@@ -76,6 +88,12 @@ def get_batch_ts_list(start_ts, end_ts):
 
     用于 /history 端点的 tracked_count 聚合或调试。
     """
+    repository = get_business_repository()
+    if repository is not None:
+        return sorted({row['ts'] for row in repository.snapshot_documents_between(
+            _FIELDS, start_ts, end_ts,
+        )})
+
     conn = get_conn()
     rows = conn.execute('''
         SELECT DISTINCT ts FROM video_obs_snapshot
@@ -101,26 +119,35 @@ def get_hot_growth_videos(lookback_days=14, limit=10):
     起点必须距最新观测至少 1 小时，过滤分钟级噪声，保证增速口径稳定。
     """
     MIN_GAP_HOURS = 1.0
-    conn = get_conn()
-    latest_ts = conn.execute(
-        "SELECT MAX(ts) FROM video_obs_snapshot WHERE field IN ('all_videos', 'hot_videos')"
-    ).fetchone()[0]
+    repository = get_business_repository()
+    if repository is not None:
+        latest_ts = repository.latest_snapshot_ts(('all_videos', 'hot_videos'))
+    else:
+        conn = get_conn()
+        latest_ts = conn.execute(
+            "SELECT MAX(ts) FROM video_obs_snapshot WHERE field IN ('all_videos', 'hot_videos')"
+        ).fetchone()[0]
     if not latest_ts:
         return []
 
     since = latest_ts - lookback_days * 86400
-    rows = conn.execute('''
-        SELECT ts, payload_json FROM video_obs_snapshot
-        WHERE field IN ('all_videos', 'hot_videos') AND ts >= ?
-        ORDER BY ts ASC, rowid ASC
-    ''', (since,)).fetchall()
+    if repository is not None:
+        rows = repository.snapshot_documents_between(
+            ('all_videos', 'hot_videos'), since, latest_ts,
+        )
+    else:
+        rows = conn.execute('''
+            SELECT ts, field, payload_json FROM video_obs_snapshot
+            WHERE field IN ('all_videos', 'hot_videos') AND ts >= ?
+            ORDER BY ts ASC, rowid ASC
+        ''', (since,)).fetchall()
 
     obs = defaultdict(list)  # bvid -> [{ts, views}, ...]（同批次双字段去重）
     meta = {}
     seen_keys = set()
     for r in rows:
         try:
-            videos = json.loads(r['payload_json'])
+            videos = r['payload'] if repository is not None else json.loads(r['payload_json'])
         except (ValueError, TypeError):
             continue  # 损坏批次跳过，不阻断其余批次
         if not isinstance(videos, list):

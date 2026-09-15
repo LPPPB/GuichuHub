@@ -42,6 +42,11 @@ def configure_business_repository(repository):
     global _business_repository
     _business_repository = repository
 
+
+def get_business_repository():
+    """Return the configured PostgreSQL persistence boundary, if any."""
+    return _business_repository
+
 # ==================== 连接与迁移 ====================
 
 def get_conn():

@@ -38,6 +38,7 @@ def business_repository():
         upgrade_database(url)
         yield BusinessRepository.from_url(url)
     finally:
+        legacy_db.configure_business_repository(None)
         subprocess.run(["docker", "stop", container_id], check=False)
 
 
@@ -153,3 +154,29 @@ def test_legacy_up_observation_adapter_keeps_rankings(business_repository):
         "play_rank": 1,
         "activity_rank": 1,
     }
+
+
+def test_snapshot_reader_uses_configured_postgresql_repository(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_video_obs_snapshot_batch(902, {
+        "timeline": [{"views": 3}], "pool_summary": {"total_views": 3},
+    })
+
+    from storage.video_snapshot_reader import get_video_snapshot_fields
+
+    assert get_video_snapshot_fields(902) == {
+        "timeline": [{"views": 3}], "pool_summary": {"total_views": 3},
+    }
+
+
+def test_snapshot_history_reader_uses_configured_postgresql_repository(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.upsert_video_obs_snapshot(1000, "timeline", [{"views": 1}])
+    legacy_db.upsert_video_obs_snapshot(2000, "timeline", [{"views": 2}])
+
+    from storage.video_snapshot_reader import get_timeline_history
+
+    assert get_timeline_history(1000, 2000) == [
+        {"created_at": 1000, "analysis": {"timeline": [{"views": 1}]}},
+        {"created_at": 2000, "analysis": {"timeline": [{"views": 2}]}},
+    ]

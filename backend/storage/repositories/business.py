@@ -101,6 +101,34 @@ class BusinessRepository:
                 .where(video_snapshot_documents.c.ts == ts, video_snapshot_documents.c.field == field)
             ).mappings().one())
 
+    def snapshot_fields(self, ts: int, fields: tuple[str, ...]) -> dict:
+        with self._sessions() as session:
+            return {
+                row["field"]: row["payload"]
+                for row in session.execute(
+                    select(video_snapshot_documents.c.field, video_snapshot_documents.c.payload)
+                    .where(video_snapshot_documents.c.ts == ts,
+                           video_snapshot_documents.c.field.in_(fields))
+                ).mappings()
+            }
+
+    def snapshot_documents_between(self, fields: tuple[str, ...], start_ts: int, end_ts: int) -> list[dict]:
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(
+                select(video_snapshot_documents.c.ts, video_snapshot_documents.c.field,
+                       video_snapshot_documents.c.payload)
+                .where(video_snapshot_documents.c.field.in_(fields),
+                       video_snapshot_documents.c.ts.between(start_ts, end_ts))
+                .order_by(video_snapshot_documents.c.ts, video_snapshot_documents.c.field)
+            ).mappings()]
+
+    def latest_snapshot_ts(self, fields: tuple[str, ...]) -> int | None:
+        with self._sessions() as session:
+            return session.execute(
+                select(func.max(video_snapshot_documents.c.ts))
+                .where(video_snapshot_documents.c.field.in_(fields))
+            ).scalar_one()
+
     def upsert_snapshot_batch(self, ts: int, fields: dict[str, list | dict]) -> int:
         rows = [
             {"ts": ts, "field": field, "payload": payload,
