@@ -118,8 +118,8 @@ class StateRepository:
         return request_id
 
     def review_tracking_request(self, request_id: str, action: str, now: int) -> dict:
-        if action != "approve":
-            raise ValueError("only approve is supported by this repository method")
+        if action not in {"approve", "reject"}:
+            raise ValueError("invalid tracking request action")
         with self._sessions.begin() as session:
             request = session.execute(select(tracking_requests).where(
                 tracking_requests.c.id == request_id,
@@ -127,6 +127,11 @@ class StateRepository:
             ).with_for_update()).mappings().first()
             if request is None:
                 raise LookupError("tracking request not found")
+            if action == "reject":
+                session.execute(tracking_requests.update().where(
+                    tracking_requests.c.id == request_id,
+                ).values(status="rejected", reviewed_at=now))
+                return {"added_to_pool": False}
             existing = session.execute(select(tracked_ups.c.mid).where(
                 tracked_ups.c.mid == request["mid"],
             ).with_for_update()).scalar_one_or_none()

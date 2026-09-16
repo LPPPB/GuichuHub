@@ -370,7 +370,7 @@ def review_up_request(req_id, action, reject_reason=None):
     返回 (result_dict, None) 或 (None, error_code)：NOT_FOUND
     """
     if _state_repository is not None:
-        if action != 'approve':
+        if action not in ('approve', 'reject'):
             return None, 'NOT_FOUND'
         try:
             result = _state_repository.review_tracking_request(req_id, action, int(time.time()))

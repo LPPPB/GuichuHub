@@ -129,3 +129,17 @@ def test_legacy_tracking_request_approval_uses_postgresql_repository(state_repos
     assert error is None
     assert result["added_to_pool"] is True
     assert 801 in state_repository.tracked_mids()
+
+
+def test_legacy_tracking_request_rejection_uses_postgresql_repository(state_repository):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    request, error = tracked_ups.add_up_request(802, {"name": "UP802"}, "reason", "visitor-802")
+    assert error is None
+
+    result, error = tracked_ups.review_up_request(request["id"], "reject", "not suitable")
+
+    assert error is None
+    assert result["added_to_pool"] is False
+    assert 802 not in state_repository.tracked_mids()
