@@ -7,22 +7,12 @@
   自动感知文件变化并重载，避免一直返回旧数据（神评论跳转定位失败的根因）
 """
 
-import os
 import threading
-from storage.database import load_data, update_data, get_db_path
+from storage.database import load_data, update_data
 
 _data_cache = None
 _data_version = 0        # 数据版本号：persist_data/invalidate 时递增，供响应级缓存判断数据是否变化
-_cache_mtime = None      # 缓存对应的 JSON 文件 mtime：外部改写文件后自动重载
 _data_lock = threading.RLock()
-
-
-def _current_mtime():
-    """读数据文件当前 mtime；文件不存在/不可读返回 None"""
-    try:
-        return os.path.getmtime(get_db_path())
-    except OSError:
-        return None
 
 
 def get_data():
@@ -31,14 +21,11 @@ def get_data():
     文件不存在时返回缓存（不崩溃、不清空）；首次调用（无缓存）才允许
     load_data 走 init_db 重建空库。
     """
-    global _data_cache, _cache_mtime
+    global _data_cache
     with _data_lock:
-        mtime = _current_mtime()
-        if _data_cache is not None and (mtime is None or mtime == _cache_mtime):
-            # 缓存可用：文件未变化，或文件被移走（保留缓存避免空数据）
+        if _data_cache is not None:
             return _data_cache
         _data_cache = load_data()
-        _cache_mtime = _current_mtime()
         return _data_cache
 
 
@@ -51,7 +38,7 @@ def get_data_version():
 
 def persist_data(new_data):
     """合并新数据：A3 非空保护 + 落盘 + 更新缓存（含 mtime，避免落盘后误判重载）"""
-    global _data_cache, _data_version, _cache_mtime
+    global _data_cache, _data_version
     with _data_lock:
         def merge(current):
             for key, value in new_data.items():
@@ -62,7 +49,6 @@ def persist_data(new_data):
 
         current = update_data(merge)
         _data_cache = current
-        _cache_mtime = _current_mtime()
         _data_version += 1
         return current
 

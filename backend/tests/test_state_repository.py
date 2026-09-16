@@ -112,6 +112,16 @@ def test_legacy_tracked_up_store_uses_configured_postgresql_repository(state_rep
     assert tracked_ups.load_tracked_list()["ups"] == [{"mid": 701, "name": "UP701", "enabled": True}]
 
 
+def test_has_tracked_list_uses_postgres_without_legacy_files(state_repository, monkeypatch):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    state_repository.save_tracked_list([{"mid": 702, "name": "UP702", "enabled": True}], 100, {})
+    monkeypatch.setattr(tracked_ups, "_safe_read_json", lambda *_: (_ for _ in ()).throw(AssertionError("legacy JSON read")))
+
+    assert tracked_ups.has_tracked_list() is True
+
+
 def test_legacy_tracked_up_config_uses_configured_postgresql_repository(state_repository):
     from storage import tracked_ups
 

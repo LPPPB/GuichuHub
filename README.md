@@ -1,8 +1,8 @@
 # 鬼畜热度看板 V3
 
-V3 是一个单仓库的 React/Vite + Flask + SQLite 应用。生产环境由 Caddy、Frontend、API 与 Worker 组成；只有 Caddy 对外提供 80/443。
+V3 是一个单仓库的 React/Vite + Flask + PostgreSQL 应用。生产环境由 Caddy、Frontend、API、Worker 与 PostgreSQL 组成；只有 Caddy 对外提供 80/443。
 
-代码仓库只保存源码、测试、配置模板和部署定义。真实配置、密钥、SQLite 数据、Cookie、日志与备份必须保存在检出目录之外。
+代码仓库只保存源码、测试、配置模板和部署定义。真实配置、Docker secrets、PostgreSQL 数据目录、Cookie、日志与备份必须保存在检出目录之外。
 
 ## 本地开发
 
@@ -16,4 +16,4 @@ docker compose -f compose.dev.yml up --build
 
 ## 发布原则
 
-发布使用经过验证的 Git tag。服务器检出该 tag、先创建 SQLite 一致性备份，再用 Compose 重建服务；不要上传整个本地项目，也不要把 V2 运行数据提交到 Git。
+发布使用经过验证的 Git tag。服务器检出该 tag、先创建 PostgreSQL 自定义格式备份、执行明确的 migration 服务，再用 Compose 重建服务；不要上传整个本地项目，也不要把运行数据提交到 Git。首次切换遵循 [PostgreSQL 切换 Runbook](docs/postgresql-cutover.md)。

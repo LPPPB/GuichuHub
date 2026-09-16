@@ -159,6 +159,9 @@ def has_tracked_list():
     但 up_obs 表有历史分析数据，也视为已配置——避免用户进看板被强制跳配置页、
     看不到上次分析数据。
     """
+    if _state_repository is not None:
+        tracked = _state_repository.load_tracked_list()
+        return bool(tracked and tracked.get('ups'))
     tracked = _safe_read_json(TRACKED_FILE)
     if tracked and len(tracked.get('ups', [])) > 0:
         return True
