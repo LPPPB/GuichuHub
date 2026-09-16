@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import secrets
+import json
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import admin_accounts, browser_sessions
+from storage.models import admin_accounts, browser_sessions, collector_credential_handoffs
 
 
 SESSION_TTL = 30 * 24 * 3600
@@ -103,3 +104,26 @@ class AuthRepository:
                 return False, "LAST_ADMIN"
             session.execute(admin_accounts.delete().where(admin_accounts.c.mid == mid))
             return True, None
+
+    def request_collector_action(self, action: str, payload: dict, requested_by: str, now: int) -> int:
+        with self._sessions.begin() as session:
+            return session.execute(insert(collector_credential_handoffs).values(
+                action=action, payload=payload, requested_by=requested_by, requested_at=now,
+            ).returning(collector_credential_handoffs.c.id)).scalar_one()
+
+    def pending_collector_action(self) -> dict | None:
+        with self._sessions() as session:
+            row = session.execute(select(collector_credential_handoffs).order_by(
+                collector_credential_handoffs.c.id,
+            ).limit(1)).mappings().first()
+            if row is None:
+                return None
+            result = dict(row)
+            result["payload"] = json.dumps(result["payload"], ensure_ascii=False)
+            return result
+
+    def complete_collector_action(self, action_id: int) -> bool:
+        with self._sessions.begin() as session:
+            return session.execute(collector_credential_handoffs.delete().where(
+                collector_credential_handoffs.c.id == action_id,
+            )).rowcount > 0

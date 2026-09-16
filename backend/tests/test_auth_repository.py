@@ -81,3 +81,13 @@ def test_legacy_admin_store_uses_configured_postgresql_repository(auth_repositor
     assert error is None
     assert row in auth_repository.list_admin_accounts()
     assert auth_store.is_admin_mid(8) is True
+
+
+def test_legacy_credential_handoff_uses_configured_postgresql_repository(auth_repository):
+    from storage import auth_store
+
+    auth_store.configure_auth_repository(auth_repository)
+    handoff_id = auth_store.request_collector_cookie_update({"SESSDATA": "secret"}, "admin")
+
+    assert auth_repository.pending_collector_action()["id"] == handoff_id
+    assert auth_store.complete_collector_action(handoff_id) is True

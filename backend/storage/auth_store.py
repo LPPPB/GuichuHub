@@ -265,6 +265,10 @@ def request_collector_cookie_update(cookies, requested_by):
     """记录管理员已授权的采集凭证更新，由 Worker 持久化到私有 Cookie 文件。"""
     if not requested_by:
         raise ValueError('collector handoff requires an authenticated requester')
+    if _auth_repository is not None:
+        return _auth_repository.request_collector_action(
+            'replace', cookies or {}, str(requested_by), int(time.time()),
+        )
     payload = json.dumps(cookies or {}, ensure_ascii=False)
     conn = _conn()
     cur = conn.execute(
@@ -279,6 +283,10 @@ def request_collector_logout(requested_by):
     """记录管理员已授权的采集账号退出，由 Worker 删除私有 Cookie 文件。"""
     if not requested_by:
         raise ValueError('collector handoff requires an authenticated requester')
+    if _auth_repository is not None:
+        return _auth_repository.request_collector_action(
+            'delete', {}, str(requested_by), int(time.time()),
+        )
     conn = _conn()
     cur = conn.execute(
         'INSERT INTO collector_credential_handoffs '
@@ -290,6 +298,8 @@ def request_collector_logout(requested_by):
 
 def get_pending_collector_action():
     """返回最早的待处理动作；Worker 成功处理前记录保持持久。"""
+    if _auth_repository is not None:
+        return _auth_repository.pending_collector_action()
     row = _conn().execute(
         'SELECT id, action, payload, requested_by, requested_at '
         'FROM collector_credential_handoffs ORDER BY id LIMIT 1').fetchone()
@@ -298,6 +308,8 @@ def get_pending_collector_action():
 
 def complete_collector_action(action_id):
     """仅在 Worker 完成幂等文件操作后确认并删除队列记录。"""
+    if _auth_repository is not None:
+        return _auth_repository.complete_collector_action(int(action_id))
     conn = _conn()
     cur = conn.execute(
         'DELETE FROM collector_credential_handoffs WHERE id = ?', (int(action_id),))
