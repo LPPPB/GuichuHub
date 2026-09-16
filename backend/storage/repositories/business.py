@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
@@ -303,3 +305,95 @@ class BusinessRepository:
                 .values(status="running", worker_id=worker_id)
             )
             return {"job_id": item["job_id"], "mid": item["mid"], "worker_id": worker_id}
+
+    def _calendar_job(self, session, job_id: str) -> dict | None:
+        job = session.execute(select(calendar_backfill_jobs).where(
+            calendar_backfill_jobs.c.id == job_id,
+        )).mappings().first()
+        if job is None:
+            return None
+        payload = dict(job["payload"])
+        items = []
+        for item in session.execute(select(calendar_backfill_job_items).where(
+            calendar_backfill_job_items.c.job_id == job_id,
+        ).order_by(calendar_backfill_job_items.c.mid)).mappings():
+            value = dict(item["payload"])
+            value.update({"mid": item["mid"], "status": item["status"]})
+            items.append(value)
+        payload.update({"id": job["id"], "mode": job["mode"], "status": job["status"],
+                        "created_at": job["created_at"], "updated_at": job["updated_at"],
+                        "items": items})
+        return payload
+
+    def enqueue_calendar_job(self, mode: str, entries: list[dict], now: int, **payload) -> tuple[dict, bool]:
+        """Create one PostgreSQL-backed calendar job and its row-locked items."""
+        job_id = uuid.uuid4().hex[:16]
+        status = "queued" if entries else "succeeded"
+        with self._sessions.begin() as session:
+            session.execute(insert(calendar_backfill_jobs).values(
+                id=job_id, mode=mode, status=status, payload=payload,
+                created_at=now, updated_at=now,
+            ))
+            if entries:
+                session.execute(insert(calendar_backfill_job_items).values([
+                    {"job_id": job_id, "mid": int(entry["mid"]), "status": "queued",
+                     "payload": {"name": entry.get("name") or f"UID:{entry['mid']}"}}
+                    for entry in entries
+                ]))
+            return self._calendar_job(session, job_id), True
+
+    def claim_calendar_job(self, worker_id: str, now: int, lease_seconds: int) -> dict | None:
+        """Claim a queued job using SKIP LOCKED so competing Workers do not collide."""
+        with self._sessions.begin() as session:
+            session.execute(calendar_backfill_jobs.update().where(
+                calendar_backfill_jobs.c.status == "running",
+                calendar_backfill_jobs.c.lease_until < now,
+            ).values(status="queued", worker_id=None, lease_until=None, updated_at=now))
+            job = session.execute(select(calendar_backfill_jobs.c.id).where(
+                calendar_backfill_jobs.c.status == "queued",
+                calendar_backfill_jobs.c.mode != "test",
+            ).order_by(calendar_backfill_jobs.c.created_at).with_for_update(skip_locked=True).limit(1)).scalar_one_or_none()
+            if job is None:
+                return None
+            session.execute(calendar_backfill_jobs.update().where(
+                calendar_backfill_jobs.c.id == job,
+            ).values(status="running", worker_id=worker_id, lease_until=now + lease_seconds, updated_at=now))
+            return self._calendar_job(session, job)
+
+    def update_calendar_job_item(self, job_id: str, event: dict, worker_id: str, now: int, lease_seconds: int) -> None:
+        with self._sessions.begin() as session:
+            item = session.execute(select(calendar_backfill_job_items).where(
+                calendar_backfill_job_items.c.job_id == job_id,
+                calendar_backfill_job_items.c.mid == int(event["mid"]),
+            ).with_for_update()).mappings().one()
+            payload = dict(item["payload"])
+            payload.update({key: event.get(key) for key in ("pages", "videos", "attempts", "error_code", "error_message") if key in event})
+            session.execute(calendar_backfill_job_items.update().where(
+                calendar_backfill_job_items.c.job_id == job_id, calendar_backfill_job_items.c.mid == item["mid"],
+            ).values(status=event.get("status", "running"), worker_id=worker_id, payload=payload))
+            session.execute(calendar_backfill_jobs.update().where(calendar_backfill_jobs.c.id == job_id).values(
+                worker_id=worker_id, lease_until=now + lease_seconds, updated_at=now,
+            ))
+
+    def finish_calendar_job(self, job_id: str, status: str, now: int, error_summary: str = "") -> None:
+        with self._sessions.begin() as session:
+            job = session.execute(select(calendar_backfill_jobs.c.payload).where(
+                calendar_backfill_jobs.c.id == job_id,
+            ).with_for_update()).mappings().one()
+            payload = dict(job["payload"])
+            payload["error_summary"] = error_summary[:1000]
+            session.execute(calendar_backfill_jobs.update().where(calendar_backfill_jobs.c.id == job_id).values(
+                status=status, payload=payload, updated_at=now, lease_until=None, worker_id=None,
+            ))
+
+    def fail_calendar_job_items(self, job_id: str, code: str, message: str, now: int) -> None:
+        with self._sessions.begin() as session:
+            for item in session.execute(select(calendar_backfill_job_items).where(
+                calendar_backfill_job_items.c.job_id == job_id,
+                calendar_backfill_job_items.c.status.in_(("queued", "running")),
+            ).with_for_update()).mappings():
+                payload = dict(item["payload"])
+                payload.update({"error_code": code, "error_message": message[:500], "attempts": 1})
+                session.execute(calendar_backfill_job_items.update().where(
+                    calendar_backfill_job_items.c.job_id == job_id, calendar_backfill_job_items.c.mid == item["mid"],
+                ).values(status="failed", payload=payload))

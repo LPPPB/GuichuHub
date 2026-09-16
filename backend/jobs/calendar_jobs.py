@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 
 from logger import get_logger
-from storage.db import get_conn, _write_lock
+from storage.db import get_business_repository, get_conn, _write_lock
 from storage.tracked_ups import load_tracked_list
 
 logger = get_logger(__name__)
@@ -70,6 +70,10 @@ def _row_dict(row):
 
 
 def get_calendar_job(job_id, include_items=True):
+    repository = get_business_repository()
+    if repository is not None:
+        with repository._sessions() as session:
+            return repository._calendar_job(session, job_id)
     conn = get_conn()
     row = conn.execute('SELECT * FROM calendar_backfill_jobs WHERE id=?', (job_id,)).fetchone()
     data = _row_dict(row)
@@ -116,6 +120,12 @@ def enqueue_calendar_job(mode='recent', days=None, year=None, mids=None,
 
     ups = _enabled_ups(mids)
     now = int(time.time())
+    repository = get_business_repository()
+    if repository is not None:
+        return repository.enqueue_calendar_job(
+            mode, ups, now, days=days, year=year, requested_by=requested_by,
+            reason=reason, dedupe_key=dedupe_key,
+        )
     job_id = uuid.uuid4().hex[:16]
     with _write_lock:
         conn = get_conn()
@@ -195,6 +205,9 @@ def retry_calendar_job(job_id, requested_by='system'):
 
 def _claim_next_job(worker_id):
     now = int(time.time())
+    repository = get_business_repository()
+    if repository is not None:
+        return repository.claim_calendar_job(worker_id, now, LEASE_SECONDS)
     with _write_lock:
         conn = get_conn()
         conn.commit()
@@ -244,6 +257,10 @@ def _claim_next_job(worker_id):
 
 def _update_item(job_id, event, worker_id):
     now = int(time.time())
+    repository = get_business_repository()
+    if repository is not None:
+        repository.update_calendar_job_item(job_id, event, worker_id, now, LEASE_SECONDS)
+        return
     status = event.get('status', 'running')
     with _write_lock:
         conn = get_conn()
@@ -285,6 +302,10 @@ def _update_item(job_id, event, worker_id):
 
 def _finish_job(job_id, status, error_summary=''):
     now = int(time.time())
+    repository = get_business_repository()
+    if repository is not None:
+        repository.finish_calendar_job(job_id, status, now, error_summary)
+        return
     with _write_lock:
         conn = get_conn()
         conn.execute('''
@@ -297,6 +318,10 @@ def _finish_job(job_id, status, error_summary=''):
 
 def _fail_unstarted_items(job_id, code, message):
     now = int(time.time())
+    repository = get_business_repository()
+    if repository is not None:
+        repository.fail_calendar_job_items(job_id, code, message, now)
+        return
     with _write_lock:
         conn = get_conn()
         conn.execute('''

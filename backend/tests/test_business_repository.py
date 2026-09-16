@@ -64,6 +64,17 @@ def test_two_workers_claim_distinct_calendar_items(business_repository):
     assert {first["worker_id"], second["worker_id"]} == {"worker-a", "worker-b"}
 
 
+def test_calendar_job_queue_uses_postgres_row_locks(business_repository):
+    job, created = business_repository.enqueue_calendar_job(
+        "recent", [{"mid": 303, "name": "UP303"}], now=100, days=7,
+    )
+
+    assert created is True
+    claimed = business_repository.claim_calendar_job("worker-a", now=101, lease_seconds=120)
+    assert claimed["id"] == job["id"]
+    assert claimed["items"] == [{"mid": 303, "name": "UP303", "status": "queued"}]
+
+
 def test_legacy_record_obs_adapter_persists_to_postgresql(business_repository):
     """Leaving the public adapter on SQLite must fail this compatibility contract."""
     legacy_db.configure_business_repository(business_repository)
