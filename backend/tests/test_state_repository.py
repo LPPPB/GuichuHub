@@ -155,3 +155,15 @@ def test_legacy_tracking_request_withdrawal_uses_postgresql_repository(state_rep
     assert tracked_ups.withdraw_up_request(request["id"], "visitor-803") is None
     assert tracked_ups.withdraw_up_request(request["id"], "visitor-803") == "NOT_FOUND"
     assert 803 not in state_repository.tracked_mids()
+
+
+def test_tracking_request_lists_use_postgresql_repository(state_repository):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    mine, error = tracked_ups.add_up_request(804, {"name": "UP804"}, "reason", "visitor-804")
+    other, error = tracked_ups.add_up_request(805, {"name": "UP805"}, "reason", "visitor-805")
+    assert error is None
+
+    assert [item["id"] for item in tracked_ups.get_my_up_requests("visitor-804")["pending"]] == [mine["id"]]
+    assert {item["id"] for item in tracked_ups.list_all_up_requests()["pending"]} >= {mine["id"], other["id"]}

@@ -132,6 +132,20 @@ class StateRepository:
             ).values(status="withdrawn", reviewed_at=now))
             return None
 
+    def tracking_requests_for(self, visitor_id: str | None = None) -> list[dict]:
+        statement = select(tracking_requests).order_by(tracking_requests.c.created_at.desc())
+        if visitor_id is not None:
+            statement = statement.where(tracking_requests.c.visitor_id == visitor_id)
+        with self._sessions() as session:
+            rows = session.execute(statement).mappings()
+            return [{
+                "id": row["id"], "mid": row["mid"],
+                "request_type": row["payload"].get("request_type", "add"),
+                "up": row["payload"].get("up", {}), "reason": row["payload"].get("reason", ""),
+                "visitor_id": row["visitor_id"], "submitted_at": row["created_at"],
+                "status": row["status"], "reviewed_at": row["reviewed_at"],
+            } for row in rows]
+
     def review_tracking_request(self, request_id: str, action: str, now: int) -> dict:
         if action not in {"approve", "reject"}:
             raise ValueError("invalid tracking request action")

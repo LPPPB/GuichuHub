@@ -311,6 +311,12 @@ def add_up_request(mid, snapshot, reason, visitor_id, request_type='add'):
 
 def get_my_up_requests(visitor_id):
     """访客查自己的申请（pending + processed）"""
+    if _state_repository is not None:
+        requests = _state_repository.tracking_requests_for(visitor_id)
+        return {
+            'pending': [request for request in requests if request['status'] == 'pending'],
+            'processed': [request for request in requests if request['status'] != 'pending'],
+        }
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
     reqs = _requests_state(tracked)
@@ -349,6 +355,14 @@ def withdraw_up_request(req_id, visitor_id):
 
 def list_all_up_requests():
     """站长审核视图：全部队列 + 最近已处理"""
+    if _state_repository is not None:
+        requests = _state_repository.tracking_requests_for()
+        pending = [request for request in requests if request['status'] == 'pending']
+        return {
+            'pending': pending,
+            'processed': [request for request in requests if request['status'] != 'pending'][:50],
+            'pending_count': len(pending),
+        }
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
     reqs = _requests_state(tracked)
