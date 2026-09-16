@@ -23,7 +23,7 @@ from logger import setup_logging
 from config import BACKEND_PORT, get_write_token, ONLINE_BREAK_THRESHOLD, ONLINE_BREAK_COOLDOWN
 
 from storage.database import (
-    init_db, add_favorite, remove_favorite, update_favorite, get_favorites,
+    add_favorite, remove_favorite, update_favorite, get_favorites,
     migrate_legacy_favorites,
 )
 from collectors.bilibili_auth import (
@@ -86,8 +86,6 @@ def _configure_transport_security(flask_app, environ=None):
 
 app = Flask(__name__)
 _configure_transport_security(app)
-
-init_db()
 
 # ── 写操作访问口令（局域网共享防护）──
 # 所有 POST/PUT/DELETE 必须携带 X-Write-Token 头，防止同网段设备随意触发抓取/改配置/删收藏。

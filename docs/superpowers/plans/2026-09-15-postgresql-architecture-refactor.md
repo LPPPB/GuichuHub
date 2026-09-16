@@ -191,7 +191,7 @@ Run: `git add backend/storage/repositories backend/storage/auth_store.py backend
 **Interfaces:**
 - Produces `/api/health/live`, `/api/health/ready`, `HeartbeatService.start()`, and legacy `/api/health` readiness delegation.
 
-- [ ] **Step 1: Write failing health tests**
+- [x] **Step 1: Write failing health tests**
 
 ```python
 def test_ready_returns_503_for_stale_worker(client, readiness):
@@ -203,19 +203,19 @@ def test_importing_application_emits_no_ddl(monkeypatch):
     import_fresh("api_entrypoint")
 ```
 
-- [ ] **Step 2: Run tests and observe missing endpoints/service failures**
+- [x] **Step 2: Run tests and observe missing endpoints/service failures**
 
 Run: `uv run pytest tests/test_readiness.py -q --no-cov`
 
-- [ ] **Step 3: Implement safe readiness checks and 30-second heartbeat refresh**
+- [x] **Step 3: Implement safe readiness checks and 30-second heartbeat refresh**
 
 Readiness exposes reason codes only; it never returns URLs, credentials, cookies, or session content.
 
-- [ ] **Step 4: Run health and entrypoint tests**
+- [x] **Step 4: Run health and entrypoint tests**
 
 Run: `uv run pytest tests/test_readiness.py tests/test_entrypoint_separation.py tests/test_secret_loading.py -q --no-cov`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add backend/storage/health.py backend/app.py backend/api_entrypoint.py backend/worker_entrypoint.py backend/jobs/scheduler.py backend/tests/test_readiness.py && git commit -m "feat: add PostgreSQL readiness and worker heartbeat"`
 
