@@ -163,6 +163,8 @@ def add_favorite(item_type, item, owner=None):
 
 def remove_favorite(item_id, owner=None):
     """删除收藏（带归属校验）。返回是否真正删除（False = 不存在或不属于该 owner）。"""
+    if _state_repository is not None:
+        return _state_repository.remove_favorite(item_id, owner)
     result = {'removed': False}
 
     def remove(data):
@@ -179,6 +181,8 @@ def remove_favorite(item_id, owner=None):
 
 
 def update_favorite(item_id, tags=None, notes=None, owner=None):
+    if _state_repository is not None:
+        return _state_repository.update_favorite(item_id, tags, notes, owner)
     result = {'favorite': None}
 
     def update(data):
@@ -196,6 +200,8 @@ def update_favorite(item_id, tags=None, notes=None, owner=None):
 
 
 def get_favorites(item_type=None, tag=None, owner=None):
+    if _state_repository is not None:
+        return _state_repository.get_favorites(owner, item_type, tag)
     data = load_data()
     favorites = data.setdefault('favorites', [])
     # 归属过滤：无 owner 时不返回任何收藏（fail-closed，防止跨用户泄露）

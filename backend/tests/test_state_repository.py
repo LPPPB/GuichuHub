@@ -37,6 +37,11 @@ def state_repository():
         upgrade_database(url)
         yield StateRepository.from_url(url)
     finally:
+        try:
+            from storage import database
+            database.configure_state_repository(None)
+        except ImportError:
+            pass
         subprocess.run(["docker", "stop", container_id], check=False)
 
 
@@ -65,3 +70,6 @@ def test_legacy_state_store_uses_configured_postgresql_repository(state_reposito
 
     assert state_repository.load_dashboard()["hot_videos"] == [{"bvid": "BV9"}]
     assert state_repository.get_favorites(owner="9") == [favorite]
+    assert database.get_favorites(owner="9") == [favorite]
+    assert database.update_favorite(favorite["id"], tags=["梗"], notes="note", owner="9")["notes"] == "note"
+    assert database.remove_favorite(favorite["id"], owner="9") is True
