@@ -165,7 +165,7 @@ def test_production_has_no_cross_origin_access_or_proxy_trust():
 
 
 @pytest.mark.parametrize(
-    "origin", ["http://127.0.0.1:5173", "http://localhost:5173"]
+    "origin", ["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:5174", "http://localhost:5174"]
 )
 def test_development_cors_allows_only_declared_vite_origins(origin):
     """Each supported Vite origin is explicitly echoed in development only."""

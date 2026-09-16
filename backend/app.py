@@ -61,6 +61,8 @@ from storage.up_obs_reader import get_latest_batch_ts, get_up_details
 DEVELOPMENT_ORIGINS = (
     'http://127.0.0.1:5173',
     'http://localhost:5173',
+    'http://127.0.0.1:5174',
+    'http://localhost:5174',
 )
 SESSION_COOKIE_NAME = 'kichu_session'
 
