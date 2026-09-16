@@ -30,6 +30,13 @@ AUTH_DB_PATH = str(RUNTIME_PATHS.auth_db)
 SESSION_TTL = 30 * 24 * 3600  # 会话有效期：30 天
 
 _thread_local = threading.local()
+_auth_repository = None
+
+
+def configure_auth_repository(repository):
+    """Install the PostgreSQL authentication repository for public adapters."""
+    global _auth_repository
+    _auth_repository = repository
 
 
 def _conn():
@@ -171,8 +178,11 @@ def create_session(visitor_id, mid, name, face, cookies):
 
     cookies（含 SESSDATA/bili_jct）以 JSON 明文落库，仅服务器内部使用。
     """
-    token = secrets.token_hex(24)
     now = int(time.time())
+    if _auth_repository is not None:
+        return _auth_repository.create_session(visitor_id, mid, name, face, cookies, now)
+
+    token = secrets.token_hex(24)
     cookies_json = ''
     try:
         import json
@@ -193,6 +203,8 @@ def get_session(token):
     """按 token 取会话；过期/不存在返回 None（过期即清除）。"""
     if not token or not isinstance(token, str) or len(token) > 128:
         return None
+    if _auth_repository is not None:
+        return _auth_repository.get_session(token, int(time.time()))
     conn = _conn()
     row = conn.execute('SELECT * FROM bili_sessions WHERE token = ?', (token,)).fetchone()
     if row is None:
