@@ -227,7 +227,7 @@ Run: `git add backend/storage/health.py backend/app.py backend/api_entrypoint.py
 **Interfaces:**
 - Produces `import_snapshot(args) -> dict` and `reconcile_import(...) -> dict`.
 
-- [ ] **Step 1: Write failing import tests with read-only SQLite fixtures**
+- [x] **Step 1: Write failing import tests with read-only SQLite fixtures**
 
 ```python
 def test_importer_reconciles_sqlite_and_json_snapshots(postgres_url, fixture_paths, tmp_path):
@@ -241,19 +241,19 @@ def test_importer_refuses_nonempty_target(postgres_url, fixture_paths):
         import_snapshot(*fixture_paths, database_url=postgres_url)
 ```
 
-- [ ] **Step 2: Run tests and observe importer-not-found failures**
+- [x] **Step 2: Run tests and observe importer-not-found failures**
 
 Run: `uv run pytest tests/test_sqlite_snapshot_import.py -q --no-cov`
 
-- [ ] **Step 3: Implement explicit read-only source opening, ordered import, report, and resumable backfill claims**
+- [x] **Step 3: Implement explicit read-only source opening, ordered import, report, and resumable backfill claims**
 
 Use `sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)` and never load any runtime default path.
 
-- [ ] **Step 4: Run importer tests**
+- [x] **Step 4: Run importer tests**
 
 Run: `uv run pytest tests/test_sqlite_snapshot_import.py -q --no-cov`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add backend/scripts/import_sqlite_snapshot.py backend/scripts/run_backfill.py backend/tests/fixtures/import backend/tests/test_sqlite_snapshot_import.py && git commit -m "feat: import SQLite snapshots into PostgreSQL"`
 
