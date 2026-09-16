@@ -256,7 +256,9 @@ def add_up_request(mid, snapshot, reason, visitor_id, request_type='add'):
             request_id = _state_repository.create_tracking_request(
                 int(mid), visitor_id, snapshot or {}, reason, int(time.time()),
             )
-        except (TypeError, ValueError):
+        except ValueError as exc:
+            return None, str(exc)
+        except TypeError:
             return None, 'INVALID_TYPE'
         return {
             'id': request_id, 'mid': mid, 'request_type': request_type, 'up': snapshot,

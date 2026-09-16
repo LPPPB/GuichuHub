@@ -167,3 +167,16 @@ def test_tracking_request_lists_use_postgresql_repository(state_repository):
 
     assert [item["id"] for item in tracked_ups.get_my_up_requests("visitor-804")["pending"]] == [mine["id"]]
     assert {item["id"] for item in tracked_ups.list_all_up_requests()["pending"]} >= {mine["id"], other["id"]}
+
+
+def test_tracking_request_duplicate_mid_is_rejected_in_postgresql(state_repository):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    request, error = tracked_ups.add_up_request(806, {"name": "UP806"}, "reason", "visitor-a")
+    assert error is None
+
+    duplicate, error = tracked_ups.add_up_request(806, {"name": "UP806"}, "reason", "visitor-b")
+
+    assert duplicate is None
+    assert error == "DUPLICATE"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
@@ -110,6 +110,13 @@ class StateRepository:
                                 reason: str, now: int) -> str:
         request_id = f"req_{uuid.uuid4().hex}"
         with self._sessions.begin() as session:
+            session.execute(select(func.pg_advisory_xact_lock(mid)))
+            pending = session.execute(select(tracking_requests.c.id).where(
+                tracking_requests.c.mid == mid,
+                tracking_requests.c.status == "pending",
+            )).scalar_one_or_none()
+            if pending is not None:
+                raise ValueError("DUPLICATE")
             session.execute(insert(tracking_requests).values(
                 id=request_id, mid=mid, visitor_id=visitor_id, status="pending",
                 payload={"up": snapshot, "reason": reason, "request_type": "add"},
