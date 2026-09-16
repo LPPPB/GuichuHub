@@ -109,6 +109,10 @@ def _write_data_unlocked(db_path, data):
 
 def init_db():
     """Create the state file once, without racing other API/Worker processes."""
+    if _state_repository is not None:
+        if _state_repository.load_dashboard() is None:
+            _state_repository.save_dashboard(_initial_data(), int(time.time()))
+        return
     with _state_lock():
         _read_data_unlocked(get_db_path())
 
@@ -137,6 +141,14 @@ def save_data(data):
 
 def update_data(mutator):
     """Run a state mutation under one cross-process lock and atomically persist it."""
+    if _state_repository is not None:
+        def postgres_mutator(data):
+            mutator(data)
+            data['last_updated'] = datetime.now(CN_TZ).strftime('%Y-%m-%d %H:%M:%S')
+
+        return _state_repository.update_dashboard(
+            postgres_mutator, int(time.time()), _initial_data(),
+        )
     with _state_lock():
         data = _read_data_unlocked(get_db_path())
         mutator(data)

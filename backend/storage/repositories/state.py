@@ -37,6 +37,24 @@ class StateRepository:
             )).mappings().first()
             return row["payload"] if row else None
 
+    def update_dashboard(self, mutator, now: int, initial: dict | None = None) -> dict:
+        """Apply one current-state mutation while holding its PostgreSQL row lock."""
+        with self._sessions.begin() as session:
+            row = session.execute(select(dashboard_state.c.payload).where(
+                dashboard_state.c.name == "current",
+            ).with_for_update()).mappings().first()
+            payload = dict(row["payload"]) if row else dict(initial or {})
+            mutator(payload)
+            if row is None:
+                session.execute(insert(dashboard_state).values(
+                    name="current", payload=payload, version=1, updated_at=now,
+                ))
+            else:
+                session.execute(dashboard_state.update().where(
+                    dashboard_state.c.name == "current",
+                ).values(payload=payload, version=dashboard_state.c.version + 1, updated_at=now))
+            return payload
+
     def add_favorite(self, item_type: str, item: dict, owner: str | None, now: int) -> dict:
         favorite_id = f"{item_type}_{uuid.uuid4().hex}"
         value = dict(item)

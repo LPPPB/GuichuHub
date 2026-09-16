@@ -52,6 +52,17 @@ def test_dashboard_state_upsert_replaces_one_current_snapshot(state_repository):
     assert state_repository.load_dashboard() == {"hot_videos": [{"bvid": "BV2"}]}
 
 
+def test_dashboard_state_mutation_locks_and_updates_current_snapshot(state_repository):
+    state_repository.save_dashboard({"counter": 1}, now=100)
+
+    result = state_repository.update_dashboard(
+        lambda payload: payload.update(counter=payload["counter"] + 1), now=101,
+    )
+
+    assert result == {"counter": 2}
+    assert state_repository.load_dashboard() == {"counter": 2}
+
+
 def test_favorites_are_owner_scoped_and_mutable(state_repository):
     favorite = state_repository.add_favorite("video", {"bvid": "BV1"}, "1", now=100)
 
