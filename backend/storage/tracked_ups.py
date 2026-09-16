@@ -249,6 +249,20 @@ def add_up_request(mid, snapshot, reason, visitor_id, request_type='add'):
       QUEUE_FULL       全局待审核队列已满
       DAILY_LIMIT      该访客今日提交数达上限
     """
+    if _state_repository is not None:
+        if request_type != 'add':
+            return None, 'INVALID_TYPE'
+        try:
+            request_id = _state_repository.create_tracking_request(
+                int(mid), visitor_id, snapshot or {}, reason, int(time.time()),
+            )
+        except (TypeError, ValueError):
+            return None, 'INVALID_TYPE'
+        return {
+            'id': request_id, 'mid': mid, 'request_type': request_type, 'up': snapshot,
+            'reason': reason, 'visitor_id': visitor_id, 'submitted_at': int(time.time()),
+            'status': 'pending',
+        }, None
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
         reqs = _requests_state(tracked)
@@ -355,6 +369,14 @@ def review_up_request(req_id, action, reject_reason=None):
 
     返回 (result_dict, None) 或 (None, error_code)：NOT_FOUND
     """
+    if _state_repository is not None:
+        if action != 'approve':
+            return None, 'NOT_FOUND'
+        try:
+            result = _state_repository.review_tracking_request(req_id, action, int(time.time()))
+        except LookupError:
+            return None, 'NOT_FOUND'
+        return result, None
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
         reqs = _requests_state(tracked)

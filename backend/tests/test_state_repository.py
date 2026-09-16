@@ -115,3 +115,17 @@ def test_legacy_tracked_up_config_uses_configured_postgresql_repository(state_re
 
     assert state_repository.load_tracked_list()["config"] == {"refresh_hours": 6}
     assert tracked_ups.load_config() == {"refresh_hours": 6}
+
+
+def test_legacy_tracking_request_approval_uses_postgresql_repository(state_repository):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    request, error = tracked_ups.add_up_request(801, {"name": "UP801"}, "reason", "visitor-801")
+    assert error is None
+
+    result, error = tracked_ups.review_up_request(request["id"], "approve")
+
+    assert error is None
+    assert result["added_to_pool"] is True
+    assert 801 in state_repository.tracked_mids()
