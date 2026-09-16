@@ -40,3 +40,17 @@ def test_postgres_readiness_rejects_stale_worker_heartbeat():
     )
 
     assert service.check() == (False, "worker_stale")
+
+
+def test_heartbeat_service_records_once_before_sleeping():
+    calls = []
+    from storage.health import HeartbeatService
+
+    service = HeartbeatService(
+        repository=lambda worker_id, now, details: calls.append((worker_id, now, details)),
+        worker_id="worker-1", details={"kind": "scheduler"}, now=lambda: 100,
+    )
+
+    service.beat()
+
+    assert calls == [("worker-1", 100, {"kind": "scheduler"})]

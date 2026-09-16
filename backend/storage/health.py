@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from threading import Event, Thread
 
 from sqlalchemy import text
 
@@ -41,3 +42,29 @@ class PostgresReadinessService:
         if heartbeat is None or self._now() - heartbeat > self._max_worker_age:
             return False, "worker_stale"
         return True, None
+
+
+class HeartbeatService:
+    """Worker-owned heartbeat with a bounded refresh interval."""
+
+    def __init__(self, repository, worker_id: str, details: dict, now=time.time, interval_seconds: int = 30):
+        self._repository = repository
+        self._worker_id = worker_id
+        self._details = details
+        self._now = now
+        self._interval_seconds = interval_seconds
+
+    def beat(self) -> None:
+        self._repository(self._worker_id, int(self._now()), self._details)
+
+    def start(self, stop_event: Event | None = None) -> Thread:
+        stop_event = stop_event or Event()
+
+        def run():
+            while not stop_event.is_set():
+                self.beat()
+                stop_event.wait(self._interval_seconds)
+
+        thread = Thread(target=run, name="postgres-worker-heartbeat", daemon=True)
+        thread.start()
+        return thread
