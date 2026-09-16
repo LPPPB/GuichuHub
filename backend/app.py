@@ -495,9 +495,27 @@ def route_status():
     })
 
 
+@app.route('/api/health/live', methods=['GET'])
+def route_health_live():
+    """Process liveness only; deliberately does not access persistence."""
+    return jsonify({'success': True, 'status': 'live'})
+
+
+@app.route('/api/health/ready', methods=['GET'])
+def route_health_ready():
+    """Readiness checks are supplied by the configured PostgreSQL runtime."""
+    service = app.config.get('READINESS_SERVICE')
+    ready, reason = service.check() if service is not None else (False, 'readiness_not_configured')
+    payload = {'success': ready, 'status': 'ready' if ready else 'not_ready'}
+    if reason:
+        payload['reason'] = reason
+    return jsonify(payload), 200 if ready else 503
+
+
 @app.route('/api/health', methods=['GET'])
 def route_health():
-    return jsonify({'success': True, 'status': 'ok'})
+    """Legacy health endpoint is intentionally a readiness alias."""
+    return route_health_ready()
 
 
 # ==================== Auth / 管理员 API ====================
