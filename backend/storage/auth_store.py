@@ -236,6 +236,8 @@ def delete_session(token):
     """登出：销毁会话（凭证随行删除）。返回是否删除了有效会话。"""
     if not token:
         return False
+    if _auth_repository is not None:
+        return _auth_repository.delete_session(token)
     conn = _conn()
     cur = conn.execute('DELETE FROM bili_sessions WHERE token = ?', (token,))
     conn.commit()
@@ -244,6 +246,8 @@ def delete_session(token):
 
 def list_recent_logins(limit=10):
     """最近登录的不同B站账号（供管理员"一键添加"参考）。"""
+    if _auth_repository is not None:
+        return _auth_repository.list_recent_logins(limit)
     conn = _conn()
     rows = conn.execute(
         'SELECT mid, name, face, MAX(created_at) AS last_login '
@@ -253,6 +257,8 @@ def list_recent_logins(limit=10):
 
 def purge_expired_sessions():
     """清理过期会话。返回清理条数（调度层可定期调用）。"""
+    if _auth_repository is not None:
+        return _auth_repository.purge_expired_sessions(int(time.time()))
     conn = _conn()
     cur = conn.execute('DELETE FROM bili_sessions WHERE expires_at < ?', (int(time.time()),))
     conn.commit()

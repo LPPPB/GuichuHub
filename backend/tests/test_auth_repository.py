@@ -91,3 +91,14 @@ def test_legacy_credential_handoff_uses_configured_postgresql_repository(auth_re
 
     assert auth_repository.pending_collector_action()["id"] == handoff_id
     assert auth_store.complete_collector_action(handoff_id) is True
+
+
+def test_session_cleanup_and_recent_logins_use_postgresql(auth_repository):
+    auth_repository.create_session("visitor-a", 11, "A", "", {}, now=100)
+    auth_repository.create_session("visitor-b", 22, "B", "", {}, now=200)
+
+    mids = [row["mid"] for row in auth_repository.list_recent_logins()]
+    assert mids.index(22) < mids.index(11)
+    token = auth_repository.create_session("visitor-c", 33, "C", "", {}, now=300)
+    assert auth_repository.delete_session(token) is True
+    assert auth_repository.purge_expired_sessions(now=31 * 24 * 3600 + 101) >= 2

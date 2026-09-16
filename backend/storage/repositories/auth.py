@@ -53,6 +53,29 @@ class AuthRepository:
                 "token", "visitor_id", "mid", "name", "face", "created_at", "expires_at",
             )}
 
+    def delete_session(self, token: str) -> bool:
+        if not token:
+            return False
+        with self._sessions.begin() as session:
+            return session.execute(browser_sessions.delete().where(
+                browser_sessions.c.token == token,
+            )).rowcount > 0
+
+    def list_recent_logins(self, limit: int = 10) -> list[dict]:
+        with self._sessions() as session:
+            rows = session.execute(select(
+                browser_sessions.c.mid, browser_sessions.c.name, browser_sessions.c.face,
+                func.max(browser_sessions.c.created_at).label("last_login"),
+            ).group_by(browser_sessions.c.mid, browser_sessions.c.name, browser_sessions.c.face)
+                .order_by(func.max(browser_sessions.c.created_at).desc()).limit(limit)).mappings()
+            return [dict(row) for row in rows]
+
+    def purge_expired_sessions(self, now: int) -> int:
+        with self._sessions.begin() as session:
+            return session.execute(browser_sessions.delete().where(
+                browser_sessions.c.expires_at < now,
+            )).rowcount
+
     def add_admin_account(self, mid: int, name: str, face: str, added_by: str, now: int):
         if not isinstance(mid, int) or mid <= 0:
             return None, "INVALID"
