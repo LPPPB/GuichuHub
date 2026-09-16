@@ -185,3 +185,10 @@ def test_tracking_request_duplicate_mid_is_rejected_in_postgresql(state_reposito
 
     assert duplicate is None
     assert error == "DUPLICATE"
+
+
+def test_worker_heartbeat_upserts_postgresql_timestamp(state_repository):
+    state_repository.record_worker_heartbeat("worker-1", 100, {"kind": "scheduler"})
+    state_repository.record_worker_heartbeat("worker-1", 130, {"kind": "scheduler"})
+
+    assert state_repository.worker_heartbeat("worker-1") == 130

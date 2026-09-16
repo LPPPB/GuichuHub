@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import dashboard_state, favorites, tracked_up_settings, tracked_ups, tracking_requests
+from storage.models import dashboard_state, favorites, tracked_up_settings, tracked_ups, tracking_requests, worker_heartbeats
 
 
 class StateRepository:
@@ -152,6 +152,21 @@ class StateRepository:
                 "visitor_id": row["visitor_id"], "submitted_at": row["created_at"],
                 "status": row["status"], "reviewed_at": row["reviewed_at"],
             } for row in rows]
+
+    def record_worker_heartbeat(self, worker_id: str, heartbeat_at: int, details: dict) -> None:
+        with self._sessions.begin() as session:
+            session.execute(insert(worker_heartbeats).values(
+                worker_id=worker_id, heartbeat_at=heartbeat_at, details=details,
+            ).on_conflict_do_update(
+                index_elements=[worker_heartbeats.c.worker_id],
+                set_={"heartbeat_at": heartbeat_at, "details": details},
+            ))
+
+    def worker_heartbeat(self, worker_id: str) -> int | None:
+        with self._sessions() as session:
+            return session.execute(select(worker_heartbeats.c.heartbeat_at).where(
+                worker_heartbeats.c.worker_id == worker_id,
+            )).scalar_one_or_none()
 
     def review_tracking_request(self, request_id: str, action: str, now: int) -> dict:
         if action not in {"approve", "reject"}:
