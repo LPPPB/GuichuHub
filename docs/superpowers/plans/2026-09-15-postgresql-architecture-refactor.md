@@ -266,7 +266,7 @@ Run: `git add backend/scripts/import_sqlite_snapshot.py backend/scripts/run_back
 **Interfaces:**
 - Produces `python scripts/migrate.py`, custom dump manifest, restore drill, and Compose services `postgres`, `migrate`, `backup`.
 
-- [ ] **Step 1: Write failing Compose and backup behavior tests**
+- [x] **Step 1: Write failing Compose and backup behavior tests**
 
 ```python
 def test_production_postgres_has_no_host_port_and_core_only(compose):
@@ -279,19 +279,19 @@ def test_backup_manifest_and_custom_dump_are_verified(fake_pg_tools, tmp_path):
     assert fake_pg_tools.restore_list_called
 ```
 
-- [ ] **Step 2: Run tests and observe absent service/script failures**
+- [x] **Step 2: Run tests and observe absent service/script failures**
 
 Run: `uv run pytest tests/test_postgres_operations.py -q --no-cov`
 
-- [ ] **Step 3: Implement role-secret mounts, one-shot migration verification, custom dumps, checksum/manifest, and temporary-database restore drill**
+- [x] **Step 3: Implement role-secret mounts, one-shot migration verification, custom dumps, checksum/manifest, and temporary-database restore drill**
 
 Production must bind `${KICHU_HOST_POSTGRES_DIR}:/var/lib/postgresql/data`, never use a project data volume, and give API no egress network.
 
-- [ ] **Step 4: Run operational tests and Compose config validation**
+- [x] **Step 4: Run operational tests and Compose config validation**
 
 Run: `uv run pytest tests/test_postgres_operations.py tests/test_compose_security.py -q --no-cov && docker compose -f compose.dev.yml config && docker compose -f compose.prod.yml config`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add compose.dev.yml compose.prod.yml backend/Dockerfile .env.example ops/postgres ops/backup backend/scripts/migrate.py backend/tests/test_postgres_operations.py .github/workflows/backend.yml && git commit -m "feat: add PostgreSQL operations and CI"`
 

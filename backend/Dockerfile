@@ -17,7 +17,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata postgresql-client && \
     ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     groupadd --gid 10001 app && \
@@ -38,6 +38,7 @@ COPY --from=builder /app/storage /app/storage
 COPY --from=builder /app/analytics /app/analytics
 COPY --from=builder /app/jobs /app/jobs
 COPY --from=builder /app/utils /app/utils
+COPY --from=builder /app/scripts /app/scripts
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV TZ=Asia/Shanghai

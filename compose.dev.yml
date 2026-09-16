@@ -2,9 +2,6 @@ name: kichiku-v3-dev
 
 x-backend-environment: &backend-environment
   KICHU_ENV: development
-  KICHU_DB_PATH: /app/runtime/dev/data/kichu_board.db
-  KICHU_AUTH_DB_PATH: /app/runtime/dev/auth/auth.db
-  KICHU_STATE_PATH: /app/runtime/dev/state/inspiration_db.json
   KICHU_COOKIE_PATH: /app/runtime/dev/private/bilibili_cookie.json
   KICHU_LOG_DIR: /app/runtime/dev/logs
   KICHU_BACKUP_DIR: /app/runtime/dev/backups
@@ -16,6 +13,44 @@ x-default-logging: &default-logging
     max-file: "5"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kichu
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kichu"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks: [core]
+    secrets:
+      - postgres_superuser_password
+      - postgres_api_password
+      - postgres_worker_password
+      - postgres_migration_password
+      - postgres_backup_password
+    volumes:
+      - ./runtime/dev/postgres:/var/lib/postgresql/data
+      - ./ops/postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-init-roles.sh:ro
+
+  migrate:
+    profiles: ["maintenance"]
+    build:
+      context: ./backend
+      target: builder
+    command: ["/app/.venv/bin/python", "scripts/migrate.py"]
+    environment:
+      KICHU_MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [core]
+    secrets: [migration_database_url]
+
   api:
     build:
       context: ./backend
@@ -28,7 +63,9 @@ services:
       - --host=0.0.0.0
       - --port=5000
       - --debug
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      KICHU_API_DATABASE_URL_FILE: /run/secrets/api_database_url
     init: true
     logging: *default-logging
     ports:
@@ -37,19 +74,27 @@ services:
       - ./backend:/app
       - backend_venv:/app/.venv
       - ./runtime/dev:/app/runtime/dev
+    networks: [core]
+    secrets: [api_database_url]
 
   worker:
     build:
       context: ./backend
       target: builder
     command: ["/app/.venv/bin/python", "worker_entrypoint.py"]
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      KICHU_WORKER_DATABASE_URL_FILE: /run/secrets/worker_database_url
     init: true
     logging: *default-logging
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
       - ./runtime/dev:/app/runtime/dev
+    networks:
+      - core
+      - egress
+    secrets: [worker_database_url]
 
   frontend:
     build:
@@ -67,7 +112,31 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
+    networks: [core]
 
 volumes:
   backend_venv:
   frontend_node_modules:
+
+networks:
+  core:
+    internal: true
+  egress:
+
+secrets:
+  postgres_superuser_password:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/postgres_superuser_password
+  postgres_api_password:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/postgres_api_password
+  postgres_worker_password:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/postgres_worker_password
+  postgres_migration_password:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/postgres_migration_password
+  postgres_backup_password:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/postgres_backup_password
+  api_database_url:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/api_database_url
+  worker_database_url:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/worker_database_url
+  migration_database_url:
+    file: ${KICHU_DEV_SECRETS_DIR:-./runtime/dev/secrets}/migration_database_url

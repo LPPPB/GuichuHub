@@ -17,6 +17,46 @@ x-default-logging: &default-logging
     max-file: "5"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: kichu
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kichu"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging: *default-logging
+    networks:
+      - core
+    restart: unless-stopped
+    secrets:
+      - postgres_superuser_password
+      - postgres_api_password
+      - postgres_worker_password
+      - postgres_migration_password
+      - postgres_backup_password
+    volumes:
+      - ${KICHU_HOST_POSTGRES_DIR}:/var/lib/postgresql/data
+      - ./ops/postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-init-roles.sh:ro
+
+  migrate:
+    profiles: ["maintenance"]
+    build:
+      context: ./backend
+    command: ["python", "scripts/migrate.py"]
+    environment:
+      KICHU_MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - core
+    secrets:
+      - migration_database_url
+
   caddy:
     image: caddy:2.10-alpine
     depends_on:
@@ -27,6 +67,7 @@ services:
     logging: *default-logging
     networks:
       - edge
+      - core
     ports:
       - "80:80"
       - "443:443"
@@ -42,7 +83,7 @@ services:
       context: ./frontend
     logging: *default-logging
     networks:
-      - edge
+      - core
     restart: unless-stopped
 
   api:
@@ -59,21 +100,19 @@ services:
     environment:
       <<: *backend-environment
       KICHU_WRITE_TOKEN_FILE: /run/secrets/write_token
+      KICHU_API_DATABASE_URL_FILE: /run/secrets/api_database_url
       KICHU_COOKIE_WRITES_ENABLED: "0"
     init: true
     logging: *default-logging
     networks:
-      - edge
       - core
     restart: unless-stopped
-    secrets:
-      - write_token
     volumes:
-      - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db
-      - ${KICHU_HOST_DATA_DIR:-../data}/auth:/data/auth
-      - ${KICHU_HOST_DATA_DIR:-../data}/state:/data/state
       - ${KICHU_HOST_DATA_DIR:-../data}/private:/data/private:ro
       - ${KICHU_HOST_LOG_DIR:-../logs}:/logs
+    secrets:
+      - write_token
+      - api_database_url
 
   worker:
     build:
@@ -82,6 +121,7 @@ services:
     environment:
       <<: *backend-environment
       KICHU_COOKIE_WRITES_ENABLED: "1"
+      KICHU_WORKER_DATABASE_URL_FILE: /run/secrets/worker_database_url
     init: true
     logging: *default-logging
     networks:
@@ -89,11 +129,10 @@ services:
       - egress
     restart: unless-stopped
     volumes:
-      - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db
-      - ${KICHU_HOST_DATA_DIR:-../data}/auth:/data/auth
-      - ${KICHU_HOST_DATA_DIR:-../data}/state:/data/state
       - ${KICHU_HOST_DATA_DIR:-../data}/private:/data/private
       - ${KICHU_HOST_LOG_DIR:-../logs}:/logs
+    secrets:
+      - worker_database_url
 
   backup:
     profiles: ["maintenance"]
@@ -101,26 +140,19 @@ services:
       context: ./backend
     command:
       - python
-      - /opt/kichu/backup.py
-      - --business-source
-      - /data/db/kichu_board.db
-      - --auth-source
-      - /data/auth/auth.db
-      - --destination
-      - /backups
+      - /opt/kichu/backup_postgres.py
     environment:
       KICHU_BACKUP_DIR: /backups
-      KICHU_DB_PATH: /data/db/kichu_board.db
-      KICHU_AUTH_DB_PATH: /data/auth/auth.db
+      KICHU_BACKUP_DATABASE_URL_FILE: /run/secrets/backup_database_url
     init: true
     logging: *default-logging
     networks:
       - core
     volumes:
-      - ./ops/backup/backup.py:/opt/kichu/backup.py:ro
-      - ${KICHU_HOST_DATA_DIR:-../data}/db:/data/db:ro
-      - ${KICHU_HOST_DATA_DIR:-../data}/auth:/data/auth:ro
+      - ./ops/backup/backup_postgres.py:/opt/kichu/backup_postgres.py:ro
       - ${KICHU_HOST_BACKUP_DIR:-../backups}:/backups
+    secrets:
+      - backup_database_url
 
 networks:
   edge:
@@ -131,6 +163,24 @@ networks:
 secrets:
   write_token:
     file: ${KICHU_HOST_WRITE_TOKEN_FILE:-../secrets/write_token}
+  postgres_superuser_password:
+    file: ${KICHU_HOST_POSTGRES_SUPERUSER_PASSWORD_FILE}
+  postgres_api_password:
+    file: ${KICHU_HOST_POSTGRES_API_PASSWORD_FILE}
+  postgres_worker_password:
+    file: ${KICHU_HOST_POSTGRES_WORKER_PASSWORD_FILE}
+  postgres_migration_password:
+    file: ${KICHU_HOST_POSTGRES_MIGRATION_PASSWORD_FILE}
+  postgres_backup_password:
+    file: ${KICHU_HOST_POSTGRES_BACKUP_PASSWORD_FILE}
+  api_database_url:
+    file: ${KICHU_HOST_API_DATABASE_URL_FILE}
+  worker_database_url:
+    file: ${KICHU_HOST_WORKER_DATABASE_URL_FILE}
+  migration_database_url:
+    file: ${KICHU_HOST_MIGRATION_DATABASE_URL_FILE}
+  backup_database_url:
+    file: ${KICHU_HOST_BACKUP_DATABASE_URL_FILE}
 
 volumes:
   caddy_config:
