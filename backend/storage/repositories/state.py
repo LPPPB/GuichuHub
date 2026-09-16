@@ -117,6 +117,21 @@ class StateRepository:
             ))
         return request_id
 
+    def withdraw_tracking_request(self, request_id: str, visitor_id: str, now: int) -> str | None:
+        with self._sessions.begin() as session:
+            request = session.execute(select(tracking_requests.c.visitor_id).where(
+                tracking_requests.c.id == request_id,
+                tracking_requests.c.status == "pending",
+            ).with_for_update()).mappings().first()
+            if request is None:
+                return "NOT_FOUND"
+            if request["visitor_id"] != visitor_id:
+                return "NOT_OWNER"
+            session.execute(tracking_requests.update().where(
+                tracking_requests.c.id == request_id,
+            ).values(status="withdrawn", reviewed_at=now))
+            return None
+
     def review_tracking_request(self, request_id: str, action: str, now: int) -> dict:
         if action not in {"approve", "reject"}:
             raise ValueError("invalid tracking request action")

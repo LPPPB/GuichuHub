@@ -327,6 +327,8 @@ def withdraw_up_request(req_id, visitor_id):
       NOT_OWNER  不是本人的申请
       NOT_FOUND  申请不存在（含已审核/已撤回——不在 pending 里）
     """
+    if _state_repository is not None:
+        return _state_repository.withdraw_tracking_request(req_id, visitor_id, int(time.time()))
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
         reqs = _requests_state(tracked)

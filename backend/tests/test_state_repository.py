@@ -143,3 +143,15 @@ def test_legacy_tracking_request_rejection_uses_postgresql_repository(state_repo
     assert error is None
     assert result["added_to_pool"] is False
     assert 802 not in state_repository.tracked_mids()
+
+
+def test_legacy_tracking_request_withdrawal_uses_postgresql_repository(state_repository):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    request, error = tracked_ups.add_up_request(803, {"name": "UP803"}, "reason", "visitor-803")
+    assert error is None
+
+    assert tracked_ups.withdraw_up_request(request["id"], "visitor-803") is None
+    assert tracked_ups.withdraw_up_request(request["id"], "visitor-803") == "NOT_FOUND"
+    assert 803 not in state_repository.tracked_mids()
