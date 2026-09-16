@@ -1,5 +1,9 @@
 """Liveness and PostgreSQL readiness endpoint contracts."""
 
+import time
+
+from storage.health import PostgresReadinessService
+
 
 class _Readiness:
     def __init__(self, ready, reason=None):
@@ -27,3 +31,12 @@ def test_ready_returns_503_for_stale_worker(monkeypatch):
 
     assert response.status_code == 503
     assert response.get_json()["reason"] == "worker_stale"
+
+
+def test_postgres_readiness_rejects_stale_worker_heartbeat():
+    service = PostgresReadinessService(
+        probe=lambda: {"revision": "head", "worker_heartbeat": 100},
+        expected_revision="head", now=lambda: 221,
+    )
+
+    assert service.check() == (False, "worker_stale")
