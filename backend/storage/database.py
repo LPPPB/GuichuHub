@@ -13,6 +13,13 @@ CN_TZ = timezone(timedelta(hours=8))
 RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
 DATA_DIR = str(RUNTIME_PATHS.current_state.parent)
 STATE_FILENAME = RUNTIME_PATHS.current_state.name
+_state_repository = None
+
+
+def configure_state_repository(repository):
+    """Install the PostgreSQL state repository for public storage adapters."""
+    global _state_repository
+    _state_repository = repository
 
 
 def get_db_path():
@@ -108,6 +115,8 @@ def init_db():
 
 def load_data():
     """Read a complete JSON snapshot while writers hold the shared lock."""
+    if _state_repository is not None:
+        return _state_repository.load_dashboard() or _initial_data()
     with _state_lock():
         return _read_data_unlocked(get_db_path())
 
@@ -118,6 +127,10 @@ def save_data(data):
     Callers deriving a mutation from current state must use ``update_data`` so
     their read-modify-write sequence holds one shared lock.
     """
+    if _state_repository is not None:
+        data['last_updated'] = datetime.now(CN_TZ).strftime('%Y-%m-%d %H:%M:%S')
+        _state_repository.save_dashboard(data, int(time.time()))
+        return
     with _state_lock():
         _write_data_unlocked(get_db_path(), data)
 
@@ -132,6 +145,8 @@ def update_data(mutator):
 
 
 def add_favorite(item_type, item, owner=None):
+    if _state_repository is not None:
+        return _state_repository.add_favorite(item_type, item, owner, int(time.time()))
     item['id'] = f"{item_type}_{int(datetime.now(CN_TZ).timestamp())}"
     item['type'] = item_type
     item['saved_at'] = datetime.now(CN_TZ).strftime('%Y-%m-%d %H:%M:%S')

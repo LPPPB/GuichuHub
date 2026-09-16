@@ -54,3 +54,14 @@ def test_favorites_are_owner_scoped_and_mutable(state_repository):
     assert state_repository.get_favorites(owner="2") == []
     assert state_repository.update_favorite(favorite["id"], ["梗"], "note", "1")["notes"] == "note"
     assert state_repository.remove_favorite(favorite["id"], "1") is True
+
+
+def test_legacy_state_store_uses_configured_postgresql_repository(state_repository):
+    from storage import database
+
+    database.configure_state_repository(state_repository)
+    database.save_data({"hot_videos": [{"bvid": "BV9"}], "favorites": []})
+    favorite = database.add_favorite("video", {"bvid": "BV9"}, owner="9")
+
+    assert state_repository.load_dashboard()["hot_videos"] == [{"bvid": "BV9"}]
+    assert state_repository.get_favorites(owner="9") == [favorite]
