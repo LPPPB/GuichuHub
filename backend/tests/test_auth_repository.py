@@ -70,3 +70,14 @@ def test_legacy_auth_store_uses_configured_postgresql_repository(auth_repository
 
     assert auth_repository.get_session(token, now=int(time.time()))["visitor_id"] == "visitor-2"
     assert "cookies" not in auth_store.get_session(token)
+
+
+def test_legacy_admin_store_uses_configured_postgresql_repository(auth_repository):
+    from storage import auth_store
+
+    auth_store.configure_auth_repository(auth_repository)
+    row, error = auth_store.add_admin_account(8, "管理员", "face", "bootstrap")
+
+    assert error is None
+    assert row in auth_repository.list_admin_accounts()
+    assert auth_store.is_admin_mid(8) is True

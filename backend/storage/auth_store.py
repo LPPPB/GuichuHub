@@ -97,10 +97,14 @@ def _init_schema(conn):
 # ==================== 管理员名单 ====================
 
 def admin_count():
+    if _auth_repository is not None:
+        return _auth_repository.admin_count()
     return _conn().execute('SELECT COUNT(*) FROM admin_accounts').fetchone()[0]
 
 
 def list_admin_accounts():
+    if _auth_repository is not None:
+        return _auth_repository.list_admin_accounts()
     rows = _conn().execute(
         'SELECT mid, name, face, added_at, added_by FROM admin_accounts ORDER BY added_at').fetchall()
     return [dict(r) for r in rows]
@@ -113,6 +117,8 @@ def is_admin_mid(mid):
         mid = int(mid)
     except (TypeError, ValueError):
         return False
+    if _auth_repository is not None:
+        return _auth_repository.is_admin_mid(mid)
     return _conn().execute(
         'SELECT 1 FROM admin_accounts WHERE mid = ?', (mid,)).fetchone() is not None
 
@@ -125,6 +131,10 @@ def add_admin_account(mid, name='', face='', added_by=''):
         return None, 'INVALID'
     if mid <= 0:
         return None, 'INVALID'
+    if _auth_repository is not None:
+        return _auth_repository.add_admin_account(
+            mid, str(name or ''), str(face or ''), str(added_by or ''), int(time.time()),
+        )
     conn = _conn()
     if conn.execute('SELECT 1 FROM admin_accounts WHERE mid = ?', (mid,)).fetchone():
         return None, 'EXISTS'
@@ -143,6 +153,8 @@ def remove_admin_account(mid):
         mid = int(mid)
     except (TypeError, ValueError):
         return False, 'NOT_FOUND'
+    if _auth_repository is not None:
+        return _auth_repository.remove_admin_account(mid)
     conn = _conn()
     if not conn.execute('SELECT 1 FROM admin_accounts WHERE mid = ?', (mid,)).fetchone():
         return False, 'NOT_FOUND'
@@ -161,6 +173,8 @@ def update_admin_profile(mid, name, face):
         return False
     if not name and not face:
         return False
+    if _auth_repository is not None:
+        return _auth_repository.update_admin_profile(mid, str(name or ''), str(face or ''))
     conn = _conn()
     row = conn.execute('SELECT 1 FROM admin_accounts WHERE mid = ?', (mid,)).fetchone()
     if not row:

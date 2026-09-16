@@ -58,12 +58,38 @@ class AuthRepository:
         row = {"mid": mid, "name": name or "", "face": face or "", "added_at": now,
                "added_by": added_by or ""}
         with self._sessions.begin() as session:
-            result = session.execute(insert(admin_accounts).values(**row).on_conflict_do_nothing(
+            inserted_mid = session.execute(insert(admin_accounts).values(**row).on_conflict_do_nothing(
                 index_elements=[admin_accounts.c.mid],
-            ))
-            if result.rowcount == 0:
+            ).returning(admin_accounts.c.mid)).scalar_one_or_none()
+            if inserted_mid is None:
                 return None, "EXISTS"
         return row, None
+
+    def admin_count(self) -> int:
+        with self._sessions() as session:
+            return session.execute(select(func.count()).select_from(admin_accounts)).scalar_one()
+
+    def list_admin_accounts(self) -> list[dict]:
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(
+                select(admin_accounts).order_by(admin_accounts.c.added_at)
+            ).mappings()]
+
+    def is_admin_mid(self, mid: int | None) -> bool:
+        if not isinstance(mid, int):
+            return False
+        with self._sessions() as session:
+            return session.execute(select(admin_accounts.c.mid).where(
+                admin_accounts.c.mid == mid,
+            )).scalar_one_or_none() is not None
+
+    def update_admin_profile(self, mid: int, name: str, face: str) -> bool:
+        if not isinstance(mid, int) or (not name and not face):
+            return False
+        with self._sessions.begin() as session:
+            return session.execute(admin_accounts.update().where(
+                admin_accounts.c.mid == mid,
+            ).values(name=name or "", face=face or "")).rowcount > 0
 
     def remove_admin_account(self, mid: int) -> tuple[bool, str | None]:
         with self._sessions.begin() as session:
