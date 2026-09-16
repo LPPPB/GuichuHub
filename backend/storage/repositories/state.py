@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import dashboard_state, favorites, tracked_ups, tracking_requests
+from storage.models import dashboard_state, favorites, tracked_up_settings, tracked_ups, tracking_requests
 
 
 class StateRepository:
@@ -146,3 +146,39 @@ class StateRepository:
             return list(session.execute(select(tracked_ups.c.mid).where(
                 tracked_ups.c.enabled.is_(True),
             ).order_by(tracked_ups.c.mid)).scalars())
+
+    def save_tracked_list(self, ups: list[dict], updated_at: int, config: dict | None = None) -> None:
+        mids = {int(up["mid"]) for up in ups}
+        with self._sessions.begin() as session:
+            if mids:
+                session.execute(tracked_ups.delete().where(
+                    tracked_ups.c.mid.not_in(mids),
+                ))
+            else:
+                session.execute(tracked_ups.delete())
+            for up in ups:
+                session.execute(insert(tracked_ups).values(
+                    mid=int(up["mid"]), payload=up, enabled=up.get("enabled", True), updated_at=updated_at,
+                ).on_conflict_do_update(
+                    index_elements=[tracked_ups.c.mid],
+                    set_={"payload": up, "enabled": up.get("enabled", True), "updated_at": updated_at},
+                ))
+            session.execute(insert(tracked_up_settings).values(
+                name="tracked_list", payload={"config": config or {}}, updated_at=updated_at,
+            ).on_conflict_do_update(
+                index_elements=[tracked_up_settings.c.name],
+                set_={"payload": {"config": config or {}}, "updated_at": updated_at},
+            ))
+
+    def load_tracked_list(self) -> dict | None:
+        with self._sessions() as session:
+            setting = session.execute(select(tracked_up_settings.c.payload,
+                                             tracked_up_settings.c.updated_at).where(
+                tracked_up_settings.c.name == "tracked_list",
+            )).mappings().first()
+            rows = session.execute(select(tracked_ups.c.payload).order_by(tracked_ups.c.mid)).mappings()
+            ups = [row["payload"] for row in rows]
+            if setting is None and not ups:
+                return None
+            return {"ups": ups, "config": (setting or {"payload": {}})["payload"].get("config", {}),
+                    "updated_at": (setting or {"updated_at": 0})["updated_at"]}

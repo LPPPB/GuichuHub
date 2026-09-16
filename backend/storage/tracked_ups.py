@@ -17,6 +17,13 @@ DEFAULT_CONFIG = {}
 # tracked_ups.json 读写锁：Flask threaded=True 下保护 read-modify-write 全程
 # （save_tracked_list / save_config 都是 RMW，无锁会丢更新）
 _tracked_lock = threading.Lock()
+_state_repository = None
+
+
+def configure_state_repository(repository):
+    """Install the PostgreSQL tracked-UP state repository for public adapters."""
+    global _state_repository
+    _state_repository = repository
 
 
 # ==================== 文件工具 ====================
@@ -100,6 +107,8 @@ def save_config(config):
 
 def load_tracked_list():
     """返回 {'ups': [...], 'config': {...}, 'updated_at': int}（持锁读）"""
+    if _state_repository is not None:
+        return _state_repository.load_tracked_list()
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
     if not tracked:
@@ -118,6 +127,12 @@ def save_tracked_list(ups, updated_at=None):
     且 _safe_write_json 原非原子，并发读取会拿到半截 JSON 经 except 退化为 {}，
     导致整段 ups 或 config 被空值覆盖。_tracked_lock + 原子写 = 双保险。
     """
+    if _state_repository is not None:
+        current = _state_repository.load_tracked_list() or {}
+        _state_repository.save_tracked_list(
+            ups, updated_at or int(time.time()), current.get('config', DEFAULT_CONFIG),
+        )
+        return
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
         tracked['ups'] = ups

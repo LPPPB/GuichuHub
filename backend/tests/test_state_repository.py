@@ -95,3 +95,13 @@ def test_legacy_state_store_uses_configured_postgresql_repository(state_reposito
     assert database.get_favorites(owner="9") == [favorite]
     assert database.update_favorite(favorite["id"], tags=["梗"], notes="note", owner="9")["notes"] == "note"
     assert database.remove_favorite(favorite["id"], owner="9") is True
+
+
+def test_legacy_tracked_up_store_uses_configured_postgresql_repository(state_repository):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    tracked_ups.save_tracked_list([{"mid": 701, "name": "UP701", "enabled": True}], updated_at=100)
+
+    assert state_repository.tracked_mids() == [701]
+    assert tracked_ups.load_tracked_list()["ups"] == [{"mid": 701, "name": "UP701", "enabled": True}]
