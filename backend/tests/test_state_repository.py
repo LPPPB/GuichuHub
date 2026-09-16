@@ -105,3 +105,13 @@ def test_legacy_tracked_up_store_uses_configured_postgresql_repository(state_rep
 
     assert state_repository.tracked_mids() == [701]
     assert tracked_ups.load_tracked_list()["ups"] == [{"mid": 701, "name": "UP701", "enabled": True}]
+
+
+def test_legacy_tracked_up_config_uses_configured_postgresql_repository(state_repository):
+    from storage import tracked_ups
+
+    tracked_ups.configure_state_repository(state_repository)
+    tracked_ups.save_config({"refresh_hours": 6})
+
+    assert state_repository.load_tracked_list()["config"] == {"refresh_hours": 6}
+    assert tracked_ups.load_config() == {"refresh_hours": 6}

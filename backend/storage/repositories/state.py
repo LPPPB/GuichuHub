@@ -182,3 +182,12 @@ class StateRepository:
                 return None
             return {"ups": ups, "config": (setting or {"payload": {}})["payload"].get("config", {}),
                     "updated_at": (setting or {"updated_at": 0})["updated_at"]}
+
+    def save_tracked_config(self, config: dict, updated_at: int) -> None:
+        with self._sessions.begin() as session:
+            session.execute(insert(tracked_up_settings).values(
+                name="tracked_list", payload={"config": config}, updated_at=updated_at,
+            ).on_conflict_do_update(
+                index_elements=[tracked_up_settings.c.name],
+                set_={"payload": {"config": config}, "updated_at": updated_at},
+            ))

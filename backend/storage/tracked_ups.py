@@ -83,6 +83,9 @@ def load_config():
     PermissionError。读写都持 _tracked_lock = 互斥简单可靠（tracked_ups.json
     读写频次极低，互斥无性能影响）。
     """
+    if _state_repository is not None:
+        tracked = _state_repository.load_tracked_list()
+        return {**DEFAULT_CONFIG, **(tracked or {}).get('config', {})}
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE)
     if tracked and 'config' in tracked:
@@ -97,6 +100,9 @@ def save_config(config):
     互相覆盖（A 写完 ups、B 读到旧 ups、B 写回旧 ups + 新 config → A 的 ups 丢失）。
     _tracked_lock 保护整个 RMW，原子写防止半写读脏。
     """
+    if _state_repository is not None:
+        _state_repository.save_tracked_config({**DEFAULT_CONFIG, **config}, int(time.time()))
+        return
     with _tracked_lock:
         tracked = _safe_read_json(TRACKED_FILE, {})
         tracked['config'] = {**DEFAULT_CONFIG, **config}
