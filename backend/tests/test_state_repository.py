@@ -42,6 +42,11 @@ def state_repository():
             database.configure_state_repository(None)
         except ImportError:
             pass
+        try:
+            from storage import tracked_ups
+            tracked_ups.configure_state_repository(None)
+        except ImportError:
+            pass
         subprocess.run(["docker", "stop", container_id], check=False)
 
 
