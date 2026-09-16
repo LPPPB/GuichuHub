@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import dashboard_state, favorites
+from storage.models import dashboard_state, favorites, tracked_ups, tracking_requests
 
 
 class StateRepository:
@@ -105,3 +105,44 @@ class StateRepository:
             return session.execute(favorites.delete().where(
                 favorites.c.id == favorite_id, favorites.c.owner == owner,
             )).rowcount > 0
+
+    def create_tracking_request(self, mid: int, visitor_id: str, snapshot: dict,
+                                reason: str, now: int) -> str:
+        request_id = f"req_{uuid.uuid4().hex}"
+        with self._sessions.begin() as session:
+            session.execute(insert(tracking_requests).values(
+                id=request_id, mid=mid, visitor_id=visitor_id, status="pending",
+                payload={"up": snapshot, "reason": reason, "request_type": "add"},
+                created_at=now,
+            ))
+        return request_id
+
+    def review_tracking_request(self, request_id: str, action: str, now: int) -> dict:
+        if action != "approve":
+            raise ValueError("only approve is supported by this repository method")
+        with self._sessions.begin() as session:
+            request = session.execute(select(tracking_requests).where(
+                tracking_requests.c.id == request_id,
+                tracking_requests.c.status == "pending",
+            ).with_for_update()).mappings().first()
+            if request is None:
+                raise LookupError("tracking request not found")
+            existing = session.execute(select(tracked_ups.c.mid).where(
+                tracked_ups.c.mid == request["mid"],
+            ).with_for_update()).scalar_one_or_none()
+            session.execute(tracking_requests.update().where(
+                tracking_requests.c.id == request_id,
+            ).values(status="approved", reviewed_at=now))
+            session.execute(insert(tracked_ups).values(
+                mid=request["mid"], payload=request["payload"]["up"], enabled=True, updated_at=now,
+            ).on_conflict_do_update(
+                index_elements=[tracked_ups.c.mid],
+                set_={"payload": request["payload"]["up"], "enabled": True, "updated_at": now},
+            ))
+            return {"added_to_pool": existing is None}
+
+    def tracked_mids(self) -> list[int]:
+        with self._sessions() as session:
+            return list(session.execute(select(tracked_ups.c.mid).where(
+                tracked_ups.c.enabled.is_(True),
+            ).order_by(tracked_ups.c.mid)).scalars())

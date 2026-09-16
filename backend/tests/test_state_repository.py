@@ -72,6 +72,17 @@ def test_favorites_are_owner_scoped_and_mutable(state_repository):
     assert state_repository.remove_favorite(favorite["id"], "1") is True
 
 
+def test_approving_tracking_request_adds_one_tracked_up_atomically(state_repository):
+    request_id = state_repository.create_tracking_request(
+        99, "visitor", {"name": "UP99"}, "reason", now=100,
+    )
+
+    assert state_repository.review_tracking_request(request_id, "approve", now=101) == {
+        "added_to_pool": True,
+    }
+    assert state_repository.tracked_mids() == [99]
+
+
 def test_legacy_state_store_uses_configured_postgresql_repository(state_repository):
     from storage import database
 
