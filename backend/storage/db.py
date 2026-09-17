@@ -50,19 +50,10 @@ def get_business_repository():
 # ==================== 连接与迁移 ====================
 
 def get_conn():
-    """获取当前线程的数据库连接（B6：连接不跨线程）"""
-    conn = getattr(_thread_local, 'conn', None)
-    if conn is None:
-        os.makedirs(os.path.dirname(DB_PATH) or '.', exist_ok=True)
-        conn = sqlite3.connect(DB_PATH, timeout=10)
-        conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA journal_mode=WAL')
-        conn.execute('PRAGMA synchronous=NORMAL')
-        conn.execute('PRAGMA foreign_keys=ON')
-        conn.execute('PRAGMA busy_timeout=5000')
-        _thread_local.conn = conn
-        _migrate(conn)
-    return conn
+    """Reject legacy raw connections; all runtime persistence uses repositories."""
+    if _business_repository is None:
+        raise RuntimeError("PostgreSQL business repository is not configured")
+    raise RuntimeError("raw database connections are not exposed by the PostgreSQL adapter")
 
 
 _SCHEMA_V1 = """
@@ -455,7 +446,7 @@ def record_video(video, ts, source):
         payload = dict(video)
         payload.setdefault('first_seen', ts)
         payload.setdefault('source', source)
-        _business_repository.record_video(payload)
+        _business_repository.record_video(payload, ts=ts, source=source)
         return
     bvid = video.get('bvid')
     if not bvid:
@@ -630,6 +621,8 @@ def get_video_obs_trend(bvid, hours=48):
     """
     now = int(time.time())
     start_ts = now - hours * 3600
+    if _business_repository is not None:
+        return _business_repository.video_observation_trend(bvid, start_ts=start_ts)
     conn = get_conn()
     rows = conn.execute('''
         SELECT ts, views, likes, coins, favorites, shares, comments, danmaku, online_count, online_precision, potential_score
@@ -851,6 +844,13 @@ def register_up(mid, name='', face=''):
             INSERT OR REPLACE INTO ups (mid, name, face, tracked) VALUES (?,?,?,1)
         ''', (mid, name or '', face or ''))
         conn.commit()
+
+
+def get_up_names(mids):
+    """Return stored UP names for an explicit batch of IDs."""
+    if _business_repository is None:
+        raise RuntimeError("PostgreSQL business repository is not configured")
+    return _business_repository.up_names([int(mid) for mid in mids])
     return True
 
 
@@ -1136,6 +1136,9 @@ def get_calendar_data(mids=None, year=None):
     year_start = int(datetime(year, 1, 1, tzinfo=CN_TZ).timestamp())
     year_end = int(datetime(year + 1, 1, 1, tzinfo=CN_TZ).timestamp()) - 1
 
+    if _business_repository is not None:
+        return _business_repository.calendar_data(year_start, year_end, mids)
+
     conn = get_conn()
     if mids == []:
         # 空名单：没有任何 UP 在观测，返回空日历（防止误显示全部 UP 的历史数据）
@@ -1171,6 +1174,14 @@ def get_calendar_data(mids=None, year=None):
 
 def get_calendar_freshness(mids=None, year=None):
     """返回当前名单、指定年份日历数据的最近抓取时间。"""
+    if _business_repository is not None:
+        if mids == []:
+            return None
+        year_start = year_end = None
+        if year is not None:
+            year_start = int(datetime(int(year), 1, 1, tzinfo=CN_TZ).timestamp())
+            year_end = int(datetime(int(year) + 1, 1, 1, tzinfo=CN_TZ).timestamp())
+        return _business_repository.calendar_freshness(mids, year_start, year_end)
     if mids == []:
         return None
     params = []
@@ -1199,6 +1210,8 @@ def get_calendar_freshness(mids=None, year=None):
 
 def get_calendar_recent_series(mids=None, days=60):
     """最近 N 个自然日发布序列，缺失日期显式补零。"""
+    if _business_repository is not None:
+        return _business_repository.calendar_recent_series(mids, days)
     days = max(1, min(int(days or 60), 366))
     today = datetime.now(CN_TZ).date()
     start_date = today - timedelta(days=days - 1)
@@ -1243,6 +1256,8 @@ def get_calendar_day_videos(date_str, mids=None, limit=50):
     新接口使用 YYYY-MM-DD；暂时兼容旧 MM-DD 调用，避免升级过程中的读侧中断。
     """
     limit = max(1, min(int(limit or 50), 100))
+    if _business_repository is not None:
+        return _business_repository.calendar_day_videos(date_str, mids, limit)
     conn = get_conn()
     if mids == []:
         return []
@@ -1289,6 +1304,10 @@ def reconcile_calendar_author(mid, year, seen_bvids, missing_threshold=2):
     year_start = int(datetime(year, 1, 1, tzinfo=CN_TZ).timestamp())
     year_end = int(datetime(year + 1, 1, 1, tzinfo=CN_TZ).timestamp())
     seen = {str(v) for v in (seen_bvids or []) if v}
+    if _business_repository is not None:
+        return _business_repository.reconcile_calendar_author(
+            mid, year_start, year_end, seen, missing_threshold,
+        )
     with _write_lock:
         conn = get_conn()
         rows = conn.execute('''
@@ -1433,6 +1452,8 @@ def get_publish_habits(mids=None, days=180):
       meta: {days, video_count, fetched_at, latest_pub_date}
     """
     now = int(time.time())
+    if _business_repository is not None:
+        return _business_repository.publish_habits(mids, days, now)
     since = now - days * 86400
     conn = get_conn()
     if mids is None:

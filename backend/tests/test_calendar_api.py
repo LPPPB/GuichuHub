@@ -41,6 +41,23 @@ def test_backfill_requires_admin_and_returns_persistent_job(client):
     assert status.get_json()['data']['status'] == 'queued'
 
 
+def test_calendar_job_status_and_active_job_are_postgresql_backed(client):
+    tracked_ups.save_tracked_list([{'mid': 77, 'name': '队列 UP', 'enabled': True}])
+    job, created = calendar_jobs.enqueue_calendar_job(
+        mode='recent', days=7, mids=[77], requested_by='test',
+    )
+
+    active = calendar_jobs.get_active_calendar_job()
+
+    assert created is True
+    assert active['id'] == job['id']
+    assert job['total_ups'] == 1
+    assert job['processed_ups'] == 0
+    assert job['progress_percent'] == 0
+    assert job['items'][0]['mid'] == 77
+    assert job['items'][0]['name'] == '队列 UP'
+
+
 def test_backfill_rejects_unbounded_manual_window(client):
     res = client.post(
         '/api/up-trends/calendar/backfill', json={'mode': 'recent', 'days': 3650},

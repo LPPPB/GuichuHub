@@ -1,8 +1,9 @@
 """Persistent storage adapters fail closed instead of using file databases."""
 
 import pytest
+import sqlite3
 
-from storage import auth_store, cache, database, tracked_ups
+from storage import auth_store, cache, database, db, tracked_ups
 
 
 def _close_legacy_auth_connection():
@@ -61,6 +62,24 @@ def test_dashboard_cache_persistence_requires_postgres(monkeypatch, tmp_path):
 
     assert not (tmp_path / "dashboard.json").exists()
     assert not (tmp_path / "dashboard.json.lock").exists()
+
+
+def test_business_store_requires_postgres_without_sqlite_fallback(monkeypatch, tmp_path):
+    db.configure_business_repository(None)
+    database_path = tmp_path / "business.sqlite"
+    monkeypatch.setattr(db, "DB_PATH", str(database_path), raising=False)
+    thread_local = getattr(db, "_thread_local", None)
+    if thread_local is not None:
+        monkeypatch.setattr(thread_local, "conn", None, raising=False)
+    monkeypatch.setattr(
+        sqlite3, "connect",
+        lambda *args, **kwargs: pytest.fail("business storage opened SQLite"),
+    )
+
+    with pytest.raises(RuntimeError, match="PostgreSQL business repository"):
+        db.get_conn()
+
+    assert not database_path.exists()
 
 
 def test_test_runtime_configures_all_storage_adapters_to_postgresql(postgres_runtime):

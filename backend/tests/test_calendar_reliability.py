@@ -1,26 +1,20 @@
 """发布日历可靠回填、作者关联、自然日序列与持久化任务测试。"""
-import os
-import tempfile
 from datetime import datetime, timezone, timedelta
 
 import pytest
+from sqlalchemy import func, select, update
 
 import collectors.calendar_backfill as backfill
 import jobs.calendar_jobs as calendar_jobs
 import storage.db as db
+from storage.models import calendar_videos
 
 CN_TZ = timezone(timedelta(hours=8))
 
 
 @pytest.fixture
-def calendar_db(monkeypatch):
-    tmpdir = tempfile.mkdtemp()
-    monkeypatch.setattr(db, 'DB_PATH', os.path.join(tmpdir, 'test.db'))
-    monkeypatch.setattr(db, 'DATA_DIR', tmpdir)
-    db._thread_local.conn = None
-    db.get_conn()
-    yield
-    db._thread_local.conn = None
+def calendar_db(postgres_runtime):
+    return postgres_runtime
 
 
 def _calendar_video(bvid='BV1', mid=1, days_ago=1, views=100):
@@ -71,7 +65,8 @@ def test_partial_fetch_is_saved_but_reported_partial(monkeypatch, calendar_db):
     result = backfill.backfill_calendar(recent_days=7)
     assert result['status'] == 'partial'
     assert result['partial_ups'] == 1 and result['total_videos'] == 1
-    assert db.get_conn().execute('SELECT COUNT(*) c FROM calendar_videos').fetchone()['c'] == 1
+    with calendar_db.business._sessions() as session:
+        assert session.scalar(select(func.count()).select_from(calendar_videos)) == 1
 
 
 def test_author_relation_survives_representative_mid_change(calendar_db):
@@ -118,10 +113,13 @@ def test_calendar_freshness_is_scoped_to_selected_year(calendar_db):
             'pub_date_str': pub.strftime('%m-%d'), 'views': 1, 'title': bvid,
         })
     db.upsert_calendar_videos(videos)
-    conn = db.get_conn()
-    conn.execute("UPDATE calendar_videos SET fetched_at=111 WHERE bvid='BV-2025'")
-    conn.execute("UPDATE calendar_videos SET fetched_at=222 WHERE bvid='BV-2026'")
-    conn.commit()
+    with calendar_db.business._sessions.begin() as session:
+        session.execute(update(calendar_videos).where(
+            calendar_videos.c.bvid == 'BV-2025',
+        ).values(fetched_at=111))
+        session.execute(update(calendar_videos).where(
+            calendar_videos.c.bvid == 'BV-2026',
+        ).values(fetched_at=222))
     assert db.get_calendar_freshness([1], 2025) == 111
     assert db.get_calendar_freshness([1], 2026) == 222
 

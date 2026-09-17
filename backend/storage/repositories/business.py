@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine, func, select
+from html import unescape
+
+from sqlalchemy import case, create_engine, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
-from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, calendar_video_authors, calendar_videos, crawl_runs, up_card_cache, up_observations, ups, video_observations, video_snapshot_documents, videos, word_observations
+from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, calendar_video_authors, calendar_videos, crawl_runs, up_card_cache, up_observations, ups, video_observations, video_snapshot_documents, video_tags, videos, word_observations
+
+CN_TZ = timezone(timedelta(hours=8))
 
 
 class BusinessRepository:
@@ -20,19 +25,56 @@ class BusinessRepository:
         engine = create_engine(url, pool_pre_ping=True)
         return cls(sessionmaker(bind=engine, expire_on_commit=False))
 
-    def record_video(self, video: dict) -> None:
+    def record_video(self, video: dict, ts: int | None = None, source: str | None = None) -> None:
+        bvid = video.get("bvid")
+        if not bvid:
+            return
         row = {
-            "bvid": video["bvid"], "mid": video.get("mid"), "title": video.get("title"),
+            "bvid": bvid, "mid": video.get("mid"),
+            "title": unescape(video.get("title") or "")[:200],
             "tid": video.get("tid"), "tname": video.get("tname"), "pub_date": video.get("pub_date"),
             "duration": video.get("duration"), "first_seen": video["first_seen"],
-            "source": video.get("source"), "observe_tier": video.get("observe_tier", "hot"), "pic": video.get("pic"),
+            "source": source or video.get("source"),
+            "observe_tier": video.get("observe_tier", "hot"),
+            "pic": video.get("cover") or video.get("pic"),
         }
-        statement = insert(videos).values(**row).on_conflict_do_update(
-            index_elements=[videos.c.bvid],
-            set_={key: value for key, value in row.items() if key not in {"bvid", "first_seen"} and value is not None},
-        )
         with self._sessions.begin() as session:
-            session.execute(statement)
+            existing_source = session.execute(select(videos.c.source).where(
+                videos.c.bvid == bvid,
+            ).with_for_update()).scalar_one_or_none()
+            sources = set(filter(None, (existing_source or "").split(",")))
+            sources.update(filter(None, (row["source"] or "").split(",")))
+            if sources:
+                row["source"] = ",".join(sorted(sources))
+            session.execute(insert(videos).values(**row).on_conflict_do_update(
+                index_elements=[videos.c.bvid],
+                set_={
+                    key: value for key, value in row.items()
+                    if key not in {"bvid", "first_seen"} and value is not None
+                },
+            ))
+            if ts is not None:
+                metrics = {
+                    "bvid": bvid, "ts": ts,
+                    "views": video.get("views"), "likes": video.get("likes"),
+                    "coins": video.get("coins"), "favorites": video.get("favorites"),
+                    "shares": video.get("shares"), "comments": video.get("comments"),
+                    "danmaku": video.get("danmaku"),
+                    "online_count": video.get("online_count_raw", video.get("online_count")),
+                    "online_precision": video.get("online_precision"),
+                    "potential_score": video.get("potential_score"),
+                }
+                session.execute(insert(video_observations).values(**metrics).on_conflict_do_update(
+                    index_elements=[video_observations.c.bvid, video_observations.c.ts],
+                    set_={key: value for key, value in metrics.items() if key not in {"bvid", "ts"}},
+                ))
+                for tag in {str(value or "").strip() for value in (video.get("tags") or [])} - {""}:
+                    session.execute(insert(video_tags).values(
+                        bvid=bvid, tag=tag, ts=ts,
+                    ).on_conflict_do_update(
+                        index_elements=[video_tags.c.bvid, video_tags.c.tag],
+                        set_={"ts": ts},
+                    ))
 
     def record_observation(self, bvid: str, ts: int, metrics: dict) -> None:
         row = {"bvid": bvid, "ts": ts, "views": metrics.get("views"), "likes": metrics.get("likes")}
@@ -45,7 +87,25 @@ class BusinessRepository:
     def video_trend(self, bvid: str, start_ts: int) -> list[dict]:
         with self._sessions() as session:
             rows = session.execute(
-                select(video_observations.c.ts, video_observations.c.views, video_observations.c.likes)
+                select(
+                    video_observations.c.ts, video_observations.c.views, video_observations.c.likes,
+                )
+                .where(video_observations.c.bvid == bvid, video_observations.c.ts >= start_ts)
+                .order_by(video_observations.c.ts)
+            ).mappings()
+            return [dict(row) for row in rows]
+
+    def video_observation_trend(self, bvid: str, start_ts: int) -> list[dict]:
+        columns = (
+            video_observations.c.ts, video_observations.c.views, video_observations.c.likes,
+            video_observations.c.coins, video_observations.c.favorites,
+            video_observations.c.shares, video_observations.c.comments,
+            video_observations.c.danmaku, video_observations.c.online_count,
+            video_observations.c.online_precision, video_observations.c.potential_score,
+        )
+        with self._sessions() as session:
+            rows = session.execute(
+                select(*columns)
                 .where(video_observations.c.bvid == bvid, video_observations.c.ts >= start_ts)
                 .order_by(video_observations.c.ts)
             ).mappings()
@@ -279,6 +339,189 @@ class BusinessRepository:
                 .where(calendar_videos.c.bvid == bvid, calendar_videos.c.mid == mid)
             ).mappings().one())
 
+    @staticmethod
+    def _calendar_author_filter(query, mids: list[int] | None):
+        if mids is None:
+            return query
+        active_videos = select(calendar_video_authors.c.bvid).where(
+            calendar_video_authors.c.status == "active",
+            calendar_video_authors.c.mid.in_(mids),
+        )
+        return query.where(calendar_videos.c.bvid.in_(active_videos))
+
+    def calendar_data(self, year_start: int, year_end: int, mids: list[int] | None) -> dict:
+        if mids == []:
+            return {}
+        query = select(calendar_videos.c.pub_date, calendar_videos.c.views).where(
+            calendar_videos.c.pub_date.between(year_start, year_end),
+            calendar_videos.c.status == "active",
+        )
+        with self._sessions() as session:
+            rows = session.execute(self._calendar_author_filter(query, mids)).mappings()
+            result = {}
+            for row in rows:
+                day = datetime.fromtimestamp(row["pub_date"], CN_TZ).date().isoformat()
+                value = result.setdefault(day, {"count": 0, "views": 0})
+                value["count"] += 1
+                value["views"] += int(row["views"] or 0)
+            return result
+
+    def calendar_freshness(self, mids: list[int] | None, year_start: int | None = None, year_end: int | None = None) -> int | None:
+        if mids == []:
+            return None
+        query = select(func.max(calendar_videos.c.fetched_at)).where(
+            calendar_videos.c.status == "active",
+        )
+        if year_start is not None and year_end is not None:
+            query = query.where(calendar_videos.c.pub_date >= year_start,
+                                calendar_videos.c.pub_date < year_end)
+        with self._sessions() as session:
+            result = session.execute(self._calendar_author_filter(query, mids)).scalar_one()
+            return int(result) if result else None
+
+    def calendar_recent_series(self, mids: list[int] | None, days: int) -> list[dict]:
+        days = max(1, min(int(days or 60), 366))
+        today = datetime.now(CN_TZ).date()
+        start_date = today - timedelta(days=days - 1)
+        start_ts = int(datetime.combine(start_date, datetime.min.time(), tzinfo=CN_TZ).timestamp())
+        end_ts = int(datetime.combine(today + timedelta(days=1), datetime.min.time(), tzinfo=CN_TZ).timestamp())
+        aggregate = {}
+        if mids != []:
+            query = select(calendar_videos.c.pub_date, calendar_videos.c.views).where(
+                calendar_videos.c.pub_date >= start_ts,
+                calendar_videos.c.pub_date < end_ts,
+                calendar_videos.c.status == "active",
+            )
+            with self._sessions() as session:
+                for row in session.execute(self._calendar_author_filter(query, mids)).mappings():
+                    day = datetime.fromtimestamp(row["pub_date"], CN_TZ).date().isoformat()
+                    value = aggregate.setdefault(day, {"count": 0, "views": 0})
+                    value["count"] += 1
+                    value["views"] += int(row["views"] or 0)
+        return [
+            {"date": (start_date + timedelta(days=offset)).isoformat(),
+             **aggregate.get((start_date + timedelta(days=offset)).isoformat(), {"count": 0, "views": 0})}
+            for offset in range(days)
+        ]
+
+    def calendar_day_videos(self, date_str: str, mids: list[int] | None, limit: int) -> list[dict]:
+        if mids == []:
+            return []
+        query = select(
+            calendar_videos.c.bvid, calendar_videos.c.mid, calendar_videos.c.title,
+            calendar_videos.c.views, calendar_videos.c.pub_date, calendar_videos.c.fetched_at,
+        ).where(calendar_videos.c.status == "active")
+        if len(date_str) == 10:
+            try:
+                day = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=CN_TZ)
+            except ValueError:
+                return []
+            query = query.where(
+                calendar_videos.c.pub_date >= int(day.timestamp()),
+                calendar_videos.c.pub_date < int((day + timedelta(days=1)).timestamp()),
+            )
+        elif len(date_str) == 5:
+            query = query.where(calendar_videos.c.pub_date_str == date_str)
+        else:
+            return []
+        query = self._calendar_author_filter(query, mids).order_by(
+            calendar_videos.c.views.desc(), calendar_videos.c.bvid,
+        ).limit(limit)
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(query).mappings()]
+
+    def publish_habits(self, mids: list[int] | None, days: int, now: int) -> dict:
+        days = int(days)
+        if mids == []:
+            return {
+                "hourly": [], "weekly": [],
+                "meta": {"days": days, "video_count": 0, "fetched_at": None,
+                         "latest_pub_date": None},
+            }
+        since = now - days * 86400
+        query = select(
+            calendar_videos.c.bvid,
+            func.max(calendar_videos.c.pub_date).label("pub_date"),
+            func.max(calendar_videos.c.views).label("views"),
+            func.max(calendar_videos.c.fetched_at).label("fetched_at"),
+        ).where(
+            calendar_videos.c.pub_date >= since,
+            calendar_videos.c.status == "active",
+        ).group_by(calendar_videos.c.bvid)
+        query = self._calendar_author_filter(query, mids)
+        with self._sessions() as session:
+            values = list(session.execute(query).mappings())
+        hourly, weekly = {}, {}
+        for row in values:
+            local_time = datetime.fromtimestamp(row["pub_date"], CN_TZ)
+            hour = local_time.hour
+            weekday = local_time.weekday()
+            hourly.setdefault(hour, []).append(int(row["views"] or 0))
+            weekly.setdefault(weekday, []).append(int(row["views"] or 0))
+        return {
+            "hourly": [
+                {"hour": hour, "count": len(views), "avg_views": int(sum(views) / len(views))}
+                for hour, views in sorted(hourly.items())
+            ],
+            "weekly": [
+                {"weekday": weekday, "count": len(views), "avg_views": int(sum(views) / len(views))}
+                for weekday, views in sorted(weekly.items())
+            ],
+            "meta": {
+                "days": days, "video_count": len(values),
+                "fetched_at": max((int(row["fetched_at"]) for row in values if row["fetched_at"]), default=None),
+                "latest_pub_date": max((int(row["pub_date"]) for row in values), default=None),
+            },
+        }
+
+    def up_names(self, mids: list[int]) -> dict[int, str]:
+        if not mids:
+            return {}
+        with self._sessions() as session:
+            return {
+                int(row["mid"]): row["name"]
+                for row in session.execute(
+                    select(ups.c.mid, ups.c.name).where(ups.c.mid.in_(mids))
+                ).mappings()
+            }
+
+    def reconcile_calendar_author(self, mid: int, year_start: int, year_end: int,
+                                  seen_bvids: set[str], missing_threshold: int) -> dict:
+        seen = {str(value) for value in seen_bvids if value}
+        with self._sessions.begin() as session:
+            rows = session.execute(
+                select(calendar_video_authors.c.bvid, calendar_video_authors.c.missing_count)
+                .join(calendar_videos, calendar_videos.c.bvid == calendar_video_authors.c.bvid)
+                .where(
+                    calendar_video_authors.c.mid == int(mid),
+                    calendar_videos.c.pub_date >= year_start,
+                    calendar_videos.c.pub_date < year_end,
+                )
+                .with_for_update(of=calendar_video_authors)
+            ).mappings().all()
+            missing = [row for row in rows if row["bvid"] not in seen]
+            restored = sum(1 for row in rows if row["bvid"] in seen and row["missing_count"] > 0)
+            for row in missing:
+                count = int(row["missing_count"] or 0) + 1
+                session.execute(calendar_video_authors.update().where(
+                    calendar_video_authors.c.bvid == row["bvid"],
+                    calendar_video_authors.c.mid == int(mid),
+                ).values(missing_count=count,
+                         status="unavailable" if count >= missing_threshold else "active"))
+            if seen:
+                session.execute(calendar_video_authors.update().where(
+                    calendar_video_authors.c.mid == int(mid),
+                    calendar_video_authors.c.bvid.in_(seen),
+                ).values(missing_count=0, status="active"))
+            unavailable = sum(
+                1 for row in missing
+                if int(row["missing_count"] or 0) + 1 >= missing_threshold
+            )
+            return {
+                "checked": len(rows), "missing": len(missing),
+                "unavailable": unavailable, "restored": restored,
+            }
+
     def enqueue_calendar_items(self, job_id: str, mids: list[int]) -> None:
         with self._sessions.begin() as session:
             session.execute(insert(calendar_backfill_jobs).values(
@@ -306,30 +549,84 @@ class BusinessRepository:
             )
             return {"job_id": item["job_id"], "mid": item["mid"], "worker_id": worker_id}
 
-    def _calendar_job(self, session, job_id: str) -> dict | None:
+    def _calendar_job(self, session, job_id: str, include_items: bool = True) -> dict | None:
         job = session.execute(select(calendar_backfill_jobs).where(
             calendar_backfill_jobs.c.id == job_id,
         )).mappings().first()
         if job is None:
             return None
-        payload = dict(job["payload"])
-        items = []
-        for item in session.execute(select(calendar_backfill_job_items).where(
-            calendar_backfill_job_items.c.job_id == job_id,
-        ).order_by(calendar_backfill_job_items.c.mid)).mappings():
-            value = dict(item["payload"])
-            value.update({"mid": item["mid"], "status": item["status"]})
-            items.append(value)
-        payload.update({"id": job["id"], "mode": job["mode"], "status": job["status"],
-                        "created_at": job["created_at"], "updated_at": job["updated_at"],
-                        "items": items})
-        return payload
+        result = dict(job["payload"] or {})
+        for key, default in (
+            ("total_ups", 0), ("processed_ups", 0), ("succeeded_ups", 0),
+            ("empty_ups", 0), ("failed_ups", 0), ("partial_ups", 0),
+            ("total_videos", 0),
+        ):
+            result.setdefault(key, default)
+        total = int(result["total_ups"] or 0)
+        result["progress_percent"] = (
+            round(int(result["processed_ups"] or 0) * 100 / total) if total else 100
+        )
+        result.update({
+            "id": job["id"], "mode": job["mode"], "status": job["status"],
+            "created_at": job["created_at"], "updated_at": job["updated_at"],
+        })
+        if include_items:
+            items = []
+            for item in session.execute(select(calendar_backfill_job_items).where(
+                calendar_backfill_job_items.c.job_id == job_id,
+            ).order_by(calendar_backfill_job_items.c.mid)).mappings():
+                value = dict(item["payload"] or {})
+                value.update({"mid": item["mid"], "status": item["status"]})
+                items.append(value)
+            result["items"] = items
+        return result
+
+    def calendar_job(self, job_id: str, include_items: bool = True) -> dict | None:
+        with self._sessions() as session:
+            return self._calendar_job(session, job_id, include_items=include_items)
+
+    def active_calendar_job(self) -> dict | None:
+        with self._sessions() as session:
+            job_id = session.execute(
+                select(calendar_backfill_jobs.c.id)
+                .where(calendar_backfill_jobs.c.status.in_(("running", "queued")))
+                .order_by(
+                    case((calendar_backfill_jobs.c.status == "running", 0), else_=1),
+                    calendar_backfill_jobs.c.created_at,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            return self._calendar_job(session, job_id) if job_id else None
 
     def enqueue_calendar_job(self, mode: str, entries: list[dict], now: int, **payload) -> tuple[dict, bool]:
         """Create one PostgreSQL-backed calendar job and its row-locked items."""
         job_id = uuid.uuid4().hex[:16]
         status = "queued" if entries else "succeeded"
+        payload = dict(payload)
+        dedupe_key = payload.get("dedupe_key")
+        dedupe_window = max(0, int(payload.pop("dedupe_window_seconds", 0)))
+        payload.update({
+            "total_ups": len(entries), "processed_ups": 0, "succeeded_ups": 0,
+            "empty_ups": 0, "failed_ups": 0, "partial_ups": 0, "total_videos": 0,
+            "finished_at": now if not entries else None, "error_summary": "",
+        })
         with self._sessions.begin() as session:
+            if dedupe_key:
+                session.execute(select(func.pg_advisory_xact_lock(func.hashtext(dedupe_key))))
+                duplicate_id = session.execute(
+                    select(calendar_backfill_jobs.c.id)
+                    .where(
+                        calendar_backfill_jobs.c.payload["dedupe_key"].astext == dedupe_key,
+                        or_(
+                            calendar_backfill_jobs.c.status.in_(("queued", "running")),
+                            calendar_backfill_jobs.c.created_at >= now - dedupe_window,
+                        ),
+                    )
+                    .order_by(calendar_backfill_jobs.c.created_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                if duplicate_id:
+                    return self._calendar_job(session, duplicate_id), False
             session.execute(insert(calendar_backfill_jobs).values(
                 id=job_id, mode=mode, status=status, payload=payload,
                 created_at=now, updated_at=now,
@@ -337,7 +634,12 @@ class BusinessRepository:
             if entries:
                 session.execute(insert(calendar_backfill_job_items).values([
                     {"job_id": job_id, "mid": int(entry["mid"]), "status": "queued",
-                     "payload": {"name": entry.get("name") or f"UID:{entry['mid']}"}}
+                     "payload": {
+                         "name": entry.get("name") or f"UID:{entry['mid']}",
+                         "pages": 0, "videos": 0, "attempts": 0,
+                         "error_code": "", "error_message": "",
+                         "started_at": None, "finished_at": None,
+                     }}
                     for entry in entries
                 ]))
             return self._calendar_job(session, job_id), True
@@ -358,7 +660,38 @@ class BusinessRepository:
             session.execute(calendar_backfill_jobs.update().where(
                 calendar_backfill_jobs.c.id == job,
             ).values(status="running", worker_id=worker_id, lease_until=now + lease_seconds, updated_at=now))
+            stored = session.execute(select(calendar_backfill_jobs.c.payload).where(
+                calendar_backfill_jobs.c.id == job,
+            ).with_for_update()).scalar_one()
+            payload = dict(stored or {})
+            payload.setdefault("started_at", now)
+            session.execute(calendar_backfill_jobs.update().where(
+                calendar_backfill_jobs.c.id == job,
+            ).values(payload=payload))
             return self._calendar_job(session, job)
+
+    @staticmethod
+    def _refresh_calendar_job_progress(session, job_id: str, now: int) -> None:
+        items = session.execute(select(
+            calendar_backfill_job_items.c.status, calendar_backfill_job_items.c.payload,
+        ).where(calendar_backfill_job_items.c.job_id == job_id)).mappings().all()
+        statuses = [item["status"] for item in items]
+        stored = session.execute(select(calendar_backfill_jobs.c.payload).where(
+            calendar_backfill_jobs.c.id == job_id,
+        ).with_for_update()).scalar_one()
+        payload = dict(stored or {})
+        payload.update({
+            "total_ups": len(items),
+            "processed_ups": sum(status not in ("queued", "running") for status in statuses),
+            "succeeded_ups": sum(status in ("success", "empty") for status in statuses),
+            "empty_ups": statuses.count("empty"),
+            "failed_ups": statuses.count("failed"),
+            "partial_ups": statuses.count("partial"),
+            "total_videos": sum(int((item["payload"] or {}).get("videos") or 0) for item in items),
+        })
+        session.execute(calendar_backfill_jobs.update().where(
+            calendar_backfill_jobs.c.id == job_id,
+        ).values(payload=payload, updated_at=now))
 
     def update_calendar_job_item(self, job_id: str, event: dict, worker_id: str, now: int, lease_seconds: int) -> None:
         with self._sessions.begin() as session:
@@ -367,13 +700,24 @@ class BusinessRepository:
                 calendar_backfill_job_items.c.mid == int(event["mid"]),
             ).with_for_update()).mappings().one()
             payload = dict(item["payload"])
-            payload.update({key: event.get(key) for key in ("pages", "videos", "attempts", "error_code", "error_message") if key in event})
+            payload.update({
+                "pages": int(event.get("pages") or 0),
+                "videos": int(event.get("videos") or 0),
+                "attempts": int(event.get("attempts") or 0),
+                "error_code": event.get("error_code") or "",
+                "error_message": (event.get("error_message") or "")[:500],
+            })
+            status = event.get("status", "running")
+            payload.setdefault("started_at", now)
+            if status != "running":
+                payload["finished_at"] = now
             session.execute(calendar_backfill_job_items.update().where(
                 calendar_backfill_job_items.c.job_id == job_id, calendar_backfill_job_items.c.mid == item["mid"],
-            ).values(status=event.get("status", "running"), worker_id=worker_id, payload=payload))
+            ).values(status=status, worker_id=worker_id, payload=payload))
             session.execute(calendar_backfill_jobs.update().where(calendar_backfill_jobs.c.id == job_id).values(
                 worker_id=worker_id, lease_until=now + lease_seconds, updated_at=now,
             ))
+            self._refresh_calendar_job_progress(session, job_id, now)
 
     def finish_calendar_job(self, job_id: str, status: str, now: int, error_summary: str = "") -> None:
         with self._sessions.begin() as session:
@@ -381,7 +725,7 @@ class BusinessRepository:
                 calendar_backfill_jobs.c.id == job_id,
             ).with_for_update()).mappings().one()
             payload = dict(job["payload"])
-            payload["error_summary"] = error_summary[:1000]
+            payload.update({"error_summary": error_summary[:1000], "finished_at": now})
             session.execute(calendar_backfill_jobs.update().where(calendar_backfill_jobs.c.id == job_id).values(
                 status=status, payload=payload, updated_at=now, lease_until=None, worker_id=None,
             ))
@@ -393,7 +737,11 @@ class BusinessRepository:
                 calendar_backfill_job_items.c.status.in_(("queued", "running")),
             ).with_for_update()).mappings():
                 payload = dict(item["payload"])
-                payload.update({"error_code": code, "error_message": message[:500], "attempts": 1})
+                payload.update({
+                    "error_code": code, "error_message": message[:500], "attempts": 1,
+                    "started_at": payload.get("started_at") or now, "finished_at": now,
+                })
                 session.execute(calendar_backfill_job_items.update().where(
                     calendar_backfill_job_items.c.job_id == job_id, calendar_backfill_job_items.c.mid == item["mid"],
                 ).values(status="failed", payload=payload))
+            self._refresh_calendar_job_progress(session, job_id, now)

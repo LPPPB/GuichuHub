@@ -1,5 +1,7 @@
 """PostgreSQL business repository contracts."""
 
+import time
+
 import pytest
 
 from storage.migrations import upgrade_database
@@ -48,7 +50,52 @@ def test_calendar_job_queue_uses_postgres_row_locks(business_repository):
     assert created is True
     claimed = business_repository.claim_calendar_job("worker-a", now=101, lease_seconds=120)
     assert claimed["id"] == job["id"]
-    assert claimed["items"] == [{"mid": 303, "name": "UP303", "status": "queued"}]
+    assert claimed["items"] == [{
+        "mid": 303, "name": "UP303", "status": "queued", "pages": 0,
+        "videos": 0, "attempts": 0, "error_code": "", "error_message": "",
+        "started_at": None, "finished_at": None,
+    }]
+
+
+def test_calendar_job_deduplicates_an_existing_live_request(business_repository):
+    first, created = business_repository.enqueue_calendar_job(
+        "recent", [{"mid": 304, "name": "UP304"}], now=100,
+        days=7, dedupe_key="manual:recent:7", dedupe_window_seconds=60,
+    )
+    second, created_again = business_repository.enqueue_calendar_job(
+        "recent", [{"mid": 304, "name": "UP304"}], now=110,
+        days=7, dedupe_key="manual:recent:7", dedupe_window_seconds=60,
+    )
+
+    assert created is True
+    assert created_again is False
+    assert second["id"] == first["id"]
+
+
+def test_calendar_job_progress_and_failure_counters_are_persisted(business_repository):
+    job, _ = business_repository.enqueue_calendar_job(
+        "recent", [{"mid": 305, "name": "UP305"}, {"mid": 306, "name": "UP306"}],
+        now=200, days=7,
+    )
+    business_repository.update_calendar_job_item(
+        job["id"], {"mid": 305, "status": "success", "pages": 2,
+                    "videos": 5, "attempts": 1},
+        worker_id="worker", now=201, lease_seconds=120,
+    )
+    business_repository.fail_calendar_job_items(
+        job["id"], "cookie_expired", "Cookie unavailable", now=202,
+    )
+
+    result = business_repository.calendar_job(job["id"])
+    assert result["processed_ups"] == 2
+    assert result["succeeded_ups"] == 1
+    assert result["failed_ups"] == 1
+    assert result["total_videos"] == 5
+    assert result["progress_percent"] == 100
+    failed_item = next(item for item in result["items"] if item["mid"] == 306)
+    assert failed_item["status"] == "failed"
+    assert failed_item["error_code"] == "cookie_expired"
+    assert failed_item["finished_at"] == 202
 
 
 def test_legacy_record_obs_adapter_persists_to_postgresql(business_repository):
@@ -234,3 +281,43 @@ def test_up_card_cache_uses_configured_postgresql_repository(business_repository
 
     assert business_repository.up_card_cache(501) == {"last_7d_views": 12, "keywords": ["梗"]}
     assert read_up_card_cache(501) == {"last_7d_views": 12, "keywords": ["梗"]}
+
+
+def test_legacy_record_video_persists_observation_and_tags_atomically(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    legacy_db.record_video({
+        "bvid": "BV-combined-record", "title": "combined", "first_seen": 250,
+        "views": None, "likes": 0, "coins": 2, "favorites": 3, "shares": 4,
+        "comments": 5, "danmaku": 6, "online_count": None,
+        "online_precision": "k_plus", "potential_score": 7.5,
+        "tags": ["鬼畜", "热梗"],
+    }, 250, "test")
+
+    assert business_repository.video_observation_trend("BV-combined-record", 0) == [{
+        "ts": 250, "views": None, "likes": 0, "coins": 2, "favorites": 3,
+        "shares": 4, "comments": 5, "danmaku": 6, "online_count": None,
+        "online_precision": "k_plus", "potential_score": 7.5,
+    }]
+    from storage.models import video_tags
+    with business_repository._sessions() as session:
+        tags = session.execute(video_tags.select().where(
+            video_tags.c.bvid == "BV-combined-record",
+        )).mappings().all()
+    assert {row["tag"] for row in tags} == {"鬼畜", "热梗"}
+
+
+def test_legacy_video_trend_adapter_reads_postgresql(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    now = int(time.time())
+    legacy_db.record_video({
+        "bvid": "BV-trend-adapter", "first_seen": now - 10, "title": "trend",
+        "views": 0, "likes": None, "coins": 2, "favorites": 3, "shares": 4,
+        "comments": 5, "danmaku": 6, "online_count": 7,
+        "online_precision": "exact", "potential_score": 8.5,
+    }, now - 10, "test")
+
+    assert legacy_db.get_video_obs_trend("BV-trend-adapter", hours=1) == [{
+        "ts": now - 10, "views": 0, "likes": None, "coins": 2, "favorites": 3,
+        "shares": 4, "comments": 5, "danmaku": 6, "online_count": 7,
+        "online_precision": "exact", "potential_score": 8.5,
+    }]

@@ -8,29 +8,21 @@
 - backfill_calendar(mids=显式列表) 不过滤（显式指定即处理）
 不依赖真实网络（mock safe_get_with_wbi / load_tracked_list / fetch_up_videos_by_year）。
 """
-import os
-import tempfile
 from datetime import datetime, timezone, timedelta
 
 import pytest
+from sqlalchemy import select
 
 import collectors.calendar_backfill as backfill
 import storage.db as db
+from storage.models import calendar_videos
 
 CN_TZ = timezone(timedelta(hours=8))
 
 
 @pytest.fixture
-def calendar_db(monkeypatch):
-    """临时 SQLite"""
-    tmpdir = tempfile.mkdtemp()
-    db_path = os.path.join(tmpdir, 'test.db')
-    monkeypatch.setattr(db, 'DB_PATH', db_path)
-    monkeypatch.setattr(db, 'DATA_DIR', tmpdir)
-    db._thread_local.conn = None
-    db.get_conn()
-    yield db_path
-    db._thread_local.conn = None
+def calendar_db(postgres_runtime):
+    return postgres_runtime
 
 
 def _v(bvid, pub_ts, play=100, title='t'):
@@ -122,10 +114,6 @@ def test_backfill_filters_disabled(monkeypatch, calendar_db):
 
 def test_backfill_explicit_mids_not_filtered(monkeypatch, calendar_db):
     """显式指定 mids 时不做 enabled 过滤（调用方意图明确）"""
-    conn = db.get_conn()
-    conn.execute("INSERT INTO ups (mid, name) VALUES (?,?)", (1, 'A'))
-    conn.execute("INSERT INTO ups (mid, name) VALUES (?,?)", (2, 'B'))
-    conn.commit()
     calls = []
     monkeypatch.setattr(
         backfill, 'fetch_up_videos_by_year',
@@ -158,7 +146,8 @@ def test_backfill_writes_windowed_videos(monkeypatch, calendar_db):
     assert total_count == 2
     assert total_views == 8000
     # 窗口外视频（W3）未被写入
-    conn = db.get_conn()
-    rows = conn.execute('SELECT bvid, views FROM calendar_videos WHERE mid=1').fetchall()
+    with calendar_db.business._sessions() as session:
+        rows = session.execute(select(calendar_videos.c.bvid, calendar_videos.c.views)
+                               .where(calendar_videos.c.mid == 1)).mappings().all()
     assert sorted(r['bvid'] for r in rows) == ['W1', 'W2']
     assert all(r['views'] != 100 for r in rows)

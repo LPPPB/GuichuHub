@@ -328,3 +328,5 @@ Run: `uv run pytest -q --no-cov && docker compose -f compose.dev.yml config && d
 - [ ] **Step 5: Commit**
 
 Run: `git add README.md docs backend && git commit -m "docs: document PostgreSQL cutover and remove SQLite runtime"`
+
+Task 8 is being completed in reviewable subcommits. Completed checkpoint: calendar reads, backfill, and job state now use PostgreSQL repositories; legacy calendar tests run against disposable PostgreSQL. Verified with 56 repository/API/backfill tests passing. Remaining Task 8 work still includes the rest of `storage.db`, analytics readers, runtime paths, backup scheduler, and cutover documentation.
