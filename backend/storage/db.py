@@ -544,6 +544,9 @@ def mark_candidates_hot(bvids):
     """候选池内视频强制标记 hot（A4：即使 pub_date 较老也保持高频观测）"""
     if not bvids:
         return
+    if _business_repository is not None:
+        _business_repository.mark_candidates_hot(list(bvids))
+        return
     with _write_lock:
         conn = get_conn()
         conn.executemany(
@@ -560,6 +563,8 @@ def refresh_observe_tiers(now=None):
     cold: 60天外且最近两次观测播放增量 < 500（已定型，停测）
     """
     now = now or int(time.time())
+    if _business_repository is not None:
+        return _business_repository.refresh_observe_tiers(now)
     day14 = now - 14 * 86400
     day60 = now - 60 * 86400
     cold_count = 0
@@ -596,6 +601,8 @@ def get_observation_targets(now=None, hot_limit=500):
     cold 不观测（已定型）。
     """
     now = now or int(time.time())
+    if _business_repository is not None:
+        return _business_repository.observation_targets(now, hot_limit)
     conn = get_conn()
     hot = conn.execute(
         "SELECT bvid FROM videos WHERE observe_tier='hot' ORDER BY first_seen DESC LIMIT ?",
@@ -648,6 +655,11 @@ def get_bursting_videos(window_hours=2, threshold=2.0, limit=20):
     tid 集合来自 config.KICHU_TIDS_WITH_PARENT（鬼畜子分区 + 119 父分区兜底），
     与采集/评分共用同一真源，避免 SQL 硬编码漂移。
     """
+    if _business_repository is not None:
+        return _business_repository.bursting_videos(
+            window_hours, threshold, limit, int(time.time()),
+            sorted(KICHU_TIDS_WITH_PARENT),
+        )
     import json
     from collections import defaultdict
 
@@ -838,12 +850,16 @@ def register_up(mid, name='', face=''):
     """
     if mid is None:
         return False
+    if _business_repository is not None:
+        _business_repository.register_up(int(mid), name or '', face or '')
+        return True
     with _write_lock:
         conn = get_conn()
         conn.execute('''
             INSERT OR REPLACE INTO ups (mid, name, face, tracked) VALUES (?,?,?,1)
         ''', (mid, name or '', face or ''))
         conn.commit()
+    return True
 
 
 def get_up_names(mids):
@@ -851,7 +867,6 @@ def get_up_names(mids):
     if _business_repository is None:
         raise RuntimeError("PostgreSQL business repository is not configured")
     return _business_repository.up_names([int(mid) for mid in mids])
-    return True
 
 
 # ==================== 视频维度数据写入 ====================
@@ -1360,24 +1375,31 @@ def get_interaction_quality(limit=20, min_views=1000, max_views=1000000):
     宝藏标记：播放低于中位数 且 投币率高于中位数（播放未涨但互动强 = 潜力）。
     """
     import statistics
-    conn = get_conn()
-    latest_ts = conn.execute('SELECT MAX(ts) FROM video_obs').fetchone()[0]
+    tids = sorted(KICHU_TIDS_WITH_PARENT)
+    if _business_repository is not None:
+        latest_ts = _business_repository.latest_video_observation_ts()
+        rows = _business_repository.interaction_quality_rows(
+            latest_ts, tids, min_views, max_views,
+        ) if latest_ts is not None else []
+    else:
+        conn = get_conn()
+        latest_ts = conn.execute('SELECT MAX(ts) FROM video_obs').fetchone()[0]
+        if not latest_ts:
+            return []
+        tid_placeholders = ','.join('?' * len(tids))
+        rows = conn.execute(f'''
+            SELECT o.bvid, o.views, o.likes, o.coins, o.favorites, o.shares,
+                   o.comments, o.danmaku, o.online_count,
+                   v.title, v.mid, v.tname, v.pub_date, u.name AS author
+            FROM video_obs o
+            JOIN videos v ON o.bvid = v.bvid
+            LEFT JOIN ups u ON v.mid = u.mid
+            WHERE o.ts = ?
+              AND v.tid IN ({tid_placeholders})
+              AND o.views BETWEEN ? AND ?
+        ''', (latest_ts, *tids, min_views, max_views)).fetchall()
     if not latest_ts:
         return []
-
-    tids = sorted(KICHU_TIDS_WITH_PARENT)
-    placeholders = ','.join('?' * len(tids))
-    rows = conn.execute(f'''
-        SELECT o.bvid, o.views, o.likes, o.coins, o.favorites, o.shares,
-               o.comments, o.danmaku, o.online_count,
-               v.title, v.mid, v.tname, v.pub_date, u.name AS author
-        FROM video_obs o
-        JOIN videos v ON o.bvid = v.bvid
-        LEFT JOIN ups u ON v.mid = u.mid
-        WHERE o.ts = ?
-          AND v.tid IN ({placeholders})
-          AND o.views BETWEEN ? AND ?
-    ''', (latest_ts, *tids, min_views, max_views)).fetchall()
 
     if not rows:
         return []
@@ -1523,6 +1545,8 @@ def get_follower_growth(days=7, limit=10):
     窗口起点 = 最新批次前 days 天内的最早批次（有粉丝数据），与最新批次对比。
     返回按涨粉数降序，附涨粉率。
     """
+    if _business_repository is not None:
+        return _business_repository.follower_growth(days, limit)
     conn = get_conn()
     latest_ts = conn.execute('SELECT MAX(ts) FROM up_obs').fetchone()[0]
     if not latest_ts:
@@ -1581,32 +1605,36 @@ def get_tag_heat(limit=30, min_count=2):
     （标签越热 = 该主题已被市场验证有流量，是二创选题信号）。
     """
     import statistics
-    conn = get_conn()
-    latest_ts = conn.execute('SELECT MAX(ts) FROM video_obs').fetchone()[0]
-    if not latest_ts:
-        return []
-
     tids = sorted(KICHU_TIDS_WITH_PARENT)
-    placeholders = ','.join('?' * len(tids))
-    rows = conn.execute(f'''
-        SELECT t.tag, COUNT(DISTINCT t.bvid) AS cnt,
-               AVG(o.views) AS avg_views,
-               AVG(o.likes) AS avg_likes,
-               AVG(o.coins) AS avg_coins,
-               AVG(o.favorites) AS avg_favs
-        FROM video_tags t
-        JOIN videos v ON t.bvid = v.bvid
-        JOIN (
-            SELECT bvid, views, likes, coins, favorites
-            FROM video_obs
-            WHERE (bvid, ts) IN (
-                SELECT bvid, MAX(ts) FROM video_obs GROUP BY bvid
-            )
-        ) o ON o.bvid = t.bvid
-        WHERE v.tid IN ({placeholders})
-        GROUP BY t.tag
-        HAVING cnt >= ?
-    ''', (*tids, min_count)).fetchall()
+    if _business_repository is not None:
+        if _business_repository.latest_video_observation_ts() is None:
+            return []
+        rows = _business_repository.tag_heat_rows(tids, min_count)
+    else:
+        conn = get_conn()
+        latest_ts = conn.execute('SELECT MAX(ts) FROM video_obs').fetchone()[0]
+        if not latest_ts:
+            return []
+        placeholders = ','.join('?' * len(tids))
+        rows = conn.execute(f'''
+            SELECT t.tag, COUNT(DISTINCT t.bvid) AS cnt,
+                   AVG(o.views) AS avg_views,
+                   AVG(o.likes) AS avg_likes,
+                   AVG(o.coins) AS avg_coins,
+                   AVG(o.favorites) AS avg_favs
+            FROM video_tags t
+            JOIN videos v ON t.bvid = v.bvid
+            JOIN (
+                SELECT bvid, views, likes, coins, favorites
+                FROM video_obs
+                WHERE (bvid, ts) IN (
+                    SELECT bvid, MAX(ts) FROM video_obs GROUP BY bvid
+                )
+            ) o ON o.bvid = t.bvid
+            WHERE v.tid IN ({placeholders})
+            GROUP BY t.tag
+            HAVING cnt >= ?
+        ''', (*tids, min_count)).fetchall()
 
     # 标签表保存原始事实，过滤在读层执行：开发者修改规则后无需重抓历史视频，
     # 标签热度接口即可立刻按新口径重算。
@@ -1649,17 +1677,20 @@ def get_rising_words(recent_batches=2, base_batches=6, min_recent=3, limit=30,
     import math
     import time
     from analytics.filters import filter_danmaku_words
-    conn = get_conn()
     recent_batches = max(1, min(int(recent_batches), 12))
     base_batches = max(1, min(int(base_batches), 30))
-    batch_rows = conn.execute('''
-        SELECT ts, SUM(count) AS total_count
-        FROM word_obs
-        WHERE scope = 'danmaku'
-        GROUP BY ts
-        ORDER BY ts DESC
-        LIMIT ?
-    ''', (recent_batches + base_batches,)).fetchall()
+    if _business_repository is not None:
+        batch_rows = _business_repository.rising_word_batch_totals(recent_batches + base_batches)
+    else:
+        conn = get_conn()
+        batch_rows = conn.execute('''
+            SELECT ts, SUM(count) AS total_count
+            FROM word_obs
+            WHERE scope = 'danmaku'
+            GROUP BY ts
+            ORDER BY ts DESC
+            LIMIT ?
+        ''', (recent_batches + base_batches,)).fetchall()
 
     meta = {
         'method': 'batch_rate_per_10k',
@@ -1689,12 +1720,15 @@ def get_rising_words(recent_batches=2, base_batches=6, min_recent=3, limit=30,
     base_ts = [r['ts'] for r in base_rows]
     all_ts = recent_ts + base_ts
     totals = {r['ts']: max(int(r['total_count'] or 0), 1) for r in batch_rows}
-    placeholders = ','.join('?' * len(all_ts))
-    rows = conn.execute(f'''
-        SELECT word, ts, count
-        FROM word_obs
-        WHERE scope = 'danmaku' AND ts IN ({placeholders})
-    ''', all_ts).fetchall()
+    if _business_repository is not None:
+        rows = _business_repository.rising_word_observations(all_ts)
+    else:
+        placeholders = ','.join('?' * len(all_ts))
+        rows = conn.execute(f'''
+            SELECT word, ts, count
+            FROM word_obs
+            WHERE scope = 'danmaku' AND ts IN ({placeholders})
+        ''', all_ts).fetchall()
 
     by_word = {}
     for r in rows:

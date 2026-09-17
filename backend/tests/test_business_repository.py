@@ -321,3 +321,129 @@ def test_legacy_video_trend_adapter_reads_postgresql(business_repository):
         "shares": 4, "comments": 5, "danmaku": 6, "online_count": 7,
         "online_precision": "exact", "potential_score": 8.5,
     }]
+
+
+def test_observe_tier_refresh_and_target_selection_use_postgresql(business_repository):
+    now = 2_000_000_000
+    legacy_db.configure_business_repository(business_repository)
+    videos = [
+        {"bvid": "BV-hot", "first_seen": now - 10, "pub_date": now - 86400},
+        {"bvid": "BV-warm-stale", "first_seen": now - 20, "pub_date": now - 30 * 86400},
+        {"bvid": "BV-old-cold", "first_seen": now - 30, "pub_date": now - 100 * 86400},
+        {"bvid": "BV-old-growing", "first_seen": now - 40, "pub_date": now - 100 * 86400},
+        {"bvid": "BV-promoted", "first_seen": now - 50, "pub_date": now - 100 * 86400},
+    ]
+    for row in videos:
+        business_repository.record_video(row)
+    business_repository.record_observation("BV-old-cold", now - 3600, {"views": 1000})
+    business_repository.record_observation("BV-old-cold", now, {"views": 1200})
+    business_repository.record_observation("BV-old-growing", now - 3600, {"views": 1000})
+    business_repository.record_observation("BV-old-growing", now, {"views": 2000})
+    business_repository.record_observation("BV-warm-stale", now - 21 * 3600, {"views": 50})
+
+    cold_count = legacy_db.refresh_observe_tiers(now)
+    legacy_db.mark_candidates_hot(["BV-promoted"])
+
+    assert cold_count == 1
+    assert legacy_db.get_observation_targets(now, hot_limit=10) == [
+        "BV-hot", "BV-promoted", "BV-warm-stale",
+    ]
+
+
+def test_bursting_video_ranking_reads_postgresql_observations(business_repository, monkeypatch):
+    from config import KICHU_TIDS_WITH_PARENT
+
+    now = 2_000_000_000
+    monkeypatch.setattr(legacy_db.time, "time", lambda: now)
+    legacy_db.configure_business_repository(business_repository)
+    tid = sorted(KICHU_TIDS_WITH_PARENT)[0]
+    for ts, views in ((now - 4 * 3600, 100), (now - 2 * 3600, 200), (now, 500)):
+        business_repository.record_video({
+            "bvid": "BV-burst", "first_seen": now - 100, "title": "爆发",
+            "tid": tid, "tname": "鬼畜", "pub_date": now - 3600, "mid": 123,
+            "views": views,
+        }, ts=ts, source="test")
+
+    result = legacy_db.get_bursting_videos(window_hours=2, threshold=2, limit=20)
+
+    assert len(result) == 1
+    assert result[0]["bvid"] == "BV-burst"
+    assert result[0]["speed"] == 150
+    assert result[0]["prev_speed"] == 50
+    assert result[0]["speed_ratio"] == 3
+    assert result[0]["is_bursting"] is True
+    assert result[0]["spark"] == [100, 200, 500]
+
+
+def test_register_up_adapter_writes_postgresql(business_repository):
+    from storage.models import ups
+
+    legacy_db.configure_business_repository(business_repository)
+    assert legacy_db.register_up(456, "作者", "face-url") is True
+    assert legacy_db.get_up_names([456]) == {456: "作者"}
+    with business_repository._sessions() as session:
+        row = session.execute(ups.select().where(ups.c.mid == 456)).mappings().one()
+    assert row["face"] == "face-url"
+    assert row["tracked"] is True
+
+
+def test_interaction_quality_statistics_read_postgresql(business_repository):
+    from config import KICHU_TIDS_WITH_PARENT
+
+    legacy_db.configure_business_repository(business_repository)
+    tid = sorted(KICHU_TIDS_WITH_PARENT)[0]
+    ts = 2_000_000_100
+    legacy_db.register_up(501, "UP 501", "face")
+    business_repository.record_video({
+        "bvid": "BV-quality", "mid": 501, "first_seen": ts, "title": "宝藏视频",
+        "tid": tid, "tname": "鬼畜", "pub_date": ts - 1000,
+        "views": 1000, "likes": 100, "coins": 20, "favorites": 30,
+        "shares": 10, "comments": 5, "danmaku": 50, "online_count": 100,
+    }, ts=ts, source="test")
+
+    result = legacy_db.get_interaction_quality(limit=20)
+
+    assert len(result) == 1
+    assert result[0]["bvid"] == "BV-quality"
+    assert result[0]["author"] == "UP 501"
+    assert result[0]["coin_ratio"] == 2.0
+    assert result[0]["is_treasure"] is False
+
+
+def test_follower_growth_uses_postgresql_jsonb_observations(business_repository):
+    legacy_db.configure_business_repository(business_repository)
+    business_repository.upsert_up_observations(
+        2_000_000_000, [{"mid": 502, "name": "UP 502", "face": "face", "follower_count": 100}],
+    )
+    business_repository.upsert_up_observations(
+        2_000_000_100, [{"mid": 502, "name": "UP 502", "face": "face", "follower_count": 150}],
+    )
+
+    result = legacy_db.get_follower_growth(days=7, limit=10)
+
+    assert result == [{
+        "mid": 502, "name": "UP 502", "face": "face", "follower_before": 100,
+        "follower_now": 150, "growth": 50, "growth_rate": 50.0,
+        "start_ts": 2_000_000_000, "end_ts": 2_000_000_100,
+    }]
+
+
+def test_tag_heat_aggregates_latest_postgresql_observations(business_repository):
+    from config import KICHU_TIDS_WITH_PARENT
+
+    legacy_db.configure_business_repository(business_repository)
+    tid = sorted(KICHU_TIDS_WITH_PARENT)[0]
+    ts = 2_000_000_200
+    for index, views in enumerate((1000, 3000), start=1):
+        business_repository.record_video({
+            "bvid": f"BV-tag-{index}", "mid": 600 + index, "first_seen": ts,
+            "title": "视频", "tid": tid, "pub_date": ts - 1000, "tags": ["鬼畜音MAD"],
+            "views": views, "likes": 20, "coins": 5, "favorites": 8,
+        }, ts=ts, source="test")
+
+    result = legacy_db.get_tag_heat(limit=30, min_count=2)
+
+    assert len(result) == 1
+    assert result[0]["tag"] == "鬼畜音MAD"
+    assert result[0]["count"] == 2
+    assert result[0]["avg_views"] == 2000

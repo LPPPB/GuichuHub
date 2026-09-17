@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from html import unescape
 
-from sqlalchemy import case, create_engine, func, or_, select
+from sqlalchemy import BigInteger, and_, case, cast, create_engine, distinct, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
@@ -84,6 +85,218 @@ class BusinessRepository:
         with self._sessions.begin() as session:
             session.execute(statement)
 
+    def latest_video_observation_ts(self) -> int | None:
+        with self._sessions() as session:
+            result = session.execute(select(func.max(video_observations.c.ts))).scalar_one()
+            return int(result) if result is not None else None
+
+    def interaction_quality_rows(self, ts: int, tids: list[int], min_views: int,
+                                 max_views: int) -> list[dict]:
+        query = select(
+            video_observations.c.bvid, video_observations.c.views, video_observations.c.likes,
+            video_observations.c.coins, video_observations.c.favorites,
+            video_observations.c.shares, video_observations.c.comments,
+            video_observations.c.danmaku, video_observations.c.online_count,
+            videos.c.title, videos.c.mid, videos.c.tname, videos.c.pub_date,
+            ups.c.name.label("author"),
+        ).join(videos, videos.c.bvid == video_observations.c.bvid).outerjoin(
+            ups, videos.c.mid == ups.c.mid,
+        ).where(
+            video_observations.c.ts == ts,
+            videos.c.tid.in_(tids),
+            video_observations.c.views.between(min_views, max_views),
+        )
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(query).mappings()]
+
+    def follower_growth(self, days: int, limit: int) -> list[dict]:
+        follower_count = cast(up_observations.c.payload["follower_count"].astext, BigInteger)
+        with self._sessions() as session:
+            latest_ts = session.execute(select(func.max(up_observations.c.ts))).scalar_one()
+            if latest_ts is None:
+                return []
+            since = int(latest_ts) - days * 86400
+            previous_ts = session.execute(select(func.min(up_observations.c.ts)).where(
+                up_observations.c.ts >= since, follower_count > 0,
+            )).scalar_one()
+            if previous_ts is None:
+                return []
+            rows = session.execute(select(
+                up_observations.c.mid, ups.c.name, ups.c.face, up_observations.c.ts,
+                follower_count.label("follower_count"),
+            ).outerjoin(ups, ups.c.mid == up_observations.c.mid).where(
+                up_observations.c.ts.in_((int(previous_ts), int(latest_ts))),
+            )).mappings().all()
+        by_mid = {}
+        for row in rows:
+            by_mid.setdefault(row["mid"], {})[row["ts"]] = row["follower_count"]
+        items = []
+        for mid, counts in by_mid.items():
+            if int(latest_ts) not in counts or int(previous_ts) not in counts:
+                continue
+            before = int(counts[int(previous_ts)] or 0)
+            current = int(counts[int(latest_ts)] or 0)
+            growth = current - before
+            profile = next(row for row in rows if row["mid"] == mid)
+            items.append({
+                "mid": mid, "name": profile["name"] or "", "face": profile["face"] or "",
+                "follower_before": before, "follower_now": current, "growth": growth,
+                "growth_rate": round(growth / before * 100, 2) if before > 0 else 0.0,
+                "start_ts": int(previous_ts), "end_ts": int(latest_ts),
+            })
+        return sorted(items, key=lambda item: item["growth"], reverse=True)[:limit]
+
+    def tag_heat_rows(self, tids: list[int], min_count: int) -> list[dict]:
+        latest = select(
+            video_observations.c.bvid,
+            func.max(video_observations.c.ts).label("ts"),
+        ).group_by(video_observations.c.bvid).subquery()
+        query = select(
+            video_tags.c.tag,
+            func.count(distinct(video_tags.c.bvid)).label("cnt"),
+            func.avg(video_observations.c.views).label("avg_views"),
+            func.avg(video_observations.c.likes).label("avg_likes"),
+            func.avg(video_observations.c.coins).label("avg_coins"),
+            func.avg(video_observations.c.favorites).label("avg_favs"),
+        ).join(videos, videos.c.bvid == video_tags.c.bvid).join(
+            latest, latest.c.bvid == video_tags.c.bvid,
+        ).join(video_observations, and_(
+            video_observations.c.bvid == latest.c.bvid,
+            video_observations.c.ts == latest.c.ts,
+        )).where(videos.c.tid.in_(tids)).group_by(video_tags.c.tag).having(
+            func.count(distinct(video_tags.c.bvid)) >= min_count,
+        )
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(query).mappings()]
+
+    def mark_candidates_hot(self, bvids: list[str]) -> None:
+        if not bvids:
+            return
+        with self._sessions.begin() as session:
+            session.execute(videos.update().where(videos.c.bvid.in_(bvids)).values(observe_tier="hot"))
+
+    def refresh_observe_tiers(self, now: int) -> int:
+        day14 = now - 14 * 86400
+        day60 = now - 60 * 86400
+        ranked = select(
+            video_observations.c.bvid,
+            video_observations.c.views,
+            func.row_number().over(
+                partition_by=video_observations.c.bvid,
+                order_by=video_observations.c.ts.desc(),
+            ).label("rank"),
+        ).join(videos, videos.c.bvid == video_observations.c.bvid).where(
+            videos.c.pub_date <= day60,
+        ).subquery()
+        with self._sessions.begin() as session:
+            session.execute(videos.update().where(videos.c.pub_date > day14).values(observe_tier="hot"))
+            session.execute(videos.update().where(
+                videos.c.pub_date <= day14, videos.c.pub_date > day60,
+            ).values(observe_tier="warm"))
+            session.execute(videos.update().where(videos.c.pub_date <= day60).values(observe_tier="warm"))
+            observations = session.execute(select(
+                ranked.c.bvid, ranked.c.views, ranked.c.rank,
+            ).where(ranked.c.rank <= 2).order_by(ranked.c.bvid, ranked.c.rank)).mappings()
+            latest_by_video = {}
+            for row in observations:
+                latest_by_video.setdefault(row["bvid"], []).append(row["views"])
+            cold_bvids = [
+                bvid for bvid, values in latest_by_video.items()
+                if len(values) >= 2 and values[0] is not None and values[1] is not None
+                and values[0] - values[1] < 500
+            ]
+            if cold_bvids:
+                session.execute(videos.update().where(videos.c.bvid.in_(cold_bvids)).values(
+                    observe_tier="cold",
+                ))
+            return len(cold_bvids)
+
+    def observation_targets(self, now: int, hot_limit: int = 500) -> list[str]:
+        latest = select(
+            video_observations.c.bvid,
+            func.max(video_observations.c.ts).label("latest_ts"),
+        ).group_by(video_observations.c.bvid).subquery()
+        with self._sessions() as session:
+            hot = session.execute(select(videos.c.bvid).where(
+                videos.c.observe_tier == "hot",
+            ).order_by(videos.c.first_seen.desc()).limit(hot_limit)).scalars().all()
+            warm = session.execute(select(videos.c.bvid).outerjoin(
+                latest, latest.c.bvid == videos.c.bvid,
+            ).where(
+                videos.c.observe_tier == "warm",
+                func.coalesce(latest.c.latest_ts, 0) < now - 20 * 3600,
+            ).limit(2000)).scalars().all()
+            return [*hot, *warm]
+
+    def bursting_videos(self, window_hours: float, threshold: float, limit: int,
+                        now: int, tids: list[int]) -> list[dict]:
+        lookback = now - 48 * 3600
+        query = select(
+            videos.c.bvid, videos.c.title, videos.c.tid, videos.c.tname,
+            videos.c.pub_date, videos.c.mid, videos.c.pic, ups.c.name.label("owner_name"),
+            video_observations.c.ts, video_observations.c.views,
+        ).join(video_observations, videos.c.bvid == video_observations.c.bvid).outerjoin(
+            ups, videos.c.mid == ups.c.mid,
+        ).where(
+            videos.c.observe_tier == "hot", videos.c.tid.in_(tids),
+            video_observations.c.ts >= lookback, video_observations.c.views.is_not(None),
+        ).order_by(videos.c.bvid, video_observations.c.ts)
+        with self._sessions() as session:
+            rows = session.execute(query).mappings().all()
+
+        by_bvid: dict[str, list[dict]] = defaultdict(list)
+        metadata = {}
+        for row in rows:
+            bvid = row["bvid"]
+            by_bvid[bvid].append({"ts": row["ts"], "views": row["views"]})
+            metadata.setdefault(bvid, {
+                "bvid": bvid, "title": unescape(row["title"] or ""), "pic": row["pic"],
+                "owner": {"name": row["owner_name"]} if row["owner_name"] else None,
+                "tid": row["tid"], "pubdate": row["pub_date"],
+            })
+
+        window_seconds = window_hours * 3600
+        results = []
+        for bvid, points in by_bvid.items():
+            if len(points) < 2:
+                continue
+            latest = points[-1]
+            win1_start = next(
+                (point for point in points if point["ts"] >= latest["ts"] - window_seconds), None,
+            )
+            if not win1_start or win1_start["ts"] >= latest["ts"]:
+                continue
+            dt1 = (latest["ts"] - win1_start["ts"]) / 3600.0
+            if dt1 <= 0:
+                continue
+            speed1 = (latest["views"] - win1_start["views"]) / dt1
+            if speed1 <= 0:
+                continue
+
+            win2_start = next(
+                (point for point in points if point["ts"] >= win1_start["ts"] - window_seconds), None,
+            )
+            speed2 = None
+            bursting = False
+            if win2_start and win2_start["ts"] < win1_start["ts"]:
+                dt2 = (win1_start["ts"] - win2_start["ts"]) / 3600.0
+                if dt2 > 0:
+                    speed2 = (win1_start["views"] - win2_start["views"]) / dt2
+                    bursting = speed2 > 0 and speed1 >= speed2 * threshold
+            spark = [point["views"] for point in points]
+            if len(spark) > 12:
+                step = (len(spark) - 1) / 11.0
+                spark = [spark[int(round(index * step))] for index in range(12)]
+            results.append({
+                **metadata[bvid], "views": latest["views"], "speed": round(speed1, 1),
+                "prev_speed": round(speed2, 1) if speed2 is not None and speed2 > 0 else None,
+                "speed_ratio": round(speed1 / speed2, 2) if speed2 and speed2 > 0 else None,
+                "is_bursting": bursting, "latest_ts": latest["ts"],
+                "obs_count": len(points), "spark": spark,
+            })
+        results.sort(key=lambda item: item["speed"], reverse=True)
+        return results[:limit]
+
     def video_trend(self, bvid: str, start_ts: int) -> list[dict]:
         with self._sessions() as session:
             rows = session.execute(
@@ -138,6 +351,25 @@ class BusinessRepository:
             return [dict(row) for row in session.execute(
                 select(word_observations.c.word, word_observations.c.count, word_observations.c.scope)
                 .where(word_observations.c.ts == ts).order_by(word_observations.c.word)
+            ).mappings()]
+
+    def rising_word_batch_totals(self, limit: int) -> list[dict]:
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(
+                select(word_observations.c.ts, func.sum(word_observations.c.count).label("total_count"))
+                .where(word_observations.c.scope == "danmaku")
+                .group_by(word_observations.c.ts)
+                .order_by(word_observations.c.ts.desc())
+                .limit(limit)
+            ).mappings()]
+
+    def rising_word_observations(self, timestamps: list[int]) -> list[dict]:
+        if not timestamps:
+            return []
+        with self._sessions() as session:
+            return [dict(row) for row in session.execute(
+                select(word_observations.c.word, word_observations.c.ts, word_observations.c.count)
+                .where(word_observations.c.scope == "danmaku", word_observations.c.ts.in_(timestamps))
             ).mappings()]
 
     def crawl_run(self, run_id: int) -> dict:
@@ -484,6 +716,15 @@ class BusinessRepository:
                     select(ups.c.mid, ups.c.name).where(ups.c.mid.in_(mids))
                 ).mappings()
             }
+
+    def register_up(self, mid: int, name: str = "", face: str = "") -> None:
+        with self._sessions.begin() as session:
+            session.execute(insert(ups).values(
+                mid=mid, name=name or "", face=face or "", tracked=True,
+            ).on_conflict_do_update(
+                index_elements=[ups.c.mid],
+                set_={"name": name or "", "face": face or "", "tracked": True},
+            ))
 
     def reconcile_calendar_author(self, mid: int, year_start: int, year_end: int,
                                   seen_bvids: set[str], missing_threshold: int) -> dict:
