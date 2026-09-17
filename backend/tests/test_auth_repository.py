@@ -1,48 +1,23 @@
 """PostgreSQL authentication repository contracts."""
 
-import subprocess
 import time
 
 import pytest
-from sqlalchemy import create_engine, text
 
 from storage.migrations import upgrade_database
 from storage.repositories.auth import AuthRepository
 
 
-@pytest.fixture(scope="module")
-def auth_repository():
-    container_id = subprocess.check_output(
-        [
-            "docker", "run", "--rm", "-d", "-e", "POSTGRES_PASSWORD=test-password",
-            "-e", "POSTGRES_DB=kichu_test", "-p", "127.0.0.1::5432", "postgres:16-alpine",
-        ],
-        text=True,
-    ).strip()
+@pytest.fixture
+def auth_repository(clean_postgres_data, postgres_url):
+    upgrade_database(postgres_url)
+    repository = AuthRepository.from_url(postgres_url)
     try:
-        port = subprocess.check_output(
-            ["docker", "port", container_id, "5432/tcp"], text=True
-        ).strip().rsplit(":", 1)[1]
-        url = f"postgresql+psycopg://postgres:test-password@127.0.0.1:{port}/kichu_test"
-        engine = create_engine(url)
-        for _ in range(30):
-            try:
-                with engine.connect() as connection:
-                    connection.execute(text("SELECT 1"))
-                break
-            except Exception:
-                time.sleep(1)
-        else:
-            pytest.fail("disposable PostgreSQL did not become ready")
-        upgrade_database(url)
-        yield AuthRepository.from_url(url)
+        yield repository
     finally:
-        try:
-            from storage import auth_store
-            auth_store.configure_auth_repository(None)
-        except ImportError:
-            pass
-        subprocess.run(["docker", "stop", container_id], check=False)
+        from storage import auth_store
+        auth_store.configure_auth_repository(None)
+        repository._sessions.kw["bind"].dispose()
 
 
 def test_session_result_never_contains_cookie(auth_repository):

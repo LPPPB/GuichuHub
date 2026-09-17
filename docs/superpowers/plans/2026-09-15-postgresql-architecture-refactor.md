@@ -148,12 +148,13 @@ Run: `git add backend/storage/repositories backend/storage/db.py backend/storage
 
 **Files:**
 - Create: `backend/storage/repositories/auth.py`, `backend/storage/repositories/state.py`, `backend/tests/test_auth_repository.py`, `backend/tests/test_state_repository.py`
-- Modify: `backend/storage/auth_store.py`, `backend/storage/database.py`, `backend/storage/tracked_ups.py`, `backend/storage/cache.py`
+- Modify: `backend/storage/auth_store.py`, `backend/storage/database.py`, `backend/storage/tracked_ups.py`, `backend/storage/cache.py`, `backend/storage/repositories/state.py`
+- Adapt legacy API tests and fixtures to PostgreSQL: `backend/tests/conftest.py`, auth/access-control/request/calendar/handoff tests
 
 **Interfaces:**
 - Produces adapter-compatible admin/session/handoff, favorite/dashboard, and tracked-UP/request functions.
 
-- [ ] **Step 1: Write failing state and auth tests**
+- [x] **Step 1: Write failing state and auth tests**
 
 ```python
 def test_review_request_is_atomic_and_adds_one_tracked_up(state_repository):
@@ -166,21 +167,21 @@ def test_session_result_never_contains_cookie(auth_repository):
     assert "cookies" not in auth_repository.get_session(token)
 ```
 
-- [ ] **Step 2: Run tests and observe missing repository failures**
+- [x] **Step 2: Run tests and observe missing repository failures**
 
 Run: `uv run pytest tests/test_auth_repository.py tests/test_state_repository.py -q --no-cov`
 
-- [ ] **Step 3: Implement row-locked mutations and JSONB state reads**
+- [x] **Step 3: Implement row-locked mutations and JSONB state reads**
 
 All adapter functions must stop importing `sqlite3`, opening JSON files, creating lock files, or using mtime as durable state.
 
-- [ ] **Step 4: Run focused and existing authorization/request tests**
+- [x] **Step 4: Run focused and existing authorization/request tests**
 
-Run: `uv run pytest tests/test_auth_repository.py tests/test_state_repository.py tests/test_admin_identity.py tests/test_up_requests.py -q --no-cov`
+Run: `uv run pytest tests/test_storage_adapters_require_postgres.py tests/test_alembic.py tests/test_auth_repository.py tests/test_state_repository.py tests/test_business_repository.py tests/test_access_control.py tests/test_admin_identity.py tests/test_up_requests.py tests/test_proxy_and_session_security.py tests/test_collector_handoff.py tests/test_calendar_api.py -q --no-cov`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
-Run: `git add backend/storage/repositories backend/storage/auth_store.py backend/storage/database.py backend/storage/tracked_ups.py backend/storage/cache.py backend/tests/test_auth_repository.py backend/tests/test_state_repository.py && git commit -m "feat: move auth and state to PostgreSQL"`
+Commit: `feat: move auth and state to PostgreSQL`
 
 ### Task 5: No-DDL application startup, heartbeat, and readiness
 

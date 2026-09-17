@@ -5,10 +5,11 @@ from sqlalchemy.orm import sessionmaker
 
 from storage.migrations import upgrade_database
 from storage.models import backfill_progress
-from tests.test_alembic import postgres_url
 
 
-def test_backfill_resumes_from_recorded_cursor_and_marks_completion(postgres_url):
+def test_backfill_resumes_from_recorded_cursor_and_marks_completion(
+    postgres_url, clean_postgres_data,
+):
     from scripts.run_backfill import run_resumable_backfill
 
     upgrade_database(postgres_url)

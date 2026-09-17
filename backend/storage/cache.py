@@ -1,44 +1,36 @@
-"""存储层 — JSON 看板缓存
-
-设计依据（docs/架构演进实施检查清单.md）：
-- 内存缓存：数据一天只变几次，避免每次请求都读JSON文件
-- A3 非空保护：某板块抓取被限流返回空时，保留旧数据而不是清空板块
-- mtime 失效：外部脚本直接改写 JSON 后（如补 rpid 字段），运行中的后端
-  自动感知文件变化并重载，避免一直返回旧数据（神评论跳转定位失败的根因）
-"""
+"""Process-local read-through caches backed by PostgreSQL dashboard state."""
 
 import threading
-from storage.database import load_data, update_data
+from storage.database import (
+    get_data_version as get_postgres_data_version,
+    load_data_snapshot,
+    update_data,
+)
 
 _data_cache = None
-_data_version = 0        # 数据版本号：persist_data/invalidate 时递增，供响应级缓存判断数据是否变化
+_data_cache_version = None
 _data_lock = threading.RLock()
 
 
 def get_data():
-    """读看板数据：优先内存缓存；JSON 被外部改写（mtime 变化）时自动重载。
-
-    文件不存在时返回缓存（不崩溃、不清空）；首次调用（无缓存）才允许
-    load_data 走 init_db 重建空库。
-    """
-    global _data_cache
+    """Read cached dashboard data, refreshing when another process commits a version."""
+    global _data_cache, _data_cache_version
     with _data_lock:
-        if _data_cache is not None:
+        current_version = get_postgres_data_version()
+        if _data_cache is not None and current_version == _data_cache_version:
             return _data_cache
-        _data_cache = load_data()
+        _data_cache, _data_cache_version = load_data_snapshot()
         return _data_cache
 
 
 def get_data_version():
-    """返回当前数据版本号（响应级缓存据此判断是否需要重新组装）"""
-    global _data_version
-    with _data_lock:
-        return _data_version
+    """Return the cross-process PostgreSQL dashboard version."""
+    return get_postgres_data_version()
 
 
 def persist_data(new_data):
-    """合并新数据：A3 非空保护 + 落盘 + 更新缓存（含 mtime，避免落盘后误判重载）"""
-    global _data_cache, _data_version
+    """Merge new dashboard data while protecting non-empty sections."""
+    global _data_cache, _data_cache_version
     with _data_lock:
         def merge(current):
             for key, value in new_data.items():
@@ -47,9 +39,9 @@ def persist_data(new_data):
                 else:
                     print(f'  [警告] {key} 抓取为空，保留旧数据（可能限流）')
 
-        current = update_data(merge)
-        _data_cache = current
-        _data_version += 1
+        update_data(merge)
+        _data_cache, _data_cache_version = load_data_snapshot()
+        current = _data_cache
         return current
 
 

@@ -7,7 +7,6 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from storage.migrations import upgrade_database
-from tests.test_alembic import postgres_url
 
 
 @pytest.fixture
@@ -75,25 +74,8 @@ def snapshot_paths(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def empty_import_target(postgres_url):
-    """The module-scoped disposable PostgreSQL service starts clean per case."""
-    upgrade_database(postgres_url)
-    engine = create_engine(postgres_url)
-    with engine.begin() as connection:
-        connection.execute(text("""
-            TRUNCATE TABLE
-              app.videos, app.ups, app.video_observations, app.video_tags,
-              app.word_observations, app.crawl_runs, app.up_observations,
-              app.up_staff_memberships, app.video_snapshot_documents,
-              app.calendar_videos, app.calendar_video_authors,
-              app.calendar_backfill_jobs, app.calendar_backfill_job_items,
-              app.dashboard_state, app.favorites, app.tracked_ups,
-              app.tracked_up_settings, app.tracking_requests, app.up_card_cache,
-              app.data_import_records, app.backfill_progress, app.worker_heartbeats,
-              auth.admin_accounts, auth.browser_sessions,
-              auth.collector_credential_handoffs
-            RESTART IDENTITY CASCADE
-        """))
+def empty_import_target(clean_postgres_data):
+    """Each import test starts from a clean application dataset."""
 
 
 def test_importer_reconciles_explicit_sqlite_and_json_snapshots(postgres_url, snapshot_paths, tmp_path):

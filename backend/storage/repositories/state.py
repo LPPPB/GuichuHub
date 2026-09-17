@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -14,6 +15,11 @@ from storage.models import dashboard_state, favorites, tracked_up_settings, trac
 class StateRepository:
     def __init__(self, session_factory):
         self._sessions = session_factory
+
+    @staticmethod
+    def _lock_tracking_mid(session, mid: int) -> None:
+        lock_key = func.hashtextextended(f"tracking-mid:{int(mid)}", 0)
+        session.execute(select(func.pg_advisory_xact_lock(lock_key)))
 
     @classmethod
     def from_url(cls, url: str) -> "StateRepository":
@@ -31,11 +37,24 @@ class StateRepository:
             ))
 
     def load_dashboard(self) -> dict | None:
+        payload, _ = self.load_dashboard_snapshot()
+        return payload
+
+    def load_dashboard_snapshot(self) -> tuple[dict | None, int]:
+        """Read payload and version together for safe process-local caching."""
         with self._sessions() as session:
-            row = session.execute(select(dashboard_state.c.payload).where(
+            row = session.execute(select(
+                dashboard_state.c.payload, dashboard_state.c.version,
+            ).where(
                 dashboard_state.c.name == "current",
             )).mappings().first()
-            return row["payload"] if row else None
+            return (row["payload"], row["version"]) if row else (None, 0)
+
+    def dashboard_version(self) -> int:
+        with self._sessions() as session:
+            return session.execute(select(dashboard_state.c.version).where(
+                dashboard_state.c.name == "current",
+            )).scalar_one_or_none() or 0
 
     def update_dashboard(self, mutator, now: int, initial: dict | None = None) -> dict:
         """Apply one current-state mutation while holding its PostgreSQL row lock."""
@@ -106,20 +125,83 @@ class StateRepository:
                 favorites.c.id == favorite_id, favorites.c.owner == owner,
             )).rowcount > 0
 
-    def create_tracking_request(self, mid: int, visitor_id: str, snapshot: dict,
-                                reason: str, now: int) -> str:
-        request_id = f"req_{uuid.uuid4().hex}"
+    def claim_legacy_favorites(self, owner: str) -> int:
+        """Atomically claim favorites imported without a browser owner."""
         with self._sessions.begin() as session:
-            session.execute(select(func.pg_advisory_xact_lock(mid)))
+            rows = session.execute(select(
+                favorites.c.id, favorites.c.item,
+            ).where(favorites.c.owner.in_(("", "admin"))).with_for_update()).mappings().all()
+            for row in rows:
+                item = dict(row["item"])
+                item["owner"] = owner
+                session.execute(favorites.update().where(
+                    favorites.c.id == row["id"],
+                ).values(owner=owner, item=item))
+            return len(rows)
+
+    def create_tracking_request(self, mid: int, visitor_id: str, snapshot: dict,
+                                reason: str, now: int, request_type: str = "add",
+                                pending_limit: int = 50, daily_limit: int = 3,
+                                pool_limit: int = 300) -> str:
+        if request_type not in {"add", "remove"}:
+            raise ValueError("INVALID_TYPE")
+        reason = str(reason or "")
+
+        request_id = f"req_{uuid.uuid4().hex}"
+        local_time = datetime.fromtimestamp(now, timezone.utc).astimezone(
+            timezone(timedelta(hours=8)),
+        )
+        day_start = int(local_time.replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        ).timestamp())
+        day_end = day_start + 24 * 60 * 60
+        with self._sessions.begin() as session:
+            self._lock_tracking_mid(session, mid)
+            session.execute(select(func.pg_advisory_xact_lock(
+                2, func.hashtext(f"{visitor_id}:{day_start}"),
+            )))
+            session.execute(select(func.pg_advisory_xact_lock(3, 1)))
+
+            active_up = session.execute(select(tracked_ups.c.mid).where(
+                tracked_ups.c.mid == mid,
+                tracked_ups.c.enabled.is_(True),
+            ).with_for_update()).scalar_one_or_none()
+            if request_type == "remove" and active_up is None:
+                raise ValueError("NOT_TRACKED")
+            if request_type == "remove" and not reason.strip():
+                raise ValueError("REASON_REQUIRED")
+            if request_type == "add" and active_up is not None:
+                raise ValueError("ALREADY_TRACKED")
+            active_count = session.execute(select(func.count()).select_from(
+                tracked_ups,
+            ).where(tracked_ups.c.enabled.is_(True))).scalar_one()
+            if request_type == "add" and active_count >= pool_limit:
+                raise ValueError("POOL_FULL")
+
             pending = session.execute(select(tracking_requests.c.id).where(
                 tracking_requests.c.mid == mid,
                 tracking_requests.c.status == "pending",
             )).scalar_one_or_none()
             if pending is not None:
                 raise ValueError("DUPLICATE")
+            pending_count = session.execute(select(func.count()).select_from(
+                tracking_requests,
+            ).where(tracking_requests.c.status == "pending")).scalar_one()
+            if pending_count >= pending_limit:
+                raise ValueError("QUEUE_FULL")
+            daily_count = session.execute(select(func.count()).select_from(
+                tracking_requests,
+            ).where(
+                tracking_requests.c.visitor_id == visitor_id,
+                tracking_requests.c.created_at >= day_start,
+                tracking_requests.c.created_at < day_end,
+            )).scalar_one()
+            if daily_count >= daily_limit:
+                raise ValueError("DAILY_LIMIT")
             session.execute(insert(tracking_requests).values(
                 id=request_id, mid=mid, visitor_id=visitor_id, status="pending",
-                payload={"up": snapshot, "reason": reason, "request_type": "add"},
+                payload={"up": snapshot or {}, "reason": reason,
+                         "request_type": request_type},
                 created_at=now,
             ))
         return request_id
@@ -151,6 +233,7 @@ class StateRepository:
                 "up": row["payload"].get("up", {}), "reason": row["payload"].get("reason", ""),
                 "visitor_id": row["visitor_id"], "submitted_at": row["created_at"],
                 "status": row["status"], "reviewed_at": row["reviewed_at"],
+                "reject_reason": row["payload"].get("reject_reason", ""),
             } for row in rows]
 
     def record_worker_heartbeat(self, worker_id: str, heartbeat_at: int, details: dict) -> None:
@@ -168,34 +251,103 @@ class StateRepository:
                 worker_heartbeats.c.worker_id == worker_id,
             )).scalar_one_or_none()
 
-    def review_tracking_request(self, request_id: str, action: str, now: int) -> dict:
+    def review_tracking_request(self, request_id: str, action: str, now: int,
+                                reject_reason: str = "", pool_limit: int = 300) -> dict:
         if action not in {"approve", "reject"}:
             raise ValueError("invalid tracking request action")
         with self._sessions.begin() as session:
+            mid = session.execute(select(tracking_requests.c.mid).where(
+                tracking_requests.c.id == request_id,
+                tracking_requests.c.status == "pending",
+            )).scalar_one_or_none()
+            if mid is None:
+                raise LookupError("tracking request not found")
+            self._lock_tracking_mid(session, mid)
             request = session.execute(select(tracking_requests).where(
                 tracking_requests.c.id == request_id,
                 tracking_requests.c.status == "pending",
             ).with_for_update()).mappings().first()
             if request is None:
                 raise LookupError("tracking request not found")
+            payload = dict(request["payload"] or {})
+            request_type = payload.get("request_type", "add")
+            request_view = {
+                "id": request["id"], "mid": request["mid"],
+                "request_type": request_type, "up": payload.get("up", {}),
+                "reason": payload.get("reason", ""),
+                "visitor_id": request["visitor_id"],
+                "submitted_at": request["created_at"],
+                "status": action + "d" if action == "approve" else "rejected",
+                "reviewed_at": now,
+            }
             if action == "reject":
+                payload["reject_reason"] = reject_reason or ""
                 session.execute(tracking_requests.update().where(
                     tracking_requests.c.id == request_id,
-                ).values(status="rejected", reviewed_at=now))
-                return {"added_to_pool": False}
-            existing = session.execute(select(tracked_ups.c.mid).where(
+                ).values(status="rejected", reviewed_at=now, payload=payload))
+                request_view["status"] = "rejected"
+                request_view["reject_reason"] = payload["reject_reason"]
+                return {"request": request_view, "added_to_pool": False,
+                        "removed_from_pool": False, "pool_up": None}
+
+            existing = session.execute(select(
+                tracked_ups.c.payload, tracked_ups.c.enabled,
+            ).where(
                 tracked_ups.c.mid == request["mid"],
-            ).with_for_update()).scalar_one_or_none()
+            ).with_for_update()).mappings().first()
+            existing_payload = dict(existing["payload"]) if existing else None
+            existing_active = bool(existing and existing["enabled"])
+            added_to_pool = False
+            removed_from_pool = False
+            pool_up = None
+
+            if request_type == "remove":
+                if existing is not None and existing_active:
+                    existing_payload["enabled"] = False
+                    existing_payload["disabled_at"] = now
+                    session.execute(tracked_ups.update().where(
+                        tracked_ups.c.mid == request["mid"],
+                    ).values(payload=existing_payload, enabled=False, updated_at=now))
+                    removed_from_pool = True
+            else:
+                active_count = session.execute(select(func.count()).select_from(
+                    tracked_ups,
+                ).where(tracked_ups.c.enabled.is_(True))).scalar_one()
+                if not existing_active and active_count >= pool_limit:
+                    raise ValueError("POOL_FULL")
+                if existing_payload is not None:
+                    pool_up = existing_payload
+                    pool_up["enabled"] = True
+                    pool_up.pop("disabled_at", None)
+                else:
+                    up = payload.get("up") or {}
+                    pool_up = {
+                        "mid": request["mid"], "name": up.get("name", ""),
+                        "face": up.get("face", ""), "added_at": now, "enabled": True,
+                    }
+                session.execute(insert(tracked_ups).values(
+                    mid=request["mid"], payload=pool_up, enabled=True, updated_at=now,
+                ).on_conflict_do_update(
+                    index_elements=[tracked_ups.c.mid],
+                    set_={"payload": pool_up, "enabled": True, "updated_at": now},
+                ))
+                added_to_pool = not existing_active
+                if existing_active:
+                    request_view["note"] = "审核前已在追踪名单中，未重复添加"
+
             session.execute(tracking_requests.update().where(
                 tracking_requests.c.id == request_id,
             ).values(status="approved", reviewed_at=now))
-            session.execute(insert(tracked_ups).values(
-                mid=request["mid"], payload=request["payload"]["up"], enabled=True, updated_at=now,
-            ).on_conflict_do_update(
-                index_elements=[tracked_ups.c.mid],
-                set_={"payload": request["payload"]["up"], "enabled": True, "updated_at": now},
-            ))
-            return {"added_to_pool": existing is None}
+            session.execute(tracking_requests.update().where(
+                tracking_requests.c.mid == request["mid"],
+                tracking_requests.c.id != request_id,
+                tracking_requests.c.status == "pending",
+            ).values(status="superseded", reviewed_at=now))
+            request_view["status"] = "approved"
+            return {
+                "request": request_view, "added_to_pool": added_to_pool,
+                "removed_from_pool": removed_from_pool, "pool_up": pool_up,
+            }
 
     def tracked_mids(self) -> list[int]:
         with self._sessions() as session:
@@ -203,9 +355,16 @@ class StateRepository:
                 tracked_ups.c.enabled.is_(True),
             ).order_by(tracked_ups.c.mid)).scalars())
 
-    def save_tracked_list(self, ups: list[dict], updated_at: int, config: dict | None = None) -> None:
+    def save_tracked_list(self, ups: list[dict], updated_at: int,
+                          config: dict | None = None) -> None:
         mids = {int(up["mid"]) for up in ups}
         with self._sessions.begin() as session:
+            session.execute(select(func.pg_advisory_xact_lock(4, 1)))
+            setting = session.execute(select(tracked_up_settings.c.payload).where(
+                tracked_up_settings.c.name == "tracked_list",
+            ).with_for_update()).mappings().first()
+            if config is None:
+                config = (setting or {}).get("payload", {}).get("config", {})
             if mids:
                 session.execute(tracked_ups.delete().where(
                     tracked_ups.c.mid.not_in(mids),
@@ -241,6 +400,7 @@ class StateRepository:
 
     def save_tracked_config(self, config: dict, updated_at: int) -> None:
         with self._sessions.begin() as session:
+            session.execute(select(func.pg_advisory_xact_lock(4, 1)))
             session.execute(insert(tracked_up_settings).values(
                 name="tracked_list", payload={"config": config}, updated_at=updated_at,
             ).on_conflict_do_update(

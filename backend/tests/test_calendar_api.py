@@ -3,25 +3,18 @@ import pytest
 
 import app as app_module
 import jobs.calendar_jobs as calendar_jobs
-import storage.db as db
 import storage.tracked_ups as tracked_ups
 
 ADMIN_TOKEN = 'calendar-test-admin-token'
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
-    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'calendar.db'))
-    monkeypatch.setattr(db, 'DATA_DIR', str(tmp_path))
-    db._thread_local.conn = None
-    db.get_conn()
-    monkeypatch.setattr(tracked_ups, 'TRACKED_FILE', str(tmp_path / 'tracked_ups.json'))
+def client(monkeypatch, postgres_runtime):
     monkeypatch.setattr(app_module, 'WRITE_TOKEN', ADMIN_TOKEN)
     monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', lambda: None)
     app_module.app.config['TESTING'] = True
     with app_module.app.test_client() as test_client:
         yield test_client
-    db._thread_local.conn = None
 
 
 def _admin_headers():

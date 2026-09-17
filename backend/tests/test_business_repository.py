@@ -1,45 +1,21 @@
 """PostgreSQL business repository contracts."""
 
-import subprocess
-import time
-
 import pytest
-from sqlalchemy import create_engine, text
 
 from storage.migrations import upgrade_database
 from storage.repositories.business import BusinessRepository
 from storage import db as legacy_db
 
 
-@pytest.fixture(scope="module")
-def business_repository():
-    container_id = subprocess.check_output(
-        [
-            "docker", "run", "--rm", "-d", "-e", "POSTGRES_PASSWORD=test-password",
-            "-e", "POSTGRES_DB=kichu_test", "-p", "127.0.0.1::5432", "postgres:16-alpine",
-        ],
-        text=True,
-    ).strip()
+@pytest.fixture
+def business_repository(clean_postgres_data, postgres_url):
+    upgrade_database(postgres_url)
+    repository = BusinessRepository.from_url(postgres_url)
     try:
-        port = subprocess.check_output(
-            ["docker", "port", container_id, "5432/tcp"], text=True
-        ).strip().rsplit(":", 1)[1]
-        url = f"postgresql+psycopg://postgres:test-password@127.0.0.1:{port}/kichu_test"
-        engine = create_engine(url)
-        for _ in range(30):
-            try:
-                with engine.connect() as connection:
-                    connection.execute(text("SELECT 1"))
-                break
-            except Exception:
-                time.sleep(1)
-        else:
-            pytest.fail("disposable PostgreSQL did not become ready")
-        upgrade_database(url)
-        yield BusinessRepository.from_url(url)
+        yield repository
     finally:
         legacy_db.configure_business_repository(None)
-        subprocess.run(["docker", "stop", container_id], check=False)
+        repository._sessions.kw["bind"].dispose()
 
 
 def test_observation_upsert_preserves_null_and_zero(business_repository):
