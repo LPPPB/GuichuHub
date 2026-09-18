@@ -305,7 +305,7 @@ Run: `git add compose.dev.yml compose.prod.yml backend/Dockerfile .env.example o
 **Interfaces:**
 - Produces an executable offline cutover and forward-only release runbook.
 
-- [ ] **Step 1: Write failing production-path test**
+- [x] **Step 1: Write failing production-path and PostgreSQL state tests**
 
 ```python
 def test_production_runtime_never_opens_sqlite_or_state_json(monkeypatch, production_env):
@@ -313,20 +313,20 @@ def test_production_runtime_never_opens_sqlite_or_state_json(monkeypatch, produc
     assert create_app(production_env).test_client().get("/api/health/live").status_code == 200
 ```
 
-- [ ] **Step 2: Run test and observe remaining SQLite/JSON adapter failure**
+- [x] **Step 2: Run tests and observe remaining SQLite/JSON, reconciliation, and cache failures**
 
 Run: `uv run pytest tests/test_no_runtime_sqlite_or_json.py -q --no-cov`
 
-- [ ] **Step 3: Delete obsolete runtime persistence code and update documentation**
+- [x] **Step 3: Delete obsolete runtime persistence code and update documentation**
 
 Documents must give the ten requested first-cutover steps, eight forward-release steps, source snapshot retention period, backup/restore commands, and the no-auto-downgrade rule.
 
-- [ ] **Step 4: Run full available verification**
+- [x] **Step 4: Run full backend/frontend verification and both Compose config validations**
 
 Run: `uv run pytest -q --no-cov && docker compose -f compose.dev.yml config && docker compose -f compose.prod.yml config`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit implementation and review fixes**
 
-Run: `git add README.md docs backend && git commit -m "docs: document PostgreSQL cutover and remove SQLite runtime"`
+Commits: `1c5c7e2 refactor: remove SQLite and JSON runtime persistence`; `c076642 fix: harden PostgreSQL cutover reconciliation`.
 
-Task 8 is being completed in reviewable subcommits. Completed checkpoints: calendar reads/backfill/job state, observe-tier selection, burst ranking, and dashboard analytics now use PostgreSQL repositories; their former SQLite tests run against disposable PostgreSQL. Verified with 72 repository/API/analytics/backfill tests passing. Remaining Task 8 work still includes deleting the SQLite schema/runtime implementation from `storage.db`, converting the remaining snapshot readers and raw-connection consumers, updating runtime paths and backup scheduling, and completing cutover documentation.
+Task 8 complete. Runtime SQLite/JSON persistence was removed; mutable filter settings now use PostgreSQL with cross-process freshness; offline import reconciliation validates all reported entities and runtime settings. The cutover runbook has ten initial-switch steps, eight forward-release steps, a 90-day read-only snapshot retention period, and no automatic downgrade. Verified with 520 backend tests, 159 frontend tests, a successful production frontend build, and dev/prod Compose configuration checks. Tests use only disposable local PostgreSQL; no production service or real snapshot was accessed.
