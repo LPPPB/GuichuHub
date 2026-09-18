@@ -12,6 +12,7 @@ import time
 
 
 _state_repository = None
+RUNTIME_SETTING_CACHE_REFRESH_SECONDS = 1.0
 
 
 def configure_runtime_settings_repository(repository) -> None:
@@ -24,6 +25,13 @@ def load_runtime_setting(name: str, default):
         return deepcopy(default)
     value = _state_repository.load_setting(name)
     return deepcopy(default) if value is None else value
+
+
+def runtime_setting_version(name: str) -> int:
+    """Return the PostgreSQL revision, or zero before runtime wiring."""
+    if _state_repository is None:
+        return 0
+    return _state_repository.setting_version(name)
 
 
 def save_runtime_setting(name: str, payload) -> None:

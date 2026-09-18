@@ -6,7 +6,14 @@
 内置兜底在发布时固化且只读，运行期编辑不会回写源码目录。
 """
 
-from storage.runtime_settings import load_runtime_setting, save_runtime_setting
+from time import monotonic as _monotonic
+
+from storage.runtime_settings import (
+    RUNTIME_SETTING_CACHE_REFRESH_SECONDS,
+    load_runtime_setting,
+    runtime_setting_version,
+    save_runtime_setting,
+)
 from utils.release_word_rules import DANMAKU_FILTERS
 
 _FALLBACK_DANMAKU_FILTERS = {
@@ -121,27 +128,44 @@ def save_danmaku_filters(filters):
     _invalidate_danmaku_filters()
 
 
-# filter_danmaku_words 高频调用（dashboard 组装），词表带模块级缓存（保存后失效，无需重启后端）
+# filter_danmaku_words 高频调用（dashboard 组装）。本进程保存时立即失效；
+# 其他 API/Worker 进程通过 PostgreSQL revision 在有限窗口内发现更新。
 _DANMAKU_FILTERS_CACHE = None
+_DANMAKU_FILTERS_CACHE_VERSION = None
+_DANMAKU_FILTERS_CACHE_CHECKED_AT = None
 
 
 def _get_danmaku_filters():
     """读取预处理后的过滤词表（带模块级缓存）。"""
-    global _DANMAKU_FILTERS_CACHE
-    if _DANMAKU_FILTERS_CACHE is None:
+    global _DANMAKU_FILTERS_CACHE, _DANMAKU_FILTERS_CACHE_VERSION
+    global _DANMAKU_FILTERS_CACHE_CHECKED_AT
+    now = _monotonic()
+    refresh_due = (
+        _DANMAKU_FILTERS_CACHE_CHECKED_AT is None
+        or now - _DANMAKU_FILTERS_CACHE_CHECKED_AT >= RUNTIME_SETTING_CACHE_REFRESH_SECONDS
+    )
+    version = _DANMAKU_FILTERS_CACHE_VERSION
+    if _DANMAKU_FILTERS_CACHE is None or refresh_due:
+        version = runtime_setting_version('danmaku_filters')
+        _DANMAKU_FILTERS_CACHE_CHECKED_AT = now
+    if _DANMAKU_FILTERS_CACHE is None or version != _DANMAKU_FILTERS_CACHE_VERSION:
         raw = load_danmaku_filters()
         _DANMAKU_FILTERS_CACHE = {
             'allowed_exact': {w.lower() for w in raw.get('allowed_exact', [])},
             'bad_exact': {w.lower() for w in raw['bad_exact']},
             'bad_substr': [s.lower() for s in raw['bad_substr']],
         }
+        _DANMAKU_FILTERS_CACHE_VERSION = version
     return _DANMAKU_FILTERS_CACHE
 
 
 def _invalidate_danmaku_filters():
     """配置保存后失效缓存，下次 filter_danmaku_words 调用重新加载。"""
-    global _DANMAKU_FILTERS_CACHE
+    global _DANMAKU_FILTERS_CACHE, _DANMAKU_FILTERS_CACHE_VERSION
+    global _DANMAKU_FILTERS_CACHE_CHECKED_AT
     _DANMAKU_FILTERS_CACHE = None
+    _DANMAKU_FILTERS_CACHE_VERSION = None
+    _DANMAKU_FILTERS_CACHE_CHECKED_AT = None
 
 
 def explain_danmaku_word(word):

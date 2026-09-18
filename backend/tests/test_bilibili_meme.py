@@ -10,6 +10,7 @@
 import json
 
 import pytest
+from storage.repositories.state import StateRepository
 
 from collectors.bilibili import (
     get_meme_materials,
@@ -243,6 +244,19 @@ def test_meme_seed_words_save_and_reload(postgres_runtime):
     save_meme_seed_words(['哈基米', '  电棍  ', ''])
     words = load_meme_seed_words()
     assert words == ['哈基米', '电棍']  # 空白词被清理、两侧空白被 strip
+
+
+def test_uncached_meme_rules_observe_other_process_updates(postgres_runtime, postgres_url):
+    """Meme rule loaders query PostgreSQL and immediately see another writer."""
+    writer = StateRepository.from_url(postgres_url)
+    try:
+        writer.save_setting('meme_stopwords', {'跨进程': ['新词']}, 100)
+        writer.save_setting('meme_seed_words', ['新热梗'], 100)
+
+        assert load_meme_stopwords() == {'跨进程': ['新词']}
+        assert load_meme_seed_words() == ['新热梗']
+    finally:
+        writer._sessions.kw['bind'].dispose()
 
 
 def test_meme_seed_words_builtin_defaults_are_available():

@@ -63,6 +63,13 @@ class StateRepository:
                 dashboard_state.c.name == name,
             )).scalar_one_or_none()
 
+    def setting_version(self, name: str) -> int:
+        """Return the persisted revision used to refresh process-local readers."""
+        with self._sessions() as session:
+            return session.execute(select(dashboard_state.c.version).where(
+                dashboard_state.c.name == name,
+            )).scalar_one_or_none() or 0
+
     def save_setting(self, name: str, payload, now: int) -> None:
         """Persist one named runtime setting and advance its revision."""
         with self._sessions.begin() as session:

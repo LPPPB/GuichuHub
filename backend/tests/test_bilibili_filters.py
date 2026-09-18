@@ -1,5 +1,6 @@
 """is_useless_tag / KICHU_TIDS / typeid 比较陷阱 单元测试。"""
 import collectors.bilibili as bilibili
+from storage.repositories.state import StateRepository
 from collectors.bilibili import (
     is_useless_tag,
     KICHU_TIDS,
@@ -196,6 +197,32 @@ def test_tag_filters_cache_invalidated_on_save(postgres_runtime):
         'ad_keywords': ['新品牌'], 'activity_keywords': [], 'allowed_two_char': [],
     })
     assert is_useless_tag('新品牌手机')
+
+
+def test_tag_filter_cache_refreshes_after_other_process_updates(
+        postgres_runtime, postgres_url, monkeypatch):
+    """A tag reader observes another process's update after the bounded cache window."""
+    reader = postgres_runtime.state
+    writer = StateRepository.from_url(postgres_url)
+    clock = [100.0]
+    monkeypatch.setattr(bilibili, '_monotonic', lambda: clock[0], raising=False)
+    bilibili._invalidate_tag_filters()
+    initial = {
+        'categories': {'分类': ['原词']},
+        'ad_keywords': [], 'activity_keywords': [], 'allowed_two_char': [],
+    }
+    updated = {**initial, 'ad_keywords': ['新品牌']}
+    try:
+        reader.save_setting('tag_filters', initial, 100)
+        assert not is_useless_tag('新品牌手机')
+
+        writer.save_setting('tag_filters', updated, 101)
+        clock[0] = 3700.0
+
+        assert is_useless_tag('新品牌手机')
+    finally:
+        bilibili._invalidate_tag_filters()
+        writer._sessions.kw['bind'].dispose()
 
 
 def test_tag_filters_fallback_without_database_override():

@@ -8,6 +8,7 @@
 import json
 
 import analytics.filters as filters
+from storage.repositories.state import StateRepository
 
 
 def _words(*ws):
@@ -75,6 +76,31 @@ def test_danmaku_filters_cache_invalidated_on_save(postgres_runtime):
     # 保存新子串词 → 立即生效
     filters.save_danmaku_filters({'allowed_exact': ['666'], 'bad_exact': ['美团'], 'bad_substr': ['途虎', '新子串']})
     assert filters.filter_danmaku_words(_words('新子串xx')) == []
+
+
+def test_danmaku_cache_refreshes_after_other_process_updates(
+        postgres_runtime, postgres_url, monkeypatch):
+    """A reader refreshes its cache after another repository advances the DB revision."""
+    reader = postgres_runtime.state
+    writer = StateRepository.from_url(postgres_url)
+    clock = [100.0]
+    monkeypatch.setattr(filters, '_monotonic', lambda: clock[0], raising=False)
+    filters._invalidate_danmaku_filters()
+    try:
+        reader.save_setting('danmaku_filters', {
+            'allowed_exact': ['666'], 'bad_exact': ['旧广告'], 'bad_substr': [],
+        }, 100)
+        assert filters.filter_danmaku_words(_words('新广告')) == _words('新广告')
+
+        writer.save_setting('danmaku_filters', {
+            'allowed_exact': ['666'], 'bad_exact': ['新广告'], 'bad_substr': [],
+        }, 101)
+        clock[0] = 3700.0
+
+        assert filters.filter_danmaku_words(_words('新广告')) == []
+    finally:
+        filters._invalidate_danmaku_filters()
+        writer._sessions.kw['bind'].dispose()
 
 
 def test_danmaku_filters_fallback_without_database_override():

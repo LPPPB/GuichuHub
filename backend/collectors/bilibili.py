@@ -29,6 +29,9 @@ from utils.scorer import (
     get_material_reason,
 )
 from storage.db import get_video_obs_trend  # 同接跨轮平滑（L2）读取 video_obs 历史序列
+from storage.runtime_settings import RUNTIME_SETTING_CACHE_REFRESH_SECONDS
+
+_monotonic = time.monotonic
 
 USER_AGENTS = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -285,7 +288,7 @@ def fetch_meme_seed_videos():
     叮咚鸡等常驻热梗在候选池中频次不足 3 被过滤。这里按种子词主动搜索补足。
 
     返回：parse_region_rank_item 解析后的视频 dict 列表（已按 KICHU_TIDS 过滤分区）。
-    种子词来自 utils/meme_seed_words.json（开发者模式可编辑）。
+    种子词来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
     """
     seed_words = load_meme_seed_words()
     if not seed_words:
@@ -1207,14 +1210,29 @@ def save_tag_filters(filters):
     _invalidate_tag_filters()
 
 
-# is_useless_tag 高频调用，词表带模块级缓存（保存后失效，无需重启后端）
+# is_useless_tag 高频调用。本进程保存时立即失效；其他 API/Worker 进程
+# 通过 PostgreSQL revision 在有限窗口内发现更新。
 _TAG_FILTERS_CACHE = None
+_TAG_FILTERS_CACHE_VERSION = None
+_TAG_FILTERS_CACHE_CHECKED_AT = None
 
 
 def _get_tag_filters():
     """读取预处理后的过滤词表（带模块级缓存）。"""
-    global _TAG_FILTERS_CACHE
-    if _TAG_FILTERS_CACHE is None:
+    from storage.runtime_settings import runtime_setting_version
+
+    global _TAG_FILTERS_CACHE, _TAG_FILTERS_CACHE_VERSION
+    global _TAG_FILTERS_CACHE_CHECKED_AT
+    now = _monotonic()
+    refresh_due = (
+        _TAG_FILTERS_CACHE_CHECKED_AT is None
+        or now - _TAG_FILTERS_CACHE_CHECKED_AT >= RUNTIME_SETTING_CACHE_REFRESH_SECONDS
+    )
+    version = _TAG_FILTERS_CACHE_VERSION
+    if _TAG_FILTERS_CACHE is None or refresh_due:
+        version = runtime_setting_version('tag_filters')
+        _TAG_FILTERS_CACHE_CHECKED_AT = now
+    if _TAG_FILTERS_CACHE is None or version != _TAG_FILTERS_CACHE_VERSION:
         raw = load_tag_filters()
         stop_set = set()
         for words in raw['categories'].values():
@@ -1225,13 +1243,17 @@ def _get_tag_filters():
             'activity_keywords': raw['activity_keywords'],
             'allowed_two_char': set(raw['allowed_two_char']),
         }
+        _TAG_FILTERS_CACHE_VERSION = version
     return _TAG_FILTERS_CACHE
 
 
 def _invalidate_tag_filters():
     """配置保存后失效缓存，下次 is_useless_tag 调用重新加载。"""
-    global _TAG_FILTERS_CACHE
+    global _TAG_FILTERS_CACHE, _TAG_FILTERS_CACHE_VERSION
+    global _TAG_FILTERS_CACHE_CHECKED_AT
     _TAG_FILTERS_CACHE = None
+    _TAG_FILTERS_CACHE_VERSION = None
+    _TAG_FILTERS_CACHE_CHECKED_AT = None
 
 
 def explain_tag_rule(kw):
@@ -1315,7 +1337,7 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     all_videos = kichu_videos + music_videos + funny_videos + popular_videos
     meme_dict = {}
 
-    # 停用词表来自配置文件 utils/meme_stopwords.json（与梗素材库共用，开发者后台可编辑，下次抓取生效）。
+    # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
     # 种子热梗词豁免：显式声明要收录的梗优先级最高，即使被停用词表误伤也强制保留
     # （与 get_meme_materials 的 seed_words 语义一致，避免两边配置行为打架）。
     stopwords = set()
@@ -1447,7 +1469,7 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
 
     ensure_kichu_dict()  # 加载鬼畜梗自定义词典（哈基米等整词，幂等）
 
-    # 停用词表来自配置文件 utils/meme_stopwords.json（开发者模式可编辑，下次抓取生效）
+    # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
     # 与种子不同，停用词表是"排除已知非梗词"，不需要随热点更新
     stopwords = set()
     for words in load_meme_stopwords().values():

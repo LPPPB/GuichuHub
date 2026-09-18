@@ -130,7 +130,7 @@ def _require_migrated_empty_target(connection, allow_nonempty: bool) -> None:
             raise ImportSafetyError("target database is nonempty; pass --allow-nonempty only for a reviewed retry")
 
 
-def _import_business(connection, source: sqlite3.Connection) -> dict[str, int]:
+def _import_business(connection, source: sqlite3.Connection) -> dict[str, Any]:
     source_videos = _rows(source, "videos")
     source_ups = _rows(source, "ups")
     for row in source_videos:
@@ -215,11 +215,19 @@ def _import_business(connection, source: sqlite3.Connection) -> dict[str, int]:
                     "status": payload.get("status") or "queued", "worker_id": payload.get("worker_id"),
                     "payload": payload})
     _upsert(connection, calendar_backfill_job_items, items, [calendar_backfill_job_items.c.job_id, calendar_backfill_job_items.c.mid])
-    return {"videos": len(source_videos), "video_observations": len(observations),
-            "ups": len(source_ups), "up_observations": len(up_rows)}
+    return {
+        "videos": len(source_videos), "video_observations": len(observations),
+        "ups": len(source_ups), "up_observations": len(up_rows),
+        "_keys": {
+            "videos": [row["bvid"] for row in source_videos],
+            "video_observations": [(row["bvid"], row["ts"]) for row in observations],
+            "ups": [row["mid"] for row in source_ups],
+            "up_observations": [(row["mid"], row["ts"]) for row in up_rows],
+        },
+    }
 
 
-def _import_auth(connection, source: sqlite3.Connection) -> dict[str, int]:
+def _import_auth(connection, source: sqlite3.Connection) -> dict[str, Any]:
     admins = _rows(source, "admin_accounts")
     _upsert(connection, admin_accounts, admins, [admin_accounts.c.mid])
     sessions = _rows(source, "bili_sessions")
@@ -233,10 +241,18 @@ def _import_auth(connection, source: sqlite3.Connection) -> dict[str, int]:
     if handoffs:
         connection.execute(text("SELECT setval(pg_get_serial_sequence('auth.collector_credential_handoffs', 'id'), :value, true)"),
                            {"value": max(row["id"] for row in handoffs)})
-    return {"admins": len(admins), "sessions": len(sessions), "credential_handoffs": len(handoffs)}
+    return {
+        "admins": len(admins), "sessions": len(sessions),
+        "credential_handoffs": len(handoffs),
+        "_keys": {
+            "admins": [row["mid"] for row in admins],
+            "sessions": [row["token"] for row in sessions],
+            "credential_handoffs": [row["id"] for row in handoffs],
+        },
+    }
 
 
-def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> dict[str, int]:
+def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> dict[str, Any]:
     dashboard_payload = dashboard.get("dashboard") if isinstance(dashboard.get("dashboard"), dict) else dashboard
     runtime_settings = dashboard.get("runtime_settings") if isinstance(dashboard.get("runtime_settings"), dict) else {}
     connection.execute(insert(dashboard_state).values(name="current", payload=dashboard_payload, version=1, updated_at=now)
@@ -280,12 +296,27 @@ def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> 
                                      "request_type": item.get("request_type") or "add"},
                          "created_at": int(item.get("submitted_at") or now), "reviewed_at": item.get("reviewed_at")})
     _upsert(connection, tracking_requests, requests, [tracking_requests.c.id])
-    return {"favorites": len(favorite_rows), "tracked_ups": len(tracked_rows),
-            "tracking_requests": len(requests), "runtime_settings": len(runtime_settings)}
+    return {
+        "favorites": len(favorite_rows), "tracked_ups": len(tracked_rows),
+        "tracking_requests": len(requests), "runtime_settings": len(runtime_settings),
+        "_keys": {
+            "favorites": [row["id"] for row in favorite_rows],
+            "tracked_ups": [row["mid"] for row in tracked_rows],
+            "tracking_requests": [row["id"] for row in requests],
+            "runtime_settings": list(runtime_settings),
+        },
+    }
 
 
-def _count(connection, table) -> int:
-    return connection.execute(select(func.count()).select_from(table)).scalar_one()
+def _collection_report(source_keys, target_keys) -> dict[str, Any]:
+    """Compare both row cardinality and complete primary-key identity."""
+    source_keys = list(source_keys)
+    target_keys = list(target_keys)
+    return {
+        "source_count": len(source_keys),
+        "target_count": len(target_keys),
+        "keys_match": set(source_keys) == set(target_keys),
+    }
 
 
 def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json: Path,
@@ -311,8 +342,6 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
                 id=str(uuid.uuid4()), source_fingerprint=_fingerprint(paths), status="completed", report={}, created_at=now,
             ))
         with engine.begin() as connection:
-            video_keys = {row[0] for row in business_source.execute("SELECT bvid FROM videos")} if _rows(business_source, "videos") else set()
-            target_keys = set(connection.execute(select(videos.c.bvid)).scalars())
             latest_source = business_source.execute("SELECT MAX(ts) FROM video_obs").fetchone()[0] if _rows(business_source, "video_obs") else None
             latest_target = connection.execute(select(func.max(video_observations.c.ts))).scalar_one()
             dashboard_payload = dashboard.get("dashboard") if isinstance(dashboard.get("dashboard"), dict) else dashboard
@@ -322,40 +351,86 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
             )).scalar_one_or_none()
             target_settings = dict(connection.execute(select(
                 dashboard_state.c.name, dashboard_state.c.payload,
-            ).where(dashboard_state.c.name.in_(tuple(source_settings)))).all()) if source_settings else {}
+            ).where(dashboard_state.c.name != "current")).all())
+            entity_reports = {
+                "videos": _collection_report(
+                    business_counts["_keys"]["videos"],
+                    connection.execute(select(videos.c.bvid)).scalars(),
+                ),
+                "video_observations": _collection_report(
+                    business_counts["_keys"]["video_observations"],
+                    (tuple(row) for row in connection.execute(select(
+                        video_observations.c.bvid, video_observations.c.ts,
+                    ))),
+                ),
+                "ups": _collection_report(
+                    business_counts["_keys"]["ups"],
+                    connection.execute(select(ups.c.mid)).scalars(),
+                ),
+                "up_observations": _collection_report(
+                    business_counts["_keys"]["up_observations"],
+                    (tuple(row) for row in connection.execute(select(
+                        up_observations.c.mid, up_observations.c.ts,
+                    ))),
+                ),
+                "admins": _collection_report(
+                    auth_counts["_keys"]["admins"],
+                    connection.execute(select(admin_accounts.c.mid)).scalars(),
+                ),
+            }
+            sessions_report = _collection_report(
+                auth_counts["_keys"]["sessions"],
+                connection.execute(select(browser_sessions.c.token)).scalars(),
+            )
+            handoffs_report = _collection_report(
+                auth_counts["_keys"]["credential_handoffs"],
+                connection.execute(select(collector_credential_handoffs.c.id)).scalars(),
+            )
+            favorites_report = _collection_report(
+                state_counts["_keys"]["favorites"],
+                connection.execute(select(favorites.c.id)).scalars(),
+            )
+            tracked_ups_report = _collection_report(
+                state_counts["_keys"]["tracked_ups"],
+                connection.execute(select(tracked_ups.c.mid)).scalars(),
+            )
+            tracking_requests_report = _collection_report(
+                state_counts["_keys"]["tracking_requests"],
+                connection.execute(select(tracking_requests.c.id)).scalars(),
+            )
+            runtime_settings_report = _collection_report(
+                state_counts["_keys"]["runtime_settings"], target_settings,
+            )
+            runtime_settings_report["payloads_match"] = target_settings == source_settings
+            runtime_settings_report["matches"] = (
+                runtime_settings_report["keys_match"]
+                and runtime_settings_report["payloads_match"]
+            )
             report = {
                 "valid": False,
-                "entities": {
-                    "videos": {"source_count": business_counts["videos"], "target_count": _count(connection, videos), "keys_match": video_keys == target_keys},
-                    "video_observations": {"source_count": business_counts["video_observations"], "target_count": _count(connection, video_observations)},
-                    "ups": {"source_count": business_counts["ups"], "target_count": _count(connection, ups)},
-                    "up_observations": {"source_count": business_counts["up_observations"], "target_count": _count(connection, up_observations)},
-                    "admins": {"source_count": auth_counts["admins"], "target_count": _count(connection, admin_accounts)},
-                },
+                "entities": entity_reports,
                 "latest_observation_ts": {"source": latest_source, "target": latest_target},
-                "sessions": {"source_count": auth_counts["sessions"], "target_count": _count(connection, browser_sessions)},
-                "credential_handoffs": {"source_count": auth_counts["credential_handoffs"], "target_count": _count(connection, collector_credential_handoffs)},
-                "favorites": {"source_count": state_counts["favorites"], "target_count": _count(connection, favorites)},
-                "tracked_ups": {"source_count": state_counts["tracked_ups"], "target_count": _count(connection, tracked_ups)},
-                "tracking_requests": {"source_count": state_counts["tracking_requests"], "target_count": _count(connection, tracking_requests)},
+                "sessions": sessions_report,
+                "credential_handoffs": handoffs_report,
+                "favorites": favorites_report,
+                "tracked_ups": tracked_ups_report,
+                "tracking_requests": tracking_requests_report,
                 "dashboard_state": {"source_present": True, "target_present": target_dashboard is not None,
                                     "matches": target_dashboard == dashboard_payload},
-                "runtime_settings": {"source_count": len(source_settings),
-                                     "target_count": len(target_settings),
-                                     "matches": target_settings == source_settings},
+                "runtime_settings": runtime_settings_report,
             }
+            reconciled_collections = [
+                *report["entities"].values(), report["sessions"],
+                report["credential_handoffs"], report["favorites"],
+                report["tracked_ups"], report["tracking_requests"],
+            ]
             report["valid"] = (
-                report["entities"]["videos"]["source_count"] == report["entities"]["videos"]["target_count"]
-                and report["entities"]["videos"]["keys_match"]
-                and report["entities"]["video_observations"]["source_count"] == report["entities"]["video_observations"]["target_count"]
-                and report["entities"]["admins"]["source_count"] == report["entities"]["admins"]["target_count"]
-                and report["sessions"]["source_count"] == report["sessions"]["target_count"]
-                and report["credential_handoffs"]["source_count"] == report["credential_handoffs"]["target_count"]
-                and report["favorites"]["source_count"] == report["favorites"]["target_count"]
-                and report["tracked_ups"]["source_count"] == report["tracked_ups"]["target_count"]
+                all(item["source_count"] == item["target_count"] and item["keys_match"]
+                    for item in reconciled_collections)
                 and report["latest_observation_ts"]["source"] == report["latest_observation_ts"]["target"]
                 and report["dashboard_state"]["target_present"]
                 and report["dashboard_state"]["matches"]
+                and report["runtime_settings"]["source_count"] == report["runtime_settings"]["target_count"]
                 and report["runtime_settings"]["matches"]
             )
             connection.execute(data_import_records.update().where(data_import_records.c.source_fingerprint == _fingerprint(paths)).values(report=report))
