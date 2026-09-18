@@ -78,7 +78,11 @@ class BusinessRepository:
                     ))
 
     def record_observation(self, bvid: str, ts: int, metrics: dict) -> None:
-        row = {"bvid": bvid, "ts": ts, "views": metrics.get("views"), "likes": metrics.get("likes")}
+        row = {column.name: metrics.get(column.name) for column in video_observations.columns
+               if column.name not in {"bvid", "ts"}}
+        row.update(bvid=bvid, ts=ts)
+        if "online_count_raw" in metrics:
+            row["online_count"] = metrics["online_count_raw"]
         statement = insert(video_observations).values(**row).on_conflict_do_update(
             index_elements=[video_observations.c.bvid, video_observations.c.ts], set_=row
         )

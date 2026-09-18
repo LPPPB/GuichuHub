@@ -13,11 +13,13 @@ import json
 import sqlite3
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.dialects.postgresql import insert
+from storage.migrations import alembic_heads
 
 from storage.models import (
     admin_accounts, browser_sessions, calendar_backfill_job_items,
@@ -47,12 +49,13 @@ _TARGET_DATA_TABLES = (
 def _json(value: Any, default: Any) -> Any:
     if value in (None, ""):
         return default
-    if isinstance(value, (dict, list)):
-        return value
     try:
-        return json.loads(value)
+        result = value if isinstance(value, (dict, list)) else json.loads(value)
     except (TypeError, json.JSONDecodeError):
-        return default
+        raise ImportSafetyError("invalid embedded JSON in snapshot") from None
+    if not isinstance(result, type(default)):
+        raise ImportSafetyError("invalid embedded JSON type in snapshot")
+    return result
 
 
 def _read_json(path: Path) -> dict:
@@ -95,15 +98,50 @@ def _fingerprint(paths: tuple[Path, ...]) -> str:
 def _upsert(connection, table, rows: list[dict], keys: list):
     if not rows:
         return
-    statement = insert(table).values(rows)
-    updates = {
-        column.name: getattr(statement.excluded, column.name)
-        for column in table.columns if column not in keys
-    }
-    connection.execute(statement.on_conflict_do_update(index_elements=keys, set_=updates))
+    _remember(connection, table, rows)
+    # Leave ample headroom below PostgreSQL's 65,535 bind limit, independent
+    # of table width. Bound statements even when the source history is large.
+    batch_size = min(1000, 60000 // len(table.columns))
+    for offset in range(0, len(rows), batch_size):
+        batch = rows[offset:offset + batch_size]
+        statement = insert(table).values(batch)
+        updates = {name: getattr(statement.excluded, name) for name in batch[0]
+                   if name not in {column.name for column in keys}}
+        statement = (statement.on_conflict_do_update(index_elements=keys, set_=updates)
+                     if updates else statement.on_conflict_do_nothing(index_elements=keys))
+        connection.execute(statement)
+
+
+def _remember(connection, table, rows, synthesized=False):
+    expected = connection.info.setdefault("import_expected", {}).setdefault(table.name, {})
+    synthetic = connection.info.setdefault("import_synthesized", {}).setdefault(table.name, set())
+    for row in rows:
+        key = tuple(row[column.name] for column in table.primary_key.columns)
+        if synthesized and key in expected:
+            continue
+        expected[key] = dict(row)
+        if synthesized:
+            synthetic.add(key)
+
+
+def _reconcile(connection):
+    reports = {}
+    for table in _TARGET_DATA_TABLES:
+        expected = connection.info["import_expected"].get(table.name, {})
+        actual = {tuple(row[column.name] for column in table.primary_key.columns): dict(row)
+                  for row in connection.execute(select(table)).mappings()}
+        reports[table.name] = {
+            **_collection_report(expected, actual),
+            "synthesized_count": len(connection.info.get("import_synthesized", {}).get(table.name, set())),
+            "payloads_match": all(key in actual and all(actual[key][field] == value for field, value in row.items())
+                                  for key, row in expected.items()),
+        }
+    return reports
 
 
 def _ensure_video(connection, bvid: str, mid: int | None, first_seen: int) -> None:
+    _remember(connection, videos, [{"bvid": bvid, "mid": mid, "title": "", "first_seen": first_seen,
+                                   "source": "sqlite-import", "observe_tier": "cold"}], synthesized=True)
     connection.execute(insert(videos).values(
         bvid=bvid, mid=mid, title="", first_seen=first_seen, source="sqlite-import",
         observe_tier="cold",
@@ -111,6 +149,7 @@ def _ensure_video(connection, bvid: str, mid: int | None, first_seen: int) -> No
 
 
 def _ensure_up(connection, mid: int) -> None:
+    _remember(connection, ups, [{"mid": mid, "tracked": False}], synthesized=True)
     connection.execute(insert(ups).values(mid=mid, tracked=False).on_conflict_do_nothing(
         index_elements=[ups.c.mid]
     ))
@@ -121,8 +160,8 @@ def _require_migrated_empty_target(connection, allow_nonempty: bool) -> None:
         revision = connection.execute(text("SELECT version_num FROM app.alembic_version")).scalar_one_or_none()
     except Exception as error:
         raise ImportSafetyError("target must be initialized with alembic upgrade head") from error
-    if revision != "0001_postgresql_v3_baseline":
-        raise ImportSafetyError("target Alembic revision is not the PostgreSQL baseline")
+    if [revision] != alembic_heads():
+        raise ImportSafetyError("target Alembic revision is not current")
     if allow_nonempty:
         return
     for table in _TARGET_DATA_TABLES:
@@ -156,6 +195,7 @@ def _import_business(connection, source: sqlite3.Connection) -> dict[str, Any]:
     for row in crawls:
         row["stats"] = _json(row.pop("stats_json", None), {})
     _upsert(connection, crawl_runs, crawls, [crawl_runs.c.id])
+    _reseed(connection, crawl_runs)
 
     up_rows = _rows(source, "up_obs")
     for row in up_rows:
@@ -163,6 +203,11 @@ def _import_business(connection, source: sqlite3.Connection) -> dict[str, Any]:
         latest_videos = _json(row.pop("latest_videos_json", None), [])
         payload = dict(row)
         payload["latest_videos"] = latest_videos
+        for old, new in {"kichu_count": "kichu_video_count", "video_count_30d": "recent_video_count",
+                         "views_30d": "total_recent_views", "latest_pub_ts": "latest_pub_date",
+                         "video_count_total": "video_count", "kichu_count_30d": "recent_kichu_count"}.items():
+            if old in payload:
+                payload[new] = payload.pop(old)
         row.clear()
         row.update({"mid": payload["mid"], "ts": payload["ts"], "payload": payload})
     _upsert(connection, up_observations, up_rows, [up_observations.c.mid, up_observations.c.ts])
@@ -227,6 +272,16 @@ def _import_business(connection, source: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def _reseed(connection, table):
+    # Never move a sequence backwards on a reviewed retry.
+    maximum = connection.execute(select(func.max(table.c.id))).scalar_one()
+    if maximum is not None:
+        sequence = f"{table.schema}.{table.name}_id_seq"
+        last = connection.execute(text(f"SELECT last_value FROM {sequence}")).scalar_one()
+        connection.execute(text("SELECT setval(pg_get_serial_sequence(:table, 'id'), :value, true)"),
+                           {"table": table.fullname, "value": max(maximum, last)})
+
+
 def _import_auth(connection, source: sqlite3.Connection) -> dict[str, Any]:
     admins = _rows(source, "admin_accounts")
     _upsert(connection, admin_accounts, admins, [admin_accounts.c.mid])
@@ -238,9 +293,7 @@ def _import_auth(connection, source: sqlite3.Connection) -> dict[str, Any]:
     for row in handoffs:
         row["payload"] = _json(row.get("payload"), {})
     _upsert(connection, collector_credential_handoffs, handoffs, [collector_credential_handoffs.c.id])
-    if handoffs:
-        connection.execute(text("SELECT setval(pg_get_serial_sequence('auth.collector_credential_handoffs', 'id'), :value, true)"),
-                           {"value": max(row["id"] for row in handoffs)})
+    _reseed(connection, collector_credential_handoffs)
     return {
         "admins": len(admins), "sessions": len(sessions),
         "credential_handoffs": len(handoffs),
@@ -255,11 +308,13 @@ def _import_auth(connection, source: sqlite3.Connection) -> dict[str, Any]:
 def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> dict[str, Any]:
     dashboard_payload = dashboard.get("dashboard") if isinstance(dashboard.get("dashboard"), dict) else dashboard
     runtime_settings = dashboard.get("runtime_settings") if isinstance(dashboard.get("runtime_settings"), dict) else {}
+    _remember(connection, dashboard_state, [{"name": "current", "payload": dashboard_payload}])
     connection.execute(insert(dashboard_state).values(name="current", payload=dashboard_payload, version=1, updated_at=now)
                        .on_conflict_do_update(index_elements=[dashboard_state.c.name], set_={"payload": dashboard_payload, "updated_at": now}))
     for name in ("danmaku_filters", "meme_stopwords", "meme_seed_words", "tag_filters"):
         if name not in runtime_settings:
             continue
+        _remember(connection, dashboard_state, [{"name": name, "payload": runtime_settings[name]}])
         connection.execute(insert(dashboard_state).values(
             name=name, payload=runtime_settings[name], version=1, updated_at=now,
         ).on_conflict_do_update(
@@ -269,12 +324,21 @@ def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> 
     favorite_rows = []
     for item in dashboard_payload.get("favorites", []):
         if not isinstance(item, dict):
-            continue
+            raise ImportSafetyError("invalid favorite object in snapshot")
         value = dict(item)
-        favorite_rows.append({"id": str(value.get("id") or f"import_{uuid.uuid4().hex}"),
+        saved_at = value.get("saved_at")
+        if saved_at is None or saved_at == "":
+            saved_at = now
+        try:
+            saved_at = int(saved_at)
+        except (ValueError, TypeError):
+            saved_at = int(datetime.strptime(saved_at, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=8))).timestamp())
+        value["saved_at"] = datetime.fromtimestamp(saved_at, timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+        value["id"] = str(value.get("id") or "import_" + hashlib.sha256(json.dumps(item, sort_keys=True).encode()).hexdigest())
+        favorite_rows.append({"id": value["id"],
                               "owner": str(value.get("owner") or ""), "item_type": str(value.get("type") or "unknown"),
                               "item": value, "tags": value.get("tags") or [], "notes": value.get("notes") or "",
-                              "saved_at": int(value.get("saved_at") or now)})
+                              "saved_at": saved_at})
     _upsert(connection, favorites, favorite_rows, [favorites.c.id])
     tracked_rows = []
     for item in tracked.get("ups", []):
@@ -283,6 +347,7 @@ def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> 
                                  "enabled": bool(item.get("enabled", True)), "updated_at": int(tracked.get("updated_at") or now)})
     _upsert(connection, tracked_ups, tracked_rows, [tracked_ups.c.mid])
     config = tracked.get("config") if isinstance(tracked.get("config"), dict) else {}
+    _remember(connection, tracked_up_settings, [{"name": "tracked_list", "payload": {"config": config}}])
     connection.execute(insert(tracked_up_settings).values(name="tracked_list", payload={"config": config}, updated_at=int(tracked.get("updated_at") or now))
                        .on_conflict_do_update(index_elements=[tracked_up_settings.c.name], set_={"payload": {"config": config}, "updated_at": int(tracked.get("updated_at") or now)}))
     requests = []
@@ -293,6 +358,7 @@ def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> 
         requests.append({"id": str(item["id"]), "mid": int(item["mid"]), "visitor_id": str(item["visitor_id"]),
                          "status": str(item.get("status") or "pending"),
                          "payload": {"up": item.get("up") or {}, "reason": item.get("reason") or "",
+                                     "reject_reason": item.get("reject_reason") or "",
                                      "request_type": item.get("request_type") or "add"},
                          "created_at": int(item.get("submitted_at") or now), "reviewed_at": item.get("reviewed_at")})
     _upsert(connection, tracking_requests, requests, [tracking_requests.c.id])
@@ -332,16 +398,20 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
     tracked = _read_json(paths[3])
     engine = create_engine(database_url, pool_pre_ping=True)
     now = int(time.time())
+    fingerprint = _fingerprint(paths)
     try:
         with engine.begin() as connection:
+            connection.info["import_expected"] = {}
+            connection.info["import_synthesized"] = {}
+            connection.execute(select(func.pg_advisory_xact_lock(func.hashtextextended("offline-snapshot-import", 0))))
             _require_migrated_empty_target(connection, allow_nonempty)
             business_counts = _import_business(connection, business_source)
             auth_counts = _import_auth(connection, auth_source)
             state_counts = _import_json_state(connection, dashboard, tracked, now)
             connection.execute(insert(data_import_records).values(
-                id=str(uuid.uuid4()), source_fingerprint=_fingerprint(paths), status="completed", report={}, created_at=now,
-            ))
-        with engine.begin() as connection:
+                id=str(uuid.uuid4()), source_fingerprint=fingerprint, status="running", report={}, created_at=now,
+            ).on_conflict_do_update(index_elements=[data_import_records.c.source_fingerprint],
+                                    set_={"status": "running", "report": {}}))
             latest_source = business_source.execute("SELECT MAX(ts) FROM video_obs").fetchone()[0] if _rows(business_source, "video_obs") else None
             latest_target = connection.execute(select(func.max(video_observations.c.ts))).scalar_one()
             dashboard_payload = dashboard.get("dashboard") if isinstance(dashboard.get("dashboard"), dict) else dashboard
@@ -378,6 +448,10 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
                     connection.execute(select(admin_accounts.c.mid)).scalars(),
                 ),
             }
+            entity_reports.update(_reconcile(connection))
+            # Keep the historical report alias while the exhaustive table map
+            # also uses the actual relation names.
+            entity_reports["admins"] = entity_reports["admin_accounts"]
             sessions_report = _collection_report(
                 auth_counts["_keys"]["sessions"],
                 connection.execute(select(browser_sessions.c.token)).scalars(),
@@ -425,7 +499,7 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
                 report["tracked_ups"], report["tracking_requests"],
             ]
             report["valid"] = (
-                all(item["source_count"] == item["target_count"] and item["keys_match"]
+                all(item["source_count"] == item["target_count"] and item["keys_match"] and item.get("payloads_match", True)
                     for item in reconciled_collections)
                 and report["latest_observation_ts"]["source"] == report["latest_observation_ts"]["target"]
                 and report["dashboard_state"]["target_present"]
@@ -433,7 +507,14 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
                 and report["runtime_settings"]["source_count"] == report["runtime_settings"]["target_count"]
                 and report["runtime_settings"]["matches"]
             )
-            connection.execute(data_import_records.update().where(data_import_records.c.source_fingerprint == _fingerprint(paths)).values(report=report))
+            report["conversion_errors"] = []
+            connection.execute(data_import_records.update().where(data_import_records.c.source_fingerprint == fingerprint)
+                               .values(report=report, status="completed" if report["valid"] else "invalid"))
+    except ImportSafetyError as error:
+        report_path = Path(report_path)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps({"valid": False, "conversion_errors": [str(error)]}), encoding="utf-8")
+        raise
     finally:
         business_source.close()
         auth_source.close()

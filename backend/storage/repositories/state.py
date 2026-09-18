@@ -103,7 +103,8 @@ class StateRepository:
         favorite_id = f"{item_type}_{uuid.uuid4().hex}"
         value = dict(item)
         value.update({"id": favorite_id, "type": item_type, "owner": owner,
-                      "saved_at": now, "tags": item.get("tags", []), "notes": item.get("notes", "")})
+                      "saved_at": datetime.fromtimestamp(now, timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S"),
+                      "tags": item.get("tags", []), "notes": item.get("notes", "")})
         with self._sessions.begin() as session:
             session.execute(insert(favorites).values(
                 id=favorite_id, owner=owner or "", item_type=item_type, item=value,
