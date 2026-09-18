@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 
-def test_production_postgres_has_no_host_port_and_core_only():
+def test_production_postgres_has_no_host_port_and_core_only(tmp_path):
+    from tests.test_compose_security import _production_config
     compose = Path(__file__).resolve().parents[2].joinpath("compose.prod.yml").read_text(encoding="utf-8")
 
     assert "  postgres:" in compose
@@ -13,10 +14,9 @@ def test_production_postgres_has_no_host_port_and_core_only():
     assert "  core:\n    internal: true" in compose
     postgres_block = compose.split("  postgres:", 1)[1].split("\n  migrate:", 1)[0]
     assert "ports:" not in postgres_block
-    api_block = compose.split("  api:", 1)[1].split("\n  worker:", 1)[0]
-    worker_block = compose.split("  worker:", 1)[1].split("\n  backup:", 1)[0]
-    assert "egress" not in api_block
-    assert "egress" in worker_block
+    services = _production_config(tmp_path)["services"]
+    assert set(services["api"]["networks"]) == {"core"}
+    assert "egress" in services["worker"]["networks"]
 
 
 def test_custom_postgres_backup_writes_verified_manifest(tmp_path):

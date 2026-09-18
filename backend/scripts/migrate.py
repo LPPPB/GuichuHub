@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import argparse
 
 from sqlalchemy import text
 
@@ -26,4 +27,5 @@ def migrate() -> str:
 
 
 if __name__ == "__main__":
+    argparse.ArgumentParser(description="Upgrade PostgreSQL to the current Alembic head").parse_args()
     migrate()

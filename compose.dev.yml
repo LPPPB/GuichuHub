@@ -41,7 +41,7 @@ services:
     build:
       context: ./backend
       target: builder
-    command: ["/app/.venv/bin/python", "scripts/migrate.py"]
+    command: ["/app/.venv/bin/python", "-m", "scripts.migrate"]
     environment:
       KICHU_MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_database_url
     depends_on:
@@ -65,6 +65,11 @@ services:
     environment:
       <<: *backend-environment
       KICHU_API_DATABASE_URL_FILE: /run/secrets/api_database_url
+      HTTP_PROXY: http://api-egress:8080
+      HTTPS_PROXY: http://api-egress:8080
+      NO_PROXY: localhost,127.0.0.1,postgres
+    depends_on:
+      - api-egress
     init: true
     logging: *default-logging
     ports:
@@ -75,6 +80,13 @@ services:
       - ./runtime/dev:/app/runtime/dev
     networks: [core]
     secrets: [api_database_url]
+
+  api-egress:
+    image: ubuntu/squid:6.6-24.04_beta@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+    entrypoint: ["squid", "-N", "-f", "/etc/squid/squid.conf"]
+    networks: [core, egress]
+    volumes:
+      - ./ops/egress/squid.conf:/etc/squid/squid.conf:ro
 
   worker:
     build:

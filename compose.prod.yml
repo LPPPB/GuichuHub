@@ -42,7 +42,7 @@ services:
     profiles: ["maintenance"]
     build:
       context: ./backend
-    command: ["python", "scripts/migrate.py"]
+    command: ["python", "-m", "scripts.migrate"]
     environment:
       KICHU_MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_database_url
     depends_on:
@@ -98,6 +98,11 @@ services:
       KICHU_WRITE_TOKEN_FILE: /run/secrets/write_token
       KICHU_API_DATABASE_URL_FILE: /run/secrets/api_database_url
       KICHU_COOKIE_WRITES_ENABLED: "0"
+      HTTP_PROXY: http://api-egress:8080
+      HTTPS_PROXY: http://api-egress:8080
+      NO_PROXY: localhost,127.0.0.1,postgres
+    depends_on:
+      - api-egress
     init: true
     logging: *default-logging
     networks:
@@ -109,6 +114,15 @@ services:
     secrets:
       - write_token
       - api_database_url
+
+  api-egress:
+    image: ubuntu/squid:6.6-24.04_beta@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029
+    entrypoint: ["squid", "-N", "-f", "/etc/squid/squid.conf"]
+    networks: [core, egress]
+    logging: *default-logging
+    restart: unless-stopped
+    volumes:
+      - ./ops/egress/squid.conf:/etc/squid/squid.conf:ro
 
   worker:
     build:

@@ -39,6 +39,8 @@ COPY --from=builder /app/analytics /app/analytics
 COPY --from=builder /app/jobs /app/jobs
 COPY --from=builder /app/utils /app/utils
 COPY --from=builder /app/scripts /app/scripts
+COPY --from=builder /app/alembic.ini /app/alembic.ini
+COPY --from=builder /app/alembic /app/alembic
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV TZ=Asia/Shanghai
