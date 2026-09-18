@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from html import unescape
 
-from sqlalchemy import BigInteger, and_, case, cast, create_engine, distinct, func, or_, select
+from sqlalchemy import BigInteger, and_, case, cast, create_engine, distinct, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
@@ -84,6 +84,100 @@ class BusinessRepository:
         )
         with self._sessions.begin() as session:
             session.execute(statement)
+
+    def scored_batches(self) -> list[dict]:
+        """Return historical score batches without exposing query primitives."""
+        with self._sessions() as session:
+            rows = session.execute(select(
+                video_observations.c.ts,
+                func.count().label("count"),
+            ).where(
+                video_observations.c.potential_score.is_not(None),
+                video_observations.c.views.is_not(None),
+            ).group_by(video_observations.c.ts).order_by(
+                video_observations.c.ts.desc(),
+            )).mappings()
+            return [dict(row) for row in rows]
+
+    def backtest_rows(self, ts: int, end_ts: int, min_views: int) -> dict:
+        """Return one scored batch plus its last observation in the review window."""
+        with self._sessions() as session:
+            base_rows = session.execute(select(
+                video_observations.c.bvid,
+                video_observations.c.views,
+                video_observations.c.potential_score,
+                videos.c.title,
+                ups.c.name.label("author"),
+            ).join(
+                videos, videos.c.bvid == video_observations.c.bvid,
+            ).outerjoin(
+                ups, ups.c.mid == videos.c.mid,
+            ).where(
+                video_observations.c.ts == ts,
+                video_observations.c.potential_score.is_not(None),
+                video_observations.c.views.is_not(None),
+            )).mappings().all()
+            eligible = [row for row in base_rows if row["views"] >= min_views]
+            if not eligible:
+                return {"scored_count": len(base_rows), "unverified": 0, "rows": []}
+            bvids = [row["bvid"] for row in eligible]
+            later_rows = session.execute(select(
+                video_observations.c.bvid,
+                video_observations.c.views,
+                video_observations.c.ts,
+            ).where(
+                video_observations.c.bvid.in_(bvids),
+                video_observations.c.ts > ts,
+                video_observations.c.ts <= end_ts,
+                video_observations.c.views.is_not(None),
+            ).order_by(
+                video_observations.c.bvid,
+                video_observations.c.ts.desc(),
+            )).mappings()
+            latest = {}
+            for row in later_rows:
+                latest.setdefault(row["bvid"], row["views"])
+        verified = []
+        for row in eligible:
+            later_views = latest.get(row["bvid"])
+            if later_views is None:
+                continue
+            verified.append({**dict(row), "later_views": later_views})
+        return {
+            "scored_count": len(base_rows),
+            "unverified": len(eligible) - len(verified),
+            "rows": verified,
+        }
+
+    def development_stats(self) -> dict:
+        """Return the operator dashboard's PostgreSQL health summary."""
+        with self._sessions() as session:
+            revision = session.execute(text(
+                "SELECT version_num FROM app.alembic_version"
+            )).scalar_one_or_none()
+            runs = dict(session.execute(select(
+                crawl_runs.c.status, func.count().label("count"),
+            ).group_by(crawl_runs.c.status)).all())
+            stale = session.execute(select(
+                crawl_runs.c.id, crawl_runs.c.started_at, crawl_runs.c.trigger_source,
+            ).where(crawl_runs.c.status == "running").order_by(
+                crawl_runs.c.started_at.desc(),
+            ).limit(20)).mappings().all()
+            observation_counts = session.execute(select(
+                func.count(distinct(video_observations.c.ts)).label("batches"),
+                func.count().label("rows"),
+            )).mappings().one()
+            return {
+                "alembic_revision": revision,
+                # Baseline 0001 replaces the historical public V1–V11 schema marker.
+                "schema_version": 11,
+                "crawl_runs": runs,
+                "stale_running": [dict(row) for row in stale],
+                "video_obs_batches": observation_counts["batches"],
+                "video_obs_rows": observation_counts["rows"],
+                "videos": session.execute(select(func.count()).select_from(videos)).scalar_one(),
+                "ups": session.execute(select(func.count()).select_from(ups)).scalar_one(),
+            }
 
     def latest_video_observation_ts(self) -> int | None:
         with self._sessions() as session:

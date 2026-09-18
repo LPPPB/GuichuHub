@@ -4,7 +4,6 @@ x-backend-environment: &backend-environment
   KICHU_ENV: development
   KICHU_COOKIE_PATH: /app/runtime/dev/private/bilibili_cookie.json
   KICHU_LOG_DIR: /app/runtime/dev/logs
-  KICHU_BACKUP_DIR: /app/runtime/dev/backups
 
 x-default-logging: &default-logging
   driver: json-file

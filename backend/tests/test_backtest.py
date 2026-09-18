@@ -9,9 +9,6 @@
 - list_scored_batches 返回带分批次；get_dev_stats 返回 schema 版本与抓取残留
 不依赖真实网络与真实 DB（monkeypatch 到临时 SQLite，模式同 test_calendar_dedup）。
 """
-import os
-import tempfile
-
 import pytest
 
 import storage.db as db
@@ -19,16 +16,8 @@ from analytics import backtest
 
 
 @pytest.fixture
-def bt_db(monkeypatch):
-    """临时 SQLite：重定向 DB_PATH/DATA_DIR 并清连接缓存，get_conn 自动执行全部 schema"""
-    tmpdir = tempfile.mkdtemp()
-    db_path = os.path.join(tmpdir, 'test.db')
-    monkeypatch.setattr(db, 'DB_PATH', db_path)
-    monkeypatch.setattr(db, 'DATA_DIR', tmpdir)
-    db._thread_local.conn = None
-    db.get_conn()
-    yield db_path
-    db._thread_local.conn = None
+def bt_db(postgres_runtime):
+    return postgres_runtime
 
 
 def _seed(bt_db, ts):
@@ -37,46 +26,30 @@ def _seed(bt_db, ts):
     6 个视频，T 时刻 views 相同（10000），后续 views = 10000 + score*100，
     增速与分完全正相关。另加 1 个无后续观测（unverified）与 1 个超冷视频（<100）。
     """
-    conn = db.get_conn()
+    repository = bt_db.business
     scores = [90, 80, 70, 60, 50, 40]
     for i, score in enumerate(scores, start=1):
         bvid = f'BT{i}'
-        conn.execute('INSERT OR REPLACE INTO videos (bvid, title, mid, first_seen) VALUES (?,?,?,?)',
-                     (bvid, f'测试视频{i}', 9000 + i, ts))
-        conn.execute('INSERT OR REPLACE INTO ups (mid, name) VALUES (?,?)',
-                     (9000 + i, f'UP{i}'))
-        # T 时刻：views 10000，带分
-        conn.execute('''
-            INSERT OR REPLACE INTO video_obs
-            (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-        ''', (bvid, ts, 10000, float(score)))
-        # T+2h：views 增量与分正相关（增速单调递增）
+        repository.register_up(9000 + i, f'UP{i}')
+        repository.record_video({
+            'bvid': bvid, 'title': f'测试视频{i}', 'mid': 9000 + i,
+            'first_seen': ts, 'views': 10000, 'potential_score': float(score),
+        }, ts=ts, source='test')
         later_views = 10000 + score * 100
-        conn.execute('''
-            INSERT OR REPLACE INTO video_obs
-            (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-        ''', (bvid, ts + 2 * 3600, later_views, None))
+        repository.record_observation(bvid, ts + 2 * 3600, {'views': later_views})
     # 无后续观测：只看得到 T 时刻，应计入 n_unverified
-    conn.execute('INSERT OR REPLACE INTO videos (bvid, title, mid, first_seen) VALUES (?,?,?,?)',
-                 ('BT_DEAD', '无后续观测', 9999, ts))
-    conn.execute('INSERT OR REPLACE INTO ups (mid, name) VALUES (?,?)', (9999, 'UP_DEAD'))
-    conn.execute('''
-        INSERT OR REPLACE INTO video_obs
-        (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-    ''', ('BT_DEAD', ts, 5000, 45.0))
+    repository.register_up(9999, 'UP_DEAD')
+    repository.record_video({
+        'bvid': 'BT_DEAD', 'title': '无后续观测', 'mid': 9999,
+        'first_seen': ts, 'views': 5000, 'potential_score': 45.0,
+    }, ts=ts, source='test')
     # 超冷视频：views < 100，应被 min_views 过滤
-    conn.execute('INSERT OR REPLACE INTO videos (bvid, title, mid, first_seen) VALUES (?,?,?,?)',
-                 ('BT_COLD', '超冷视频', 9998, ts))
-    conn.execute('INSERT OR REPLACE INTO ups (mid, name) VALUES (?,?)', (9998, 'UP_COLD'))
-    conn.execute('''
-        INSERT OR REPLACE INTO video_obs
-        (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-    ''', ('BT_COLD', ts, 50, 85.0))
-    conn.execute('''
-        INSERT OR REPLACE INTO video_obs
-        (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-    ''', ('BT_COLD', ts + 2 * 3600, 200, None))
-    conn.commit()
+    repository.register_up(9998, 'UP_COLD')
+    repository.record_video({
+        'bvid': 'BT_COLD', 'title': '超冷视频', 'mid': 9998,
+        'first_seen': ts, 'views': 50, 'potential_score': 85.0,
+    }, ts=ts, source='test')
+    repository.record_observation('BT_COLD', ts + 2 * 3600, {'views': 200})
     return ts
 
 
@@ -147,16 +120,12 @@ def test_run_backtest_perfect_prediction(bt_db):
 
 def test_run_backtest_no_later_obs(bt_db):
     """窗口内无后续观测：只报 unverified，不参与评估，不抛异常"""
-    conn = db.get_conn()
     ts = 1701000000
-    conn.execute('INSERT OR REPLACE INTO videos (bvid, title, mid, first_seen) VALUES (?,?,?,?)',
-                 ('NO1', '仅一次观测', 8001, ts))
-    conn.execute('INSERT OR REPLACE INTO ups (mid, name) VALUES (?,?)', (8001, 'U1'))
-    conn.execute('''
-        INSERT OR REPLACE INTO video_obs
-        (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-    ''', ('NO1', ts, 10000, 60.0))
-    conn.commit()
+    bt_db.business.register_up(8001, 'U1')
+    bt_db.business.record_video({
+        'bvid': 'NO1', 'title': '仅一次观测', 'mid': 8001, 'first_seen': ts,
+        'views': 10000, 'potential_score': 60.0,
+    }, ts=ts, source='test')
 
     res = backtest.run_backtest(ts, window_hours=24)
     assert res['meta']['n_scored'] == 1
@@ -178,19 +147,14 @@ def test_run_backtest_handles_ts_without_batch(bt_db):
 
 def test_list_scored_batches(bt_db):
     ts = 1702000000
-    conn = db.get_conn()
-    conn.execute('INSERT OR REPLACE INTO videos (bvid, title, mid, first_seen) VALUES (?,?,?,?)',
-                 ('B1', 'v', 7001, ts))
-    conn.execute('''
-        INSERT OR REPLACE INTO video_obs
-        (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-    ''', ('B1', ts, 10000, 55.0))
-    # 无分的观测不构成"可回测批次"
-    conn.execute('''
-        INSERT OR REPLACE INTO video_obs
-        (bvid, ts, views, potential_score) VALUES (?,?,?,?)
-    ''', ('B2', ts + 1, 10000, None))
-    conn.commit()
+    bt_db.business.record_video({
+        'bvid': 'B1', 'title': 'v', 'mid': 7001, 'first_seen': ts,
+        'views': 10000, 'potential_score': 55.0,
+    }, ts=ts, source='test')
+    bt_db.business.record_video({
+        'bvid': 'B2', 'title': 'v2', 'mid': 7001, 'first_seen': ts + 1,
+        'views': 10000, 'potential_score': None,
+    }, ts=ts + 1, source='test')
 
     batches = backtest.list_scored_batches()
     assert any(b['ts'] == ts for b in batches), '有分的批次应出现在列表'
@@ -201,16 +165,14 @@ def test_list_scored_batches(bt_db):
 
 
 def test_get_dev_stats(bt_db):
-    conn = db.get_conn()
     ts = 1703000000
-    conn.execute("INSERT INTO crawl_runs (started_at, status, trigger_source) VALUES (?, 'running', 'test')",
-                 (ts,))
-    conn.execute("INSERT INTO crawl_runs (started_at, status, trigger_source) VALUES (?, 'success', 'test')",
-                 (ts - 3600,))
-    conn.commit()
+    bt_db.business.begin_crawl_run('test', ts)
+    run_id = bt_db.business.begin_crawl_run('test', ts - 3600)
+    bt_db.business.finish_crawl_run(run_id, 'success', {}, ts - 3500)
 
     stats = backtest.get_dev_stats()
-    assert stats['schema_version'] >= 10
+    assert stats['alembic_revision'] == '0001_postgresql_v3_baseline'
+    assert stats['schema_version'] == 11  # legacy API compatibility for V1–V11 baseline
     assert stats['crawl_runs'].get('running') == 1
     assert stats['crawl_runs'].get('success') == 1
     assert len(stats['stale_running']) == 1

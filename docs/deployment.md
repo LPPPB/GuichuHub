@@ -2,6 +2,8 @@
 
 本基线适用于任意 Ubuntu/Debian 主机。云厂商只负责 VM、DNS、防火墙和可选监控；应用不调用云 API。
 
+PostgreSQL 16 是唯一运行态持久层。API/Worker 只接收各自的 PostgreSQL URL secret 以及必要的 Cookie/日志路径，不配置或挂载 SQLite、dashboard JSON、tracked-UP JSON 或应用内备份目录。首次离线导入是独立的维护操作，不是服务启动步骤。
+
 ## 主机布局
 
 将 Git 检出放在 `/srv/kichu/app`，运行态放在检出目录外：

@@ -1,5 +1,4 @@
 import requests
-import json
 import random
 import time
 import re
@@ -48,12 +47,8 @@ KICHU_TID = 22
 # naive datetime.timestamp() 会按系统本地时区解释，模式A分发到其他时区会出错
 CN_TZ = timezone(timedelta(hours=8))
 
-# ── 梗素材库停用词表（真源：utils/meme_stopwords.json，开发者模式可编辑）──
-_MEME_STOPWORDS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'utils', 'meme_stopwords.json',
-)
-# 内置兜底：配置文件缺失/损坏时降级使用（仅防崩溃，非编辑源）
+# ── 梗素材库停用词表（PostgreSQL 覆盖 + 随版本发布的默认词表）──
+# 内置兜底会在下方用完整的发布词表替换。
 _FALLBACK_MEME_STOPWORDS = {
     '通用制作词': ['鬼畜', '视频', '音乐', '歌曲', '制作', '剪辑', '合集', '原创',
                  '系列', '教程', '完整', '高清', '版本', '混音', '调教', '人力', '剧场'],
@@ -62,71 +57,54 @@ _FALLBACK_MEME_STOPWORDS = {
                     '就是', '不过', '然后', '其实', '已经'],
 }
 
+from utils.release_word_rules import MEME_SEED_WORDS, MEME_STOPWORDS, TAG_FILTERS
+
+_FALLBACK_MEME_STOPWORDS = {
+    key: list(values) for key, values in MEME_STOPWORDS.items()
+}
+
 
 def load_meme_stopwords():
-    """读取梗素材库停用词表，返回 {分类: [词]}。文件缺失/损坏时降级为内置兜底。"""
-    try:
-        with open(_MEME_STOPWORDS_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        categories = data.get('categories')
-        if isinstance(categories, dict):
-            cleaned = {}
-            for k, v in categories.items():
-                if isinstance(v, list):
-                    words = [str(w) for w in v if isinstance(w, str) and str(w).strip()]
-                    if words:
-                        cleaned[k] = words
-            if cleaned:
-                return cleaned
-    except Exception as e:
-        print(f'[梗素材停用词] 读取配置文件失败，使用内置兜底: {e}')
-    return {k: list(v) for k, v in _FALLBACK_MEME_STOPWORDS.items()}
+    """读取 PostgreSQL 覆盖值；未配置时使用随版本发布的内置兜底。"""
+    from storage.runtime_settings import load_runtime_setting
+    categories = load_runtime_setting('meme_stopwords', _FALLBACK_MEME_STOPWORDS)
+    cleaned = {}
+    if isinstance(categories, dict):
+        for key, values in categories.items():
+            if isinstance(values, list):
+                words = [str(word) for word in values if isinstance(word, str) and word.strip()]
+                if words:
+                    cleaned[key] = words
+    return cleaned or {key: list(values) for key, values in _FALLBACK_MEME_STOPWORDS.items()}
 
 
 def save_meme_stopwords(categories):
-    """保存梗素材库停用词表到配置文件。categories: {分类: [词]}"""
-    with open(_MEME_STOPWORDS_PATH, 'w', encoding='utf-8') as f:
-        json.dump({
-            'version': 1,
-            'description': "梗素材库停用词表：排除鬼畜区常见但非'梗'的通用词。修改后下次抓取生效，可直接在开发者模式中编辑。",
-            'categories': {k: list(v) for k, v in categories.items()},
-        }, f, ensure_ascii=False, indent=2)
+    """保存梗素材库停用词表到 PostgreSQL。"""
+    from storage.runtime_settings import save_runtime_setting
+    cleaned = {key: list(values) for key, values in categories.items() if values}
+    save_runtime_setting('meme_stopwords', cleaned)
 
 
-# ── 梗素材库种子热梗词（真源：utils/meme_seed_words.json，开发者模式可编辑）──
+# ── 梗素材库种子热梗词（PostgreSQL 覆盖 + 随版本发布的默认词表）──
 # 背景：梗素材库靠 4 路采集（鬼畜/音乐/搞笑/全站热门）的候选池自动发现高频词，
 # 但那些搜索词全是制作/类型词（鬼畜/音MAD/洗脑/魔性等），从不按热梗词搜索，
 # 导致哈基米/叮咚鸡等常驻热梗在候选池中频次不足 3 被过滤。这里按种子词主动
 # 搜索补足候选池，保证热梗能进入梗素材库（见 fetch_meme_seed_videos）。
-_MEME_SEED_WORDS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'utils', 'meme_seed_words.json',
-)
+_DEFAULT_MEME_SEED_WORDS = list(MEME_SEED_WORDS)
 
 
 def load_meme_seed_words():
-    """读取梗素材库种子热梗词列表。文件缺失/损坏时返回空列表（退化为纯自动发现）。"""
-    try:
-        with open(_MEME_SEED_WORDS_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        words = data.get('words')
-        if isinstance(words, list):
-            cleaned = [str(w).strip() for w in words if isinstance(w, str) and str(w).strip()]
-            return cleaned
-    except Exception as e:
-        print(f'[梗素材种子词] 读取配置文件失败: {e}')
-    return []
+    """读取 PostgreSQL 种子词覆盖值，未配置时使用版本默认值。"""
+    from storage.runtime_settings import load_runtime_setting
+    words = load_runtime_setting('meme_seed_words', _DEFAULT_MEME_SEED_WORDS)
+    return [str(word).strip() for word in words if isinstance(word, str) and word.strip()]
 
 
 def save_meme_seed_words(words):
-    """保存梗素材库种子热梗词列表到配置文件。words: [词, ...]"""
+    """保存梗素材库种子热梗词列表到 PostgreSQL。"""
+    from storage.runtime_settings import save_runtime_setting
     cleaned = [str(w).strip() for w in words if isinstance(w, str) and str(w).strip()]
-    with open(_MEME_SEED_WORDS_PATH, 'w', encoding='utf-8') as f:
-        json.dump({
-            'version': 1,
-            'description': "梗素材库种子热梗词：抓取时按这些词主动搜索鬼畜区补足候选池。\n背景：梗素材库靠 4 路采集（鬼畜/音乐/搞笑/全站热门）的候选池自动发现高频词，但搜索词全是制作/类型词（鬼畜/音MAD/洗脑/魔性等），从不按热梗词搜索，导致哈基米/叮咚鸡等常驻热梗在候选池中频次不足被过滤。\n修改后下次抓取生效，可在开发者模式中编辑。",
-            'words': cleaned,
-        }, f, ensure_ascii=False, indent=2)
+    save_runtime_setting('meme_seed_words', cleaned)
 
 def get_headers():
     """构造请求头，自动注入登录态 Cookie。
@@ -1011,15 +989,10 @@ def get_popular_videos():
     return results[:50]
 
 # ==================== 共享关键词过滤 ====================
-# 词表真源：utils/tag_filters.json（开发者后台可编辑，下次抓取生效）。
+# 词表真源：PostgreSQL 中的管理员覆盖；未覆盖时使用随版本发布的默认词表。
 # 结构：categories=精确匹配停用词表(分类)、ad_keywords=子串匹配广告品牌、
 #       activity_keywords=子串匹配活动词、allowed_two_char=二字梗白名单。
-# 内置兜底：文件缺失/损坏时降级，保证过滤行为不退化（与 meme_stopwords 同哲学）。
-_TAG_FILTERS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'utils', 'tag_filters.json',
-)
-
+# 内置兜底会在下方用完整的发布词表替换。
 _FALLBACK_TAG_FILTERS = {
     'categories': {
         # —— 鬼畜平台/分区相关 ——
@@ -1183,54 +1156,54 @@ _FALLBACK_TAG_FILTERS = {
     ],
 }
 
+_FALLBACK_TAG_FILTERS = {
+    'categories': {key: list(values) for key, values in TAG_FILTERS['categories'].items()},
+    'ad_keywords': list(TAG_FILTERS['ad_keywords']),
+    'activity_keywords': list(TAG_FILTERS['activity_keywords']),
+    'allowed_two_char': list(TAG_FILTERS['allowed_two_char']),
+}
+
 
 def load_tag_filters():
     """读取标签过滤词表配置，返回:
     {'categories': {分类: [词]}, 'ad_keywords': [...], 'activity_keywords': [...], 'allowed_two_char': [...]}
-    文件缺失/损坏时降级为内置兜底。
+    未配置 PostgreSQL 覆盖值时降级为内置兜底。
     """
-    try:
-        with open(_TAG_FILTERS_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        categories = data.get('categories')
-        if isinstance(categories, dict):
-            cleaned_cat = {}
-            for k, v in categories.items():
-                if isinstance(v, list):
-                    words = [str(w) for w in v if isinstance(w, str) and str(w).strip()]
-                    if words:
-                        cleaned_cat[k] = words
-            ad = data.get('ad_keywords') or []
-            act = data.get('activity_keywords') or []
-            two = data.get('allowed_two_char') or []
-            if cleaned_cat and all(isinstance(x, list) for x in (ad, act, two)):
-                return {
-                    'categories': cleaned_cat,
-                    'ad_keywords': [str(w) for w in ad if isinstance(w, str) and str(w).strip()],
-                    'activity_keywords': [str(w) for w in act if isinstance(w, str) and str(w).strip()],
-                    'allowed_two_char': [str(w) for w in two if isinstance(w, str) and str(w).strip()],
-                }
-    except Exception as e:
-        print(f'[标签过滤] 读取配置文件失败，使用内置兜底: {e}')
-    return {
+    from storage.runtime_settings import load_runtime_setting
+    fallback = {
         'categories': {k: list(v) for k, v in _FALLBACK_TAG_FILTERS['categories'].items()},
         'ad_keywords': list(_FALLBACK_TAG_FILTERS['ad_keywords']),
         'activity_keywords': list(_FALLBACK_TAG_FILTERS['activity_keywords']),
         'allowed_two_char': list(_FALLBACK_TAG_FILTERS['allowed_two_char']),
     }
+    data = load_runtime_setting('tag_filters', fallback)
+    categories = data.get('categories') if isinstance(data, dict) else None
+    ad = data.get('ad_keywords') if isinstance(data, dict) else None
+    act = data.get('activity_keywords') if isinstance(data, dict) else None
+    two = data.get('allowed_two_char') if isinstance(data, dict) else None
+    if not isinstance(categories, dict) or not all(isinstance(value, list) for value in (ad, act, two)):
+        return fallback
+    cleaned_categories = {
+        key: [str(word) for word in values if isinstance(word, str) and word.strip()]
+        for key, values in categories.items() if isinstance(values, list)
+    }
+    return {
+        'categories': {key: values for key, values in cleaned_categories.items() if values},
+        'ad_keywords': [str(word) for word in ad if isinstance(word, str) and word.strip()],
+        'activity_keywords': [str(word) for word in act if isinstance(word, str) and word.strip()],
+        'allowed_two_char': [str(word) for word in two if isinstance(word, str) and word.strip()],
+    }
 
 
 def save_tag_filters(filters):
-    """保存标签过滤词表到配置文件。filters 结构同 load_tag_filters 返回值。"""
-    with open(_TAG_FILTERS_PATH, 'w', encoding='utf-8') as f:
-        json.dump({
-            'version': 1,
-            'description': "热梗/标签过滤词表：is_useless_tag 共享过滤。修改后下次抓取生效，可在开发者后台中编辑。",
-            'categories': {k: list(v) for k, v in filters['categories'].items()},
-            'ad_keywords': list(filters['ad_keywords']),
-            'activity_keywords': list(filters['activity_keywords']),
-            'allowed_two_char': list(filters['allowed_two_char']),
-        }, f, ensure_ascii=False, indent=2)
+    """保存标签过滤词表到 PostgreSQL。"""
+    from storage.runtime_settings import save_runtime_setting
+    save_runtime_setting('tag_filters', {
+        'categories': {key: list(values) for key, values in filters['categories'].items()},
+        'ad_keywords': list(filters['ad_keywords']),
+        'activity_keywords': list(filters['activity_keywords']),
+        'allowed_two_char': list(filters['allowed_two_char']),
+    })
     _invalidate_tag_filters()
 
 
@@ -2163,7 +2136,7 @@ def run_all_crawlers():
     print(f'  - 神评论: {len(golden_comments)} 条')
     print('=' * 60)
 
-    # C13: 全部发现过的视频（含各板块落选者）登记入 SQLite 维度表，
+    # C13: 全部发现过的视频（含各板块落选者）登记入 PostgreSQL 维度表，
     # 保留"曾被过滤但后来爆发"的假阴性分析能力。
     # _source 标记首个发现源；app.py 落库后移除，不写入 JSON 缓存
     all_found = {}

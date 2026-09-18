@@ -3,12 +3,8 @@ name: kichiku-v3
 x-backend-environment: &backend-environment
   KICHU_ENV: production
   KICHU_TRUST_PROXY: "1"
-  KICHU_DB_PATH: /data/db/kichu_board.db
-  KICHU_AUTH_DB_PATH: /data/auth/auth.db
-  KICHU_STATE_PATH: /data/state/inspiration_db.json
   KICHU_COOKIE_PATH: /data/private/bilibili_cookie.json
   KICHU_LOG_DIR: /logs
-  KICHU_BACKUP_DIR: /backups
 
 x-default-logging: &default-logging
   driver: json-file

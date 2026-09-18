@@ -2,7 +2,7 @@
 
 生产备份服务使用 `pg_dump --format=custom` 生成单一 PostgreSQL dump。每份备份附带 SHA-256、Git tag、镜像 digest、Alembic revision 与 UTC 时间戳 manifest，并以 `pg_restore --list` 验证。它不删除源数据或旧备份，也不会自动上传到对象存储。
 
-PostgreSQL 是业务、认证、dashboard、收藏和 tracked-UP 状态的唯一事实源；不需要额外 JSON 运行态备份。
+PostgreSQL 是业务、认证、dashboard、收藏、tracked-UP 和管理员可编辑词表的唯一事实源；不需要额外 SQLite 或可变 JSON 运行态备份。
 
 ## 创建备份
 

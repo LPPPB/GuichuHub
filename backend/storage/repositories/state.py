@@ -56,6 +56,24 @@ class StateRepository:
                 dashboard_state.c.name == "current",
             )).scalar_one_or_none() or 0
 
+    def load_setting(self, name: str):
+        """Load one named JSONB runtime setting without exposing a session."""
+        with self._sessions() as session:
+            return session.execute(select(dashboard_state.c.payload).where(
+                dashboard_state.c.name == name,
+            )).scalar_one_or_none()
+
+    def save_setting(self, name: str, payload, now: int) -> None:
+        """Persist one named runtime setting and advance its revision."""
+        with self._sessions.begin() as session:
+            session.execute(insert(dashboard_state).values(
+                name=name, payload=payload, version=1, updated_at=now,
+            ).on_conflict_do_update(
+                index_elements=[dashboard_state.c.name],
+                set_={"payload": payload, "version": dashboard_state.c.version + 1,
+                      "updated_at": now},
+            ))
+
     def update_dashboard(self, mutator, now: int, initial: dict | None = None) -> dict:
         """Apply one current-state mutation while holding its PostgreSQL row lock."""
         with self._sessions.begin() as session:

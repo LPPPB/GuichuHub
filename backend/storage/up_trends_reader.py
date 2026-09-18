@@ -1,4 +1,4 @@
-"""合并读层：从 SQLite 构造 UP 主动态分析结果
+"""合并读层：从 PostgreSQL 构造 UP 主动态分析结果
 
 数据来源：
   - UP 维度（play_ranking / creator_ranking / summary / up_details）→ up_obs 表

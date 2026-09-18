@@ -237,10 +237,21 @@ def _import_auth(connection, source: sqlite3.Connection) -> dict[str, int]:
 
 
 def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> dict[str, int]:
-    connection.execute(insert(dashboard_state).values(name="current", payload=dashboard, version=1, updated_at=now)
-                       .on_conflict_do_update(index_elements=[dashboard_state.c.name], set_={"payload": dashboard, "updated_at": now}))
+    dashboard_payload = dashboard.get("dashboard") if isinstance(dashboard.get("dashboard"), dict) else dashboard
+    runtime_settings = dashboard.get("runtime_settings") if isinstance(dashboard.get("runtime_settings"), dict) else {}
+    connection.execute(insert(dashboard_state).values(name="current", payload=dashboard_payload, version=1, updated_at=now)
+                       .on_conflict_do_update(index_elements=[dashboard_state.c.name], set_={"payload": dashboard_payload, "updated_at": now}))
+    for name in ("danmaku_filters", "meme_stopwords", "meme_seed_words", "tag_filters"):
+        if name not in runtime_settings:
+            continue
+        connection.execute(insert(dashboard_state).values(
+            name=name, payload=runtime_settings[name], version=1, updated_at=now,
+        ).on_conflict_do_update(
+            index_elements=[dashboard_state.c.name],
+            set_={"payload": runtime_settings[name], "updated_at": now},
+        ))
     favorite_rows = []
-    for item in dashboard.get("favorites", []):
+    for item in dashboard_payload.get("favorites", []):
         if not isinstance(item, dict):
             continue
         value = dict(item)
@@ -269,7 +280,8 @@ def _import_json_state(connection, dashboard: dict, tracked: dict, now: int) -> 
                                      "request_type": item.get("request_type") or "add"},
                          "created_at": int(item.get("submitted_at") or now), "reviewed_at": item.get("reviewed_at")})
     _upsert(connection, tracking_requests, requests, [tracking_requests.c.id])
-    return {"favorites": len(favorite_rows), "tracked_ups": len(tracked_rows), "tracking_requests": len(requests)}
+    return {"favorites": len(favorite_rows), "tracked_ups": len(tracked_rows),
+            "tracking_requests": len(requests), "runtime_settings": len(runtime_settings)}
 
 
 def _count(connection, table) -> int:
@@ -303,9 +315,14 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
             target_keys = set(connection.execute(select(videos.c.bvid)).scalars())
             latest_source = business_source.execute("SELECT MAX(ts) FROM video_obs").fetchone()[0] if _rows(business_source, "video_obs") else None
             latest_target = connection.execute(select(func.max(video_observations.c.ts))).scalar_one()
+            dashboard_payload = dashboard.get("dashboard") if isinstance(dashboard.get("dashboard"), dict) else dashboard
+            source_settings = dashboard.get("runtime_settings") if isinstance(dashboard.get("runtime_settings"), dict) else {}
             target_dashboard = connection.execute(select(dashboard_state.c.payload).where(
                 dashboard_state.c.name == "current",
             )).scalar_one_or_none()
+            target_settings = dict(connection.execute(select(
+                dashboard_state.c.name, dashboard_state.c.payload,
+            ).where(dashboard_state.c.name.in_(tuple(source_settings)))).all()) if source_settings else {}
             report = {
                 "valid": False,
                 "entities": {
@@ -322,7 +339,10 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
                 "tracked_ups": {"source_count": state_counts["tracked_ups"], "target_count": _count(connection, tracked_ups)},
                 "tracking_requests": {"source_count": state_counts["tracking_requests"], "target_count": _count(connection, tracking_requests)},
                 "dashboard_state": {"source_present": True, "target_present": target_dashboard is not None,
-                                    "matches": target_dashboard == dashboard},
+                                    "matches": target_dashboard == dashboard_payload},
+                "runtime_settings": {"source_count": len(source_settings),
+                                     "target_count": len(target_settings),
+                                     "matches": target_settings == source_settings},
             }
             report["valid"] = (
                 report["entities"]["videos"]["source_count"] == report["entities"]["videos"]["target_count"]
@@ -336,6 +356,7 @@ def import_snapshot(*, business_sqlite: Path, auth_sqlite: Path, dashboard_json:
                 and report["latest_observation_ts"]["source"] == report["latest_observation_ts"]["target"]
                 and report["dashboard_state"]["target_present"]
                 and report["dashboard_state"]["matches"]
+                and report["runtime_settings"]["matches"]
             )
             connection.execute(data_import_records.update().where(data_import_records.c.source_fingerprint == _fingerprint(paths)).values(report=report))
     finally:

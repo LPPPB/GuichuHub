@@ -553,7 +553,7 @@ def analyze_tracked_ups_with_progress(tracked_ups, progress_callback=None):
 
         videos = get_user_latest_videos(up['mid'], count=5)
         rel_stat = get_up_relation_stat(up['mid'])
-        # 刷新 UP 主最新信息（tracked_ups.json 无 sign 字段，且 name/face 可能过时）
+        # 刷新 UP 主最新信息（持久名单可能缺 sign，且 name/face 可能过时）
         up_info = get_up_info_by_mid(up['mid'])
         if up_info:
             up['name'] = up_info.get('name') or up.get('name', '')
@@ -809,7 +809,7 @@ def get_up_relation_stat(mid):
 def get_up_info_by_mid(mid):
     """通过 /x/space/wbi/acc/info 获取 UP 主最新详情（name/face/sign 等）。
 
-    用于分析流程中刷新 tracked_ups.json 里可能过时的 sign/face/name。
+    用于分析流程中刷新持久名单里可能过时的 sign/face/name。
     失败返回 None，调用方应降级使用旧值。
 
     字段参考 biliscope ui.js：name/face/sign/level/sex/official.title/official.type

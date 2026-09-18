@@ -5,16 +5,15 @@
 ## 首次切换
 
 1. 进入维护窗口，停止 API 与 Worker，确认没有写入请求。
-2. 创建并验证业务 SQLite、认证 SQLite、`inspiration_db.json`、`tracked_ups.json` 的一致快照；保留原文件、`-wal`、`-shm`，不要删除或就地转换。
-3. 将四个快照复制到受保护的离线目录，记录 SHA-256；启动一个空 PostgreSQL 16 实例，其数据目录必须在 Git 检出目录外。
-4. 为 PostgreSQL 超级用户、API、Worker、migration、backup 角色各创建独立 Docker secret；URL 文件只可由相应服务读取。
+2. 创建并验证两份 SQLite 一致快照（业务库、认证库）。必须停止写者并使用 SQLite backup API，不得只复制主文件；保留原文件、`-wal`、`-shm`，不要删除或就地转换。
+3. 生成两份明确的 JSON 快照：`tracked_ups.json` 和一个 dashboard envelope。后者必须含 `dashboard` 以及 `runtime_settings`（`danmaku_filters`、`meme_stopwords`、`meme_seed_words`、`tag_filters`）；从旧 dashboard/词表文件离线、无损地合并，不让导入器扫描或猜测路径。
+4. 将这四份快照复制到受保护的离线目录，记录 SHA-256；启动一个空 PostgreSQL 16 实例（数据目录在 Git 检出外），并为 API、Worker、migration、backup 创建独立的 PostgreSQL URL secret。
 5. 执行一次性维护 migration：`docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml --profile maintenance run --rm migrate`。
-6. 用明确传入的四个离线快照执行 `backend/scripts/import_sqlite_snapshot.py`，并将 reconciliation report 写到受保护目录。
-7. 审核报告：所有实体源/目标行数、关键主键、最新观测时间、管理员、会话、credential handoff、收藏、tracked UP 和 dashboard state 必须有效；`valid` 必须为 `true`。
-8. 将运行配置切换到 PostgreSQL URL Docker secrets；API、Worker 均不得有 SQLite/JSON 状态挂载。
-9. 再运行 migrate 服务；它应无 DDL 操作且确认 revision 等于唯一 Alembic head。
-10. 启动 PostgreSQL、API、Worker、Frontend、Caddy；检查 `/api/health/live`、`/api/health/ready`、Worker heartbeat、核心 API 与日志。
-11. 将四份 SQLite/JSON 快照以只读方式至少保存 **90 天**。切换后不再将其作为运行态存储。
+6. 从 `backend` 目录用 migration 角色执行离线导入：`uv run python scripts/import_sqlite_snapshot.py --business-sqlite <business.sqlite> --auth-sqlite <auth.sqlite> --dashboard-json <dashboard-envelope.json> --tracked-ups-json <tracked_ups.json> --database-url-file <migration-url-file> --report <reconciliation.json>`。这四个输入必须由操作员显式指定且只读。
+7. 审核 reconciliation report：所有实体行数、关键主键、最新观测时间、管理员、会话、credential handoff、收藏、tracked UP、dashboard 以及四类 runtime settings 都必须一致，`valid` 必须为 `true`。
+8. 将 API/Worker 切换到 PostgreSQL URL secrets，确认没有 SQLite/可变 JSON 状态挂载；再运行 migrate，它应是无 DDL 的 no-op 且 revision 等于唯一 Alembic head。
+9. 启动 PostgreSQL、API、Worker、Frontend、Caddy；检查 `/api/health/live`、`/api/health/ready`、Worker heartbeat、核心 API 与日志。
+10. 将四份 SQLite/JSON 快照、SHA-256 和 reconciliation report 设为只读并保存至少 **90 天**。这是现有的较长部署保留策略；切换后不再将它们作为运行态存储。
 
 ## 后续数据库发布
 
@@ -26,6 +25,12 @@
 6. 如有需要，运行可恢复 backfill；它将进度保存在 `app.backfill_progress`。
 7. 启动新版本并检查 readiness、heartbeat 和关键业务 API。
 8. 故障优先前向修复，**禁止自动 downgrade**。只有经确认的维护窗口才能从发布前 PostgreSQL 备份恢复。
+
+## 备份与恢复命令
+
+- 创建并验证 PostgreSQL 备份：`docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml --profile maintenance run --rm backup`。
+- 恢复演练只能指向新建的 `kichu_restore_drill_` 数据库：`python ops/backup/restore_drill.py --database-url-file <migration-url-file> --dump <backup.dump> --temporary-database kichu_restore_drill_<timestamp>`。
+- 恢复演练失败时保留 dump、manifest 与日志，不得自动覆盖生产库或 downgrade。
 
 ## 禁止事项
 

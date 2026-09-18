@@ -5,6 +5,9 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[2]
+LEGACY_RUNTIME_ENV = {
+    "KICHU_DB_PATH", "KICHU_AUTH_DB_PATH", "KICHU_STATE_PATH", "KICHU_BACKUP_DIR",
+}
 
 
 def _production_config(tmp_path):
@@ -47,6 +50,19 @@ def _production_config(tmp_path):
     return json.loads(result.stdout)
 
 
+def _development_config():
+    result = subprocess.run(
+        ["docker", "compose", "-f", str(ROOT / "compose.dev.yml"), "config", "--format", "json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
 def test_production_services_receive_only_role_specific_database_url_secrets(tmp_path):
     config = _production_config(tmp_path)
     api = config["services"]["api"]
@@ -55,6 +71,13 @@ def test_production_services_receive_only_role_specific_database_url_secrets(tmp
     assert worker["environment"]["KICHU_WORKER_DATABASE_URL_FILE"] == "/run/secrets/worker_database_url"
     for service in (api, worker):
         assert all(volume["target"] not in {"/data/db", "/data/auth", "/data/state"} for volume in service["volumes"])
+        assert LEGACY_RUNTIME_ENV.isdisjoint(service["environment"])
+
+
+def test_development_services_have_no_legacy_runtime_persistence_environment():
+    config = _development_config()
+    for name in ("api", "worker"):
+        assert LEGACY_RUNTIME_ENV.isdisjoint(config["services"][name]["environment"])
 
 
 def test_write_token_secret_is_available_only_to_api(tmp_path):

@@ -4,6 +4,8 @@ V3 是一个单仓库的 React/Vite + Flask + PostgreSQL 应用。生产环境�
 
 代码仓库只保存源码、测试、配置模板和部署定义。真实配置、Docker secrets、PostgreSQL 数据目录、Cookie、日志与备份必须保存在检出目录之外。
 
+PostgreSQL 是业务、认证、dashboard、收藏、tracked-UP 和管理员可编辑词表的唯一运行态事实源。仓库内的词表 JSON 仅是只读发布默认值，API/Worker 不会回写它们；SQLite/JSON 快照仅用于显式的一次性离线导入。
+
 ## 本地开发
 
 从仓库根目录运行：

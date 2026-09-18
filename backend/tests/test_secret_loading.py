@@ -21,12 +21,8 @@ def test_api_startup_never_prints_write_token(tmp_path):
     env.update(
         {
             "KICHU_WRITE_TOKEN": token,
-            "KICHU_DB_PATH": str(tmp_path / "db" / "business.db"),
-            "KICHU_AUTH_DB_PATH": str(tmp_path / "auth" / "auth.db"),
-            "KICHU_STATE_PATH": str(tmp_path / "state" / "state.json"),
             "KICHU_COOKIE_PATH": str(tmp_path / "private" / "cookie.json"),
             "KICHU_LOG_DIR": str(tmp_path / "logs"),
-            "KICHU_BACKUP_DIR": str(tmp_path / "backups"),
         }
     )
 

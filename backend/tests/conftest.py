@@ -12,8 +12,6 @@ import uuid
 
 import pytest
 
-import pytest
-
 # 把 backend/ 与仓库根目录加入 sys.path（替代 V1 每个测试文件的 sys.path.insert）。
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPOSITORY_ROOT = os.path.dirname(BACKEND_DIR)
@@ -133,7 +131,7 @@ def clean_postgres_data(postgres_url):
 @pytest.fixture
 def postgres_runtime(clean_postgres_data, tmp_path):
     """Install all compatibility adapters against a migrated disposable database."""
-    from storage import auth_store, database, db, tracked_ups
+    from storage import auth_store, database, db, runtime_settings, tracked_ups
     from storage.runtime import configure_postgres_runtime
 
     url_file = tmp_path / "postgres-test-url"
@@ -147,6 +145,7 @@ def postgres_runtime(clean_postgres_data, tmp_path):
         db.configure_business_repository(None)
         auth_store.configure_auth_repository(None)
         database.configure_state_repository(None)
+        runtime_settings.configure_runtime_settings_repository(None)
         tracked_ups.configure_state_repository(None)
         runtime.sessions.kw["bind"].dispose()
 

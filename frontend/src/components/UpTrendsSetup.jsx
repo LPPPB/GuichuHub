@@ -159,7 +159,7 @@ export default function UpTrendsSetup({ onComplete, onCancel, localOnly = false 
 
   // 导出：POST 当前页面看到的名单（排除已取关），用 Blob 触发下载。
   // 后端文件名格式：关注名单_{人数}人_{时间戳}.json，从 Content-Disposition 提取。
-  // 不再用 window.open —— 那样后端只能读 tracked_ups.json（可能为空），导出会是空文件。
+  // 不再用 window.open —— POST 页面当前名单可确保导出与用户所见一致。
   const handleExport = async () => {
     if (exporting) return
     setExporting(true)

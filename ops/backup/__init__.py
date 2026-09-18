@@ -1,1 +1,1 @@
-"""SQLite backup tooling."""
+"""PostgreSQL backup and restore-drill tooling."""

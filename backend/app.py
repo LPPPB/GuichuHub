@@ -2,7 +2,7 @@
 
 四层架构（docs/后端架构与演进路线图.md 5.3）：
   crawler/   = 采集层（B站API → 标准化原始观测）
-  storage/   = 存储层（JSON缓存 + SQLite历史态）
+  storage/   = 存储层（PostgreSQL repositories）
   analytics/ = 分析层（热词过滤等）
   jobs/      = 调度层（抓取/观测/UP主动态定时任务）
   app.py     = API层（本文件——只做路由和参数校验）
@@ -99,7 +99,7 @@ print('[API] 写操作口令已启用（写接口需 X-Write-Token 请求头）'
 def _current_identity():
     """身份判定链（三态，每请求缓存一次）：
     1. X-Write-Token 命中 → 超级管理员（应急后门，永不过期）
-    2. HttpOnly 会话 Cookie → 会话有效且 mid ∈ 管理员名单（auth.db）→ 管理员
+    2. HttpOnly 会话 Cookie → 会话有效且 mid ∈ PostgreSQL 管理员名单 → 管理员
     3. 其余 → 访客（含"已登录B站但不在名单"的有身份访客）
     """
     ident = getattr(g, 'kb_identity', None)
@@ -547,7 +547,7 @@ def route_auth_me():
 
 
 # ==================== 管理员名单 API（B站账号判定） ====================
-# 名单存 auth.db admin_accounts 表；增删均要求管理员（超管口令或B站管理员会话）。
+# 名单存 PostgreSQL auth.admin_accounts；增删均要求管理员（超管口令或B站管理员会话）。
 
 @app.route('/api/admin/accounts', methods=['GET'])
 def route_admin_accounts_list():
@@ -615,7 +615,7 @@ def route_admin_accounts_remove(mid):
 
 # ==================== B站 Auth API（多会话登录，身份与采集解耦） ====================
 # 身份登录（全员开放）：访客扫码登录自己的B站账号，凭证只落服务器会话表
-#   （auth.db bili_sessions），浏览器仅持 session token；不写采集 Cookie。
+#   （PostgreSQL auth.bili_sessions），浏览器仅持 session token；不写采集 Cookie。
 # 采集登录（管理员专属）：扫码凭证写入 bilibili_cookie.json（爬虫专用），
 #   防止访客顶替服务器爬虫 Cookie。
 
@@ -1511,9 +1511,9 @@ def route_calendar_job_retry(job_id):
 def route_up_trends_list_export():
     """导出当前关注名单为 JSON 文件下载。
 
-    数据来源优先级（避免 tracked_ups.json 被意外清空时导出空文件）：
+    数据来源优先级（避免持久名单暂时为空时导出空文件）：
       1. POST body 携带的 ups
-      2. tracked_ups.json 持久化名单
+      2. PostgreSQL 持久化名单
       3. up_obs 最新批次 up_details 兜底
     """
     import json as _json
@@ -1554,7 +1554,7 @@ def route_up_trends_list_export():
     if not ups:
         return jsonify({
             'success': False,
-            'message': '名单为空：tracked_ups.json 为空且无历史分析数据可恢复，请先配置关注名单'
+            'message': '名单为空：持久化名单为空且无历史分析数据可恢复，请先配置关注名单'
         }), 400
 
     export_data = {

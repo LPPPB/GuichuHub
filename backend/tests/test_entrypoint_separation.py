@@ -18,24 +18,16 @@ def test_cold_importing_api_entrypoint_does_not_start_scheduler(tmp_path):
     env = os.environ.copy()
     env.update(
         {
-            "ENTRYPOINT_TEST_DATA_DIR": str(tmp_path / "cache"),
-            "KICHU_DB_PATH": str(tmp_path / "db" / "business.db"),
-            "KICHU_AUTH_DB_PATH": str(tmp_path / "auth" / "auth.db"),
-            "KICHU_STATE_PATH": str(tmp_path / "state" / "state.json"),
             "KICHU_COOKIE_PATH": str(tmp_path / "private" / "cookie.json"),
             "KICHU_LOG_DIR": str(tmp_path / "logs"),
-            "KICHU_BACKUP_DIR": str(tmp_path / "backups"),
             "KICHU_WRITE_TOKEN": "entrypoint-test-token",
             "KICHU_API_DATABASE_URL_FILE": str(url_file),
         }
     )
     script = """
-import os
 from jobs import scheduler
-from storage import database
 
 calls = []
-database.DATA_DIR = os.environ["ENTRYPOINT_TEST_DATA_DIR"]
 scheduler.setup_scheduler = lambda: calls.append("scheduler")
 
 import api_entrypoint
@@ -61,19 +53,16 @@ def test_api_entrypoint_configures_postgres_without_creating_legacy_state(tmp_pa
     url_file = tmp_path / "secrets" / "api-url"
     url_file.parent.mkdir()
     url_file.write_text("postgresql+psycopg://api:secret@db/kichu\n", encoding="utf-8")
-    state_path = tmp_path / "state" / "inspiration_db.json"
     env = os.environ.copy()
     env.update(
         {
             "KICHU_API_DATABASE_URL_FILE": str(url_file),
-            "KICHU_STATE_PATH": str(state_path),
             "KICHU_WRITE_TOKEN": "entrypoint-test-token",
         }
     )
     script = """
 import api_entrypoint
 assert api_entrypoint.app.config["READINESS_SERVICE"] is not None
-assert not __import__("pathlib").Path(__import__("os").environ["KICHU_STATE_PATH"]).exists()
 """
 
     result = subprocess.run(

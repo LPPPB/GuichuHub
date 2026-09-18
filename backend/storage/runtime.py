@@ -12,7 +12,7 @@ import os
 from dataclasses import dataclass
 from typing import Mapping
 
-from storage import auth_store, database, db, tracked_ups
+from storage import auth_store, database, db, runtime_settings, tracked_ups
 from storage.postgres import create_session_factory
 from storage.repositories.auth import AuthRepository
 from storage.repositories.business import BusinessRepository
@@ -45,5 +45,6 @@ def configure_postgres_runtime(role: str, env: Mapping[str, str] | None = None) 
     db.configure_business_repository(runtime.business)
     auth_store.configure_auth_repository(runtime.auth)
     database.configure_state_repository(runtime.state)
+    runtime_settings.configure_runtime_settings_repository(runtime.state)
     tracked_ups.configure_state_repository(runtime.state)
     return runtime

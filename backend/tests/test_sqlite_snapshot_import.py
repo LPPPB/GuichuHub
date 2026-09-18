@@ -58,10 +58,19 @@ def snapshot_paths(tmp_path):
         ))
 
     dashboard = tmp_path / "dashboard.json"
-    dashboard.write_text(json.dumps({"hot_videos": ["BV1fixture"], "favorites": [{
-        "id": "video_fixture", "type": "video", "owner": "7", "tags": ["fixture"],
-        "notes": "kept", "saved_at": 101, "bvid": "BV1fixture",
-    }]}), encoding="utf-8")
+    dashboard.write_text(json.dumps({
+        "dashboard": {"hot_videos": ["BV1fixture"], "favorites": [{
+            "id": "video_fixture", "type": "video", "owner": "7", "tags": ["fixture"],
+            "notes": "kept", "saved_at": 101, "bvid": "BV1fixture",
+        }]},
+        "runtime_settings": {
+            "danmaku_filters": {"allowed_exact": ["666"], "bad_exact": ["广告"], "bad_substr": ["推广"]},
+            "meme_stopwords": {"自定义": ["泛词"]},
+            "meme_seed_words": ["哈基米"],
+            "tag_filters": {"categories": {"自定义": ["泛词"]}, "ad_keywords": ["品牌"],
+                            "activity_keywords": ["企划"], "allowed_two_char": ["叮咚"]},
+        },
+    }), encoding="utf-8")
     tracked = tmp_path / "tracked.json"
     tracked.write_text(json.dumps({
         "ups": [{"mid": 7, "name": "fixture up", "enabled": True}],
@@ -106,6 +115,9 @@ def test_importer_reconciles_explicit_sqlite_and_json_snapshots(postgres_url, sn
         row = connection.execute(text("SELECT views, likes FROM app.video_observations")).one()
         assert tuple(row) == (None, 0)
         assert connection.execute(text("SELECT count(*) FROM auth.browser_sessions")).scalar_one() == 1
+        assert connection.execute(text(
+            "SELECT payload FROM app.dashboard_state WHERE name = 'meme_seed_words'"
+        )).scalar_one() == ["哈基米"]
 
 
 def test_importer_refuses_nonempty_target_without_explicit_override(postgres_url, snapshot_paths, tmp_path):

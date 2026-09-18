@@ -1,5 +1,5 @@
 [Unit]
-Description=Kichiku Dashboard consistent SQLite backup
+Description=Kichiku Dashboard PostgreSQL custom-format backup
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

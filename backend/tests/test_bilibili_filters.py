@@ -170,10 +170,8 @@ def test_tag_filters_load_structure():
     assert '鬼畜' in stop and '视频' in stop and '瑞幸' in stop
 
 
-def test_tag_filters_save_roundtrip(monkeypatch, tmp_path):
-    """save 后 load 应一致（配置化读写闭环）"""
-    f = tmp_path / 'tag_filters.json'
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
+def test_tag_filters_save_roundtrip(postgres_runtime):
+    """save 后 load 应从 PostgreSQL 一致返回。"""
     filters = {
         'categories': {'测试分类': ['甲', '乙']},
         'ad_keywords': ['测试品牌'],
@@ -184,10 +182,8 @@ def test_tag_filters_save_roundtrip(monkeypatch, tmp_path):
     assert bilibili.load_tag_filters() == filters
 
 
-def test_tag_filters_cache_invalidated_on_save(monkeypatch, tmp_path):
+def test_tag_filters_cache_invalidated_on_save(postgres_runtime):
     """save 后缓存失效：is_useless_tag 立即用新配置，无需重启后端"""
-    f = tmp_path / 'tag_filters.json'
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
     # 初始配置：不挡"新品牌"
     bilibili.save_tag_filters({
         'categories': {'分类': ['原词']},
@@ -202,11 +198,8 @@ def test_tag_filters_cache_invalidated_on_save(monkeypatch, tmp_path):
     assert is_useless_tag('新品牌手机')
 
 
-def test_tag_filters_fallback_on_corrupt_file(monkeypatch, tmp_path):
-    """配置文件损坏 → 降级内置兜底（过滤行为不退化）"""
-    f = tmp_path / 'tag_filters.json'
-    f.write_text('{broken json', encoding='utf-8')
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
+def test_tag_filters_fallback_without_database_override():
+    """没有 PostgreSQL 覆盖值时使用内置兜底。"""
     bilibili._invalidate_tag_filters()
     filters = bilibili.load_tag_filters()
     stop = {w for ws in filters['categories'].values() for w in ws}
@@ -216,10 +209,8 @@ def test_tag_filters_fallback_on_corrupt_file(monkeypatch, tmp_path):
     assert '叮咚' in filters['allowed_two_char']
 
 
-def test_tag_filters_fallback_on_missing_file(monkeypatch, tmp_path):
-    """配置文件缺失 → 降级内置兜底"""
-    f = tmp_path / 'nope.json'
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
+def test_tag_filters_fallback_is_complete():
+    """内置兜底包含代表性规则。"""
     bilibili._invalidate_tag_filters()
     filters = bilibili.load_tag_filters()
     stop = {w for ws in filters['categories'].values() for w in ws}

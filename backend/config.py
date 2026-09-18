@@ -20,8 +20,7 @@ load_dotenv()
 
 # 运行时路径通过 KICHU_* 环境变量注入；未配置时仅回退到本地开发目录。
 RUNTIME_PATHS = RuntimePaths.from_environment(os.environ)
-DATA_DIR = str(RUNTIME_PATHS.business_db.parent)
-DB_PATH = str(RUNTIME_PATHS.business_db)
+DATA_DIR = str(RUNTIME_PATHS.cookie_file.parent)
 
 # 后端端口
 BACKEND_PORT = int(os.getenv('BACKEND_PORT', '5000'))
