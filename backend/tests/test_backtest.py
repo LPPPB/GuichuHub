@@ -12,6 +12,7 @@
 import pytest
 
 import storage.db as db
+from storage.migrations import alembic_heads
 from analytics import backtest
 
 
@@ -171,7 +172,7 @@ def test_get_dev_stats(bt_db):
     bt_db.business.finish_crawl_run(run_id, 'success', {}, ts - 3500)
 
     stats = backtest.get_dev_stats()
-    assert stats['alembic_revision'] == '0001_postgresql_v3_baseline'
+    assert stats['alembic_revision'] == alembic_heads()[0]
     assert stats['schema_version'] == 11  # legacy API compatibility for V1–V11 baseline
     assert stats['crawl_runs'].get('running') == 1
     assert stats['crawl_runs'].get('success') == 1

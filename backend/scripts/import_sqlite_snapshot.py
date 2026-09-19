@@ -17,7 +17,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import func, select, text
+from storage.postgres import create_engine
 from sqlalchemy.dialects.postgresql import insert
 from storage.migrations import alembic_heads
 
@@ -235,8 +236,18 @@ def _import_business(connection, source: sqlite3.Connection) -> dict[str, Any]:
         _ensure_up(connection, int(row["mid"]))
         row.setdefault("fetched_at", 0); row.setdefault("last_seen_at", 0)
         row.setdefault("missing_count", 0); row.setdefault("status", "active")
-    _upsert(connection, calendar_videos, calendar, [calendar_videos.c.bvid, calendar_videos.c.mid])
+    canonical = {}
+    for row in calendar:
+        previous = canonical.get(row["bvid"])
+        if previous is None or (row.get("views") or 0) > (previous.get("views") or 0):
+            canonical[row["bvid"]] = row
+    _upsert(connection, calendar_videos, list(canonical.values()), [calendar_videos.c.bvid])
     calendar_authors = _rows(source, "calendar_video_authors")
+    author_rows = {(row["bvid"], row["mid"]): {"bvid": row["bvid"], "mid": row["mid"],
+                    "last_seen_at": row.get("last_seen_at", 0), "missing_count": row.get("missing_count", 0),
+                    "status": row.get("status", "active")} for row in calendar}
+    author_rows.update({(row["bvid"], row["mid"]): row for row in calendar_authors})
+    calendar_authors = list(author_rows.values())
     for row in calendar_authors:
         _ensure_video(connection, row["bvid"], row["mid"], 0)
         _ensure_up(connection, int(row["mid"]))

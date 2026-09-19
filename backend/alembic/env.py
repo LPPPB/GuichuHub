@@ -1,5 +1,6 @@
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import pool
+from storage.postgres import create_engine
 
 from storage.models import Base
 
@@ -8,7 +9,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_online():
-    engine = engine_from_config(config.get_section(config.config_ini_section), prefix="sqlalchemy.", poolclass=pool.NullPool)
+    engine = create_engine(config.get_main_option("sqlalchemy.url"), poolclass=pool.NullPool)
     with engine.begin() as connection:
         connection.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS app")
         context.configure(connection=connection, target_metadata=target_metadata, include_schemas=True, version_table_schema="app")

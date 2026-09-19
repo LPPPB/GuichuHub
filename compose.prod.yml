@@ -154,6 +154,8 @@ services:
     environment:
       KICHU_BACKUP_DIR: /backups
       KICHU_BACKUP_DATABASE_URL_FILE: /run/secrets/backup_database_url
+      KICHU_GIT_TAG: ${KICHU_GIT_TAG:?set the verified release Git tag}
+      KICHU_IMAGE_DIGEST: ${KICHU_IMAGE_DIGEST:?set the built backend image digest}
     init: true
     logging: *default-logging
     networks:

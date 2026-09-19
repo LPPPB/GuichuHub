@@ -17,7 +17,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata postgresql-client && \
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata ca-certificates curl && \
+    . /etc/os-release && \
+    install -d /usr/share/postgresql-common/pgdg && \
+    curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc && \
+    printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$VERSION_CODENAME" \
+      > /etc/apt/sources.list.d/pgdg.sources && \
+    apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 && \
     ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     groupadd --gid 10001 app && \

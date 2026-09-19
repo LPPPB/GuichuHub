@@ -66,6 +66,17 @@ def test_calendar_data_dedup_joint_submission(calendar_db):
     assert day['views'] == 100000, '联合投稿播放量不应叠加'
 
 
+def test_calendar_separate_author_batches_keep_one_canonical_video(calendar_db):
+    db.upsert_calendar_videos([_video('separate', 1001, 80000)])
+    db.upsert_calendar_videos([_video('separate', 1002, 120000)])
+    for mids in (None, [1001], [1002], [1001, 1002]):
+        day = db.get_calendar_data(mids=mids, year=ANCHOR_YEAR)[ANCHOR_ISO]
+        assert day == {'count': 1, 'views': 120000}
+        listing = db.get_calendar_day_videos(ANCHOR_ISO, mids=mids)
+        assert len(listing) == 1
+        assert listing[0]['views'] == 120000
+
+
 def test_calendar_data_views_takes_max_not_sum(calendar_db):
     """同 bvid 多条记录（合作者抓取时刻不同），取 MAX 而非 SUM"""
     db.upsert_calendar_videos([

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import logging
 from threading import Event, Thread
 
 from sqlalchemy import text
@@ -62,7 +63,10 @@ class HeartbeatService:
 
         def run():
             while not stop_event.is_set():
-                self.beat()
+                try:
+                    self.beat()
+                except Exception:
+                    logging.getLogger(__name__).warning("worker heartbeat failed; retrying after refresh interval")
                 stop_event.wait(self._interval_seconds)
 
         thread = Thread(target=run, name="postgres-worker-heartbeat", daemon=True)

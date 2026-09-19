@@ -10,7 +10,7 @@ LEGACY_RUNTIME_ENV = {
 }
 
 
-def _production_config(tmp_path):
+def _production_config(tmp_path, *, profiles=None):
     secrets_dir = tmp_path / "secrets"
     secrets_dir.mkdir()
     (secrets_dir / "write_token").write_text("write-token", encoding="utf-8")
@@ -35,8 +35,12 @@ def _production_config(tmp_path):
             "KICHU_HOST_WORKER_DATABASE_URL_FILE": str(secrets_dir / "worker_database_url"),
             "KICHU_HOST_MIGRATION_DATABASE_URL_FILE": str(secrets_dir / "migration_database_url"),
             "KICHU_HOST_BACKUP_DATABASE_URL_FILE": str(secrets_dir / "backup_database_url"),
+            "KICHU_GIT_TAG": "v3-test",
+            "KICHU_IMAGE_DIGEST": "sha256:test",
         }
     )
+    if profiles is not None:
+        env["COMPOSE_PROFILES"] = profiles
     result = subprocess.run(
         ["docker", "compose", "-f", str(ROOT / "compose.prod.yml"), "config", "--format", "json"],
         cwd=ROOT,
@@ -107,3 +111,10 @@ def test_api_has_read_only_cookie_mount_and_worker_owns_writes(tmp_path):
     assert all(volume["target"] != "/data/auth" for volume in config["services"]["worker"]["volumes"])
     assert api["environment"]["KICHU_COOKIE_WRITES_ENABLED"] == "0"
     assert worker["environment"]["KICHU_COOKIE_WRITES_ENABLED"] == "1"
+
+
+def test_backup_requires_explicit_release_identity(tmp_path):
+    config = _production_config(tmp_path, profiles="maintenance")
+    backup = config["services"]["backup"]
+    assert backup["environment"]["KICHU_GIT_TAG"] == "v3-test"
+    assert backup["environment"]["KICHU_IMAGE_DIGEST"] == "sha256:test"

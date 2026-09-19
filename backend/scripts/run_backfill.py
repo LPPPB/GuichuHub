@@ -5,16 +5,19 @@ from __future__ import annotations
 import argparse
 import importlib
 import time
+import uuid
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import or_, select
+from storage.postgres import create_engine
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
 from storage.models import backfill_progress
 
 
-def run_resumable_backfill(session_factory, name: str, step, max_steps: int | None = None) -> bool:
+def run_resumable_backfill(session_factory, name: str, step, max_steps: int | None = None,
+                          *, now=time.time, lease_seconds: int = 300) -> bool:
     """Run bounded idempotent steps, persisting the cursor after every step.
 
     ``step(cursor)`` returns ``(next_cursor, completed)``.  A restart receives
@@ -24,32 +27,46 @@ def run_resumable_backfill(session_factory, name: str, step, max_steps: int | No
     """
     if not name:
         raise ValueError("backfill name is required")
+    if lease_seconds <= 0:
+        raise ValueError("backfill lease must be positive")
+    if max_steps is not None and max_steps <= 0:
+        return False
+    owner = uuid.uuid4().hex
+    with session_factory.begin() as session:
+        session.execute(insert(backfill_progress).values(name=name, cursor={}, status="running", updated_at=int(now()))
+                        .on_conflict_do_nothing(index_elements=[backfill_progress.c.name]))
+        claim = session.execute(backfill_progress.update().where(
+            backfill_progress.c.name == name, backfill_progress.c.status != "completed",
+            or_(backfill_progress.c.claim_owner.is_(None), backfill_progress.c.lease_until <= int(now())),
+        ).values(claim_owner=owner, lease_until=int(now()) + lease_seconds,
+                 fencing_token=backfill_progress.c.fencing_token + 1, updated_at=int(now()))
+          .returning(backfill_progress.c.cursor, backfill_progress.c.fencing_token)).mappings().first()
+        if claim is None:
+            return session.execute(select(backfill_progress.c.status).where(backfill_progress.c.name == name)).scalar_one() == "completed"
+    cursor, fence = dict(claim["cursor"]), claim["fencing_token"]
+    owned = (backfill_progress.c.name == name, backfill_progress.c.claim_owner == owner,
+             backfill_progress.c.fencing_token == fence)
     count = 0
-    while max_steps is None or count < max_steps:
-        with session_factory.begin() as session:
-            progress = session.execute(select(backfill_progress).where(
-                backfill_progress.c.name == name,
-            ).with_for_update()).mappings().first()
-            if progress is not None and progress["status"] == "completed":
+    try:
+        while max_steps is None or count < max_steps:
+            next_cursor, completed = step(cursor)
+            if not isinstance(next_cursor, dict):
+                raise ValueError("backfill step must return a JSON object cursor")
+            with session_factory.begin() as session:
+                changed = session.execute(backfill_progress.update().where(
+                    *owned, backfill_progress.c.lease_until > int(now()),
+                ).values(cursor=next_cursor, status="completed" if completed else "running",
+                         updated_at=int(now()), lease_until=int(now()) + lease_seconds)).rowcount
+                if changed != 1:
+                    raise RuntimeError("backfill claim expired or was replaced; checkpoint rejected")
+            cursor = next_cursor
+            count += 1
+            if completed:
                 return True
-            cursor = dict(progress["cursor"]) if progress is not None else {}
-            if progress is None:
-                session.execute(insert(backfill_progress).values(
-                    name=name, cursor=cursor, status="running", updated_at=int(time.time()),
-                ))
-
-        next_cursor, completed = step(cursor)
-        if not isinstance(next_cursor, dict):
-            raise ValueError("backfill step must return a JSON object cursor")
+        return False
+    finally:
         with session_factory.begin() as session:
-            session.execute(backfill_progress.update().where(
-                backfill_progress.c.name == name,
-            ).values(cursor=next_cursor, status="completed" if completed else "running",
-                     updated_at=int(time.time())))
-        count += 1
-        if completed:
-            return True
-    return False
+            session.execute(backfill_progress.update().where(*owned).values(claim_owner=None, lease_until=None))
 
 
 def _arguments() -> argparse.Namespace:

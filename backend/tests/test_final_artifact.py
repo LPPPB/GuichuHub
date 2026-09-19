@@ -38,6 +38,13 @@ def test_final_image_loads_alembic_revisions(final_image):
     assert result.returncode == 0, result.stderr
 
 
+def test_final_image_uses_postgresql_16_client(final_image):
+    """A newer dump client can emit SQL that PostgreSQL 16 rejects on restore."""
+    result = _image_run(final_image, ["pg_dump", "--version"])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("pg_dump (PostgreSQL) 16."), result.stdout
+
+
 def test_compose_maintenance_cli_works_from_final_image(final_image, tmp_path, monkeypatch):
     monkeypatch.setenv("COMPOSE_PROFILES", "maintenance")
     for config in (_production_config(tmp_path), _development_config()):

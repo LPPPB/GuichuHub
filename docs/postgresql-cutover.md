@@ -29,7 +29,7 @@
 ## 备份与恢复命令
 
 - 创建并验证 PostgreSQL 备份：`docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml --profile maintenance run --rm backup`。
-- 恢复演练只能指向新建的 `kichu_restore_drill_` 数据库：`python ops/backup/restore_drill.py --database-url-file <migration-url-file> --dump <backup.dump> --temporary-database kichu_restore_drill_<timestamp>`。
+- 恢复演练只能指向新建的 `kichu_restore_drill_` 数据库：`python ops/backup/restore_drill.py --database-url-file <migration-url-file> --provisioner-database-url-file <external-provisioner-url-file> --dump <backup.dump> --manifest <backup.dump.manifest.json> --temporary-database kichu_restore_drill_<timestamp>`。先校验 SHA-256 和 manifest revision；provisioner 凭据仅用于该临时库的创建/删除，不进入应用容器。
 - 恢复演练失败时保留 dump、manifest 与日志，不得自动覆盖生产库或 downgrade。
 
 ## 禁止事项

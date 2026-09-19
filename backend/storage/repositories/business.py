@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 
 from html import unescape
 
-from sqlalchemy import BigInteger, and_, case, cast, create_engine, distinct, func, or_, select, text
+from sqlalchemy import BigInteger, and_, case, cast, distinct, func, or_, select, text
+from storage.postgres import create_engine
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import sessionmaker
 
@@ -641,7 +642,7 @@ class BusinessRepository:
                 session.execute(insert(calendar_videos).values(
                     **row, fetched_at=now, last_seen_at=now, missing_count=0, status="active"
                 ).on_conflict_do_update(
-                    index_elements=[calendar_videos.c.bvid, calendar_videos.c.mid],
+                    index_elements=[calendar_videos.c.bvid],
                     set_={
                         "pub_date": row["pub_date"], "pub_date_str": row["pub_date_str"],
                         "views": func.greatest(calendar_videos.c.views, row["views"]),

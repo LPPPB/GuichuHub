@@ -16,6 +16,8 @@ from sqlalchemy.engine import make_url
 def create_postgres_backup(*, runner, destination_dir: Path, connection: dict,
                            revision: str, git_tag: str, image_digest: str) -> dict:
     """Run ``pg_dump --format=custom``, verify its catalog, and write a manifest."""
+    if not git_tag or git_tag == "unknown" or not image_digest or image_digest == "unknown":
+        raise ValueError("release identity must include a Git tag and image digest")
     destination_dir = Path(destination_dir)
     destination_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -63,5 +65,5 @@ if __name__ == "__main__":
     backup_from_url_file(
         Path(os.environ["KICHU_BACKUP_DATABASE_URL_FILE"]),
         Path(os.environ.get("KICHU_BACKUP_DIR", "/backups")),
-        os.environ.get("KICHU_GIT_TAG", "unknown"), os.environ.get("KICHU_IMAGE_DIGEST", "unknown"),
+        os.environ["KICHU_GIT_TAG"], os.environ["KICHU_IMAGE_DIGEST"],
     )
