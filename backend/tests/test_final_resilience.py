@@ -98,6 +98,42 @@ def test_fresh_and_incremental_upgrades_have_identical_schema(empty_postgres_url
     assert shape(empty_postgres_url) == shape(postgres_url)
 
 
+def test_calendar_baseline_upgrade_keeps_best_metrics_when_best_mid_is_higher(empty_postgres_url):
+    command.upgrade(_config(empty_postgres_url), "0001_postgresql_v3_baseline")
+    engine = create_engine(empty_postgres_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO app.ups(mid, name, face, tracked) VALUES
+                    (100, 'lower-author', '', true),
+                    (200, 'best-author', '', true);
+                INSERT INTO app.videos(bvid, mid, first_seen, source, observe_tier)
+                    VALUES ('BVcalendar-dupe', 100, 1, 'fixture', 'hot');
+                INSERT INTO app.calendar_videos(
+                    bvid, mid, pub_date, pub_date_str, views, title, fetched_at,
+                    last_seen_at, missing_count, status
+                ) VALUES
+                    ('BVcalendar-dupe', 100, 1, '1970-01-01', 1, 'lower', 1, 1, 0, 'active'),
+                    ('BVcalendar-dupe', 200, 1, '1970-01-01', 999, 'best', 2, 2, 0, 'active');
+            """))
+        command.upgrade(_config(empty_postgres_url), "head")
+        with engine.connect() as connection:
+            row = connection.execute(text("""
+                SELECT mid, views, title FROM app.calendar_videos
+                WHERE bvid = 'BVcalendar-dupe'
+            """)).mappings().one()
+            authors = connection.execute(text("""
+                SELECT mid FROM app.calendar_video_authors
+                WHERE bvid = 'BVcalendar-dupe' ORDER BY mid
+            """)).scalars().all()
+        assert row["mid"] == 100
+        assert row["views"] == 999
+        assert row["title"] == "best"
+        assert authors == [100, 200]
+    finally:
+        engine.dispose()
+
+
 @pytest.mark.parametrize("terminal", ["withdrawn", "rejected", "approved"])
 def test_repeated_tracking_request_lifecycles_preserve_history(postgres_url, clean_postgres_data, terminal):
     repository = StateRepository.from_url(postgres_url)
