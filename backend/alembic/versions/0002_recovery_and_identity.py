@@ -16,18 +16,18 @@ def upgrade():
     op.add_column("backfill_progress", sa.Column("claim_owner", sa.String(128)), schema="app")
     op.add_column("backfill_progress", sa.Column("lease_until", sa.BigInteger()), schema="app")
     op.add_column("backfill_progress", sa.Column("fencing_token", sa.BigInteger(), nullable=False, server_default="0"), schema="app")
-    # Preserve every author before consolidating historical duplicates.
-    op.execute("""INSERT INTO app.calendar_video_authors(bvid,mid,last_seen_at,missing_count,status)
-        SELECT bvid,mid,last_seen_at,missing_count,status FROM app.calendar_videos
-        ON CONFLICT(bvid,mid) DO NOTHING""")
-    op.execute("""WITH best AS (
-        SELECT DISTINCT ON(bvid) * FROM app.calendar_videos
-        ORDER BY bvid, views DESC, fetched_at DESC, mid
-    ) UPDATE app.calendar_videos v SET views=b.views, pub_date=b.pub_date,
-        pub_date_str=b.pub_date_str, title=b.title, fetched_at=b.fetched_at
-        FROM best b WHERE v.bvid=b.bvid""")
-    op.execute("""DELETE FROM app.calendar_videos v USING app.calendar_videos keep
-        WHERE v.bvid=keep.bvid AND v.mid>keep.mid""")
+    # Historic 0001 data may contain unbounded duplicate BVID history.  The
+    # explicit, resumable calendar_identity_backfill job must reconcile it
+    # before this schema-only revision changes the primary key.
+    duplicates_remain = op.get_bind().execute(sa.text("""
+        SELECT EXISTS (
+            SELECT 1 FROM app.calendar_videos GROUP BY bvid HAVING count(*) > 1
+        )
+    """)).scalar_one()
+    if duplicates_remain:
+        raise RuntimeError(
+            "calendar identity backfill must complete before upgrading to 0002"
+        )
     op.drop_constraint("calendar_videos_pkey", "calendar_videos", schema="app", type_="primary")
     op.create_primary_key("calendar_videos_pkey", "calendar_videos", ["bvid"], schema="app")
 

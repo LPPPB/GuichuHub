@@ -22,14 +22,14 @@
 3. 创建并验证 PostgreSQL 自定义格式备份。
 4. 停止写入服务。
 5. 执行 `alembic upgrade head`，只使用 migration 角色。
-6. 如有需要，运行可恢复 backfill；它将进度保存在 `app.backfill_progress`。
+6. 如有需要，运行可恢复 backfill；它将进度保存在 `app.backfill_progress`。若数据库已停留在 `0001_postgresql_v3_baseline` 且即将升级到 `0002_recovery_and_identity`，必须先以 migration URL 运行 `PYTHONPATH=backend uv run --directory backend python scripts/calendar_identity_backfill.py --database-url-file <migration-url-file> --max-steps <bounded-positive-count>`，重复执行直到退出码为 0；再执行 Alembic。空库首次升级没有历史行，可直接升级。
 7. 启动新版本并检查 readiness、heartbeat 和关键业务 API。
 8. 故障优先前向修复，**禁止自动 downgrade**。只有经确认的维护窗口才能从发布前 PostgreSQL 备份恢复。
 
 ## 备份与恢复命令
 
 - 创建并验证 PostgreSQL 备份：`docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml --profile maintenance run --rm backup`。
-- 恢复演练只能指向新建的 `kichu_restore_drill_` 数据库：`python ops/backup/restore_drill.py --database-url-file <migration-url-file> --provisioner-database-url-file <external-provisioner-url-file> --dump <backup.dump> --manifest <backup.dump.manifest.json> --temporary-database kichu_restore_drill_<timestamp>`。先校验 SHA-256 和 manifest revision；provisioner 凭据仅用于该临时库的创建/删除，不进入应用容器。
+- 恢复演练只能指向新建的 `kichu_restore_drill_` 数据库：`PYTHONPATH=backend uv run --directory backend python ../ops/backup/restore_drill.py --database-url-file <migration-url-file> --provisioner-database-url-file <external-provisioner-url-file> --dump <backup.dump> --manifest <backup.dump.manifest.json> --temporary-database kichu_restore_drill_<timestamp>`。先校验 SHA-256 和 manifest revision；provisioner 凭据仅用于该临时库的创建/删除，不进入应用容器。
 - 恢复演练失败时保留 dump、manifest 与日志，不得自动覆盖生产库或 downgrade。
 
 ## 禁止事项

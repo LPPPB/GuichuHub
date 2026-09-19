@@ -30,6 +30,17 @@ sudo install -m 0600 -o root -g root /dev/null /srv/kichu/secrets/write_token
 
 在仓库外填写 `production.env`，并以安全方式写入 `write_token`。`production.env` 应只对部署操作员可读；`write_token` 保持 `root:root`、`0600`，由 Docker daemon 读取并挂载为容器 secret，**不要**为此将宿主机密钥文件改为 UID `10001`。运行 Docker 的操作员仍需能调用 Docker Compose。
 
+四个 `*_DATABASE_URL_FILE` 都是 Docker secret 文件路径；每个文件只能有一行、不带引号的 SQLAlchemy URL，密码必须进行 URL percent-encoding，且绝不能写入 `production.env`、日志或 Compose 命令行。按 `config/production.example.env` 中的文件名创建它们：
+
+```text
+api_database_url       = postgresql+psycopg://kichu_api:<api-password>@postgres:5432/kichu
+worker_database_url    = postgresql+psycopg://kichu_worker:<worker-password>@postgres:5432/kichu
+migration_database_url = postgresql+psycopg://kichu_migration:<migration-password>@postgres:5432/kichu
+backup_database_url    = postgresql+psycopg://kichu_backup:<backup-password>@postgres:5432/kichu
+```
+
+API、Worker、backup 均没有 DDL 权限；只有 `kichu_migration` 执行 Alembic。角色密码放在对应的 `postgres_*_password` secret 文件中，仅供 PostgreSQL 初始化使用，URL secret 由相应服务单独挂载。
+
 防火墙与安全组只允许 22、80、443；API、Frontend、Worker、PostgreSQL 均不开放生产主机端口。DNS 在部署前指向该主机，Caddy 使用 `KICHU_DOMAIN` 自动处理 TLS。
 
 ## 首次部署与更新
