@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from storage.migrations import upgrade_database
@@ -70,11 +70,12 @@ def test_api_has_only_allowlisted_proxy_egress(tmp_path):
 
 
 @pytest.fixture
-def production_roles(empty_postgres_url):
-    """Apply the production initialization SQL in an isolated fixture database."""
+def bootstrap_roles(empty_postgres_url):
+    """Apply only the production role bootstrap SQL in an isolated database."""
     engine = create_engine(empty_postgres_url, isolation_level="AUTOCOMMIT")
     script = (ROOT / "ops/postgres/init-roles.sh").read_text(encoding="utf-8")
     sql = script.split("<<'SQL'", 1)[1].rsplit("SQL", 1)[0]
+    sql = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("\\getenv"))
     for role in ("api", "worker", "migration", "backup"):
         sql = sql.replace(f":'{role}_password'", "'fixture-password'")
     sql = sql.replace("ON DATABASE kichu", f'ON DATABASE "{engine.url.database}"')
@@ -91,16 +92,41 @@ def production_roles(empty_postgres_url):
         engine.dispose()
 
 
+@pytest.fixture
+def production_roles(bootstrap_roles):
+    """Upgrade a role-bootstrapped database through the migration role."""
+    migration_url = bootstrap_roles.url.set(username="kichu_migration", password="fixture-password")
+    upgrade_database(migration_url.render_as_string(hide_password=False))
+    return bootstrap_roles
+
+
+def test_bootstrap_roles_leave_schema_ddl_to_the_migration_role(bootstrap_roles):
+    before = set(inspect(bootstrap_roles).get_schema_names())
+    assert "app" not in before
+    assert "auth" not in before
+
+    migration_url = bootstrap_roles.url.set(username="kichu_migration", password="fixture-password")
+    upgrade_database(migration_url.render_as_string(hide_password=False))
+
+    assert {"app", "auth"} <= set(inspect(bootstrap_roles).get_schema_names())
+
+
 @pytest.mark.parametrize("role", ["api", "worker", "backup", "migration"])
 def test_production_roles_sequences_and_ddl(production_roles, role):
     engine = production_roles
-    migration_url = engine.url.set(username="kichu_migration", password="fixture-password")
-    upgrade_database(migration_url.render_as_string(hide_password=False))
     with engine.connect() as connection:
         connection.exec_driver_sql(f"SET ROLE kichu_{role}")
-        if role in {"api", "worker", "migration"}:
+        if role in {"worker", "migration"}:
             assert connection.execute(text("INSERT INTO app.crawl_runs(started_at,status) VALUES(1,'running') RETURNING id")).scalar_one() > 0
+        else:
+            with pytest.raises(Exception, match="permission denied"):
+                connection.execute(text("INSERT INTO app.crawl_runs(started_at,status) VALUES(1,'running')"))
+        if role in {"api", "migration"}:
             assert connection.execute(text("INSERT INTO auth.collector_credential_handoffs(action,requested_by,requested_at) VALUES('delete','fixture',1) RETURNING id")).scalar_one() > 0
+        elif role == "worker":
+            connection.execute(text("SELECT id FROM auth.collector_credential_handoffs LIMIT 1"))
+            with pytest.raises(Exception, match="permission denied"):
+                connection.execute(text("INSERT INTO auth.collector_credential_handoffs(action,requested_by,requested_at) VALUES('delete','fixture',1)"))
         if role == "backup":
             connection.exec_driver_sql("SELECT last_value FROM app.crawl_runs_id_seq")
             with pytest.raises(Exception, match="permission denied"):
@@ -115,3 +141,16 @@ def test_production_roles_sequences_and_ddl(production_roles, role):
             else:
                 with pytest.raises(Exception, match="permission denied"):
                     connection.exec_driver_sql(statement)
+
+
+def test_api_can_write_state_but_worker_cannot_read_browser_sessions(production_roles):
+    with production_roles.connect() as connection:
+        connection.exec_driver_sql("SET ROLE kichu_api")
+        connection.execute(text("""
+            INSERT INTO app.dashboard_state(name,payload,version,updated_at)
+            VALUES('current','{}',0,1)
+        """))
+    with production_roles.connect() as connection:
+        connection.exec_driver_sql("SET ROLE kichu_worker")
+        with pytest.raises(Exception, match="permission denied"):
+            connection.execute(text("SELECT token FROM auth.browser_sessions"))
