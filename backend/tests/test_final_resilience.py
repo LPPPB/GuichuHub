@@ -99,6 +99,8 @@ def test_fresh_and_incremental_upgrades_have_identical_schema(empty_postgres_url
 
 
 def test_calendar_baseline_upgrade_keeps_best_metrics_when_best_mid_is_higher(empty_postgres_url):
+    from scripts.calendar_identity_backfill import run_calendar_identity_backfill
+
     command.upgrade(_config(empty_postgres_url), "0001_postgresql_v3_baseline")
     engine = create_engine(empty_postgres_url)
     try:
@@ -116,6 +118,12 @@ def test_calendar_baseline_upgrade_keeps_best_metrics_when_best_mid_is_higher(em
                     ('BVcalendar-dupe', 100, 1, '1970-01-01', 1, 'lower', 1, 1, 0, 'active'),
                     ('BVcalendar-dupe', 200, 1, '1970-01-01', 999, 'best', 2, 2, 0, 'active');
             """))
+        assert run_calendar_identity_backfill(
+            empty_postgres_url, batch_size=1, max_steps=1,
+        ) is False
+        assert run_calendar_identity_backfill(
+            empty_postgres_url, batch_size=1, max_steps=1,
+        ) is True
         command.upgrade(_config(empty_postgres_url), "head")
         with engine.connect() as connection:
             row = connection.execute(text("""
