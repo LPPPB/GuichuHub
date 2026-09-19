@@ -29,6 +29,17 @@ def _verified_manifest(dump_file: Path, manifest_file: Path) -> dict:
     return manifest
 
 
+def application_read_probe(database_url) -> tuple[dict | None, int]:
+    """Read restored state through the same repository boundary as the API."""
+    from storage.repositories.state import StateRepository
+
+    repository = StateRepository.from_url(database_url)
+    try:
+        return repository.load_dashboard_snapshot()
+    finally:
+        repository._sessions.kw["bind"].dispose()
+
+
 def restore_drill(database_url_file: Path, dump_file: Path, temporary_database: str, *,
                   provisioner_database_url_file: Path, manifest_file: Path) -> None:
     """Create, restore, and inspect a temporary database; never alters the source DB."""
@@ -55,7 +66,7 @@ def restore_drill(database_url_file: Path, dump_file: Path, temporary_database: 
             revision = connection.execute(text("SELECT version_num FROM app.alembic_version")).scalar_one()
             if revision != manifest["alembic_revision"]:
                 raise RuntimeError("restored Alembic revision does not match backup manifest")
-            connection.execute(text("SELECT 1 FROM app.dashboard_state LIMIT 1"))
+        application_read_probe(drill_url)
     finally:
         if created:
             subprocess.run(["dropdb", "--if-exists", "--force", temporary_database],

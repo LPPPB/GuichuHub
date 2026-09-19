@@ -86,3 +86,9 @@ def test_restore_drill_rejects_tampered_dump_before_creating_database(tmp_path, 
             provisioner_database_url_file=provisioner_url, manifest_file=manifest,
         )
     assert commands == []
+
+
+def test_restore_read_probe_uses_the_postgresql_state_repository(postgres_url, clean_postgres_data):
+    from ops.backup.restore_drill import application_read_probe
+
+    assert application_read_probe(postgres_url) == (None, 0)
