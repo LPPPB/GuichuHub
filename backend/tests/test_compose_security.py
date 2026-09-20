@@ -118,3 +118,11 @@ def test_backup_requires_explicit_release_identity(tmp_path):
     backup = config["services"]["backup"]
     assert backup["environment"]["KICHU_GIT_TAG"] == "v3-test"
     assert backup["environment"]["KICHU_IMAGE_DIGEST"] == "sha256:test"
+
+
+def test_ci_compose_validation_supplies_non_production_release_identity():
+    workflow = (ROOT / ".github" / "workflows" / "backend.yml").read_text(encoding="utf-8")
+    compose_step = workflow.split("- name: Validate Compose files", 1)[1]
+
+    assert "export KICHU_GIT_TAG=ci-test" in compose_step
+    assert "export KICHU_IMAGE_DIGEST=sha256:ci-test" in compose_step

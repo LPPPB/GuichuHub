@@ -43,5 +43,7 @@ jobs:
           export KICHU_HOST_WORKER_DATABASE_URL_FILE=/tmp/kichu-secrets/worker_database_url
           export KICHU_HOST_MIGRATION_DATABASE_URL_FILE=/tmp/kichu-secrets/migration_database_url
           export KICHU_HOST_BACKUP_DATABASE_URL_FILE=/tmp/kichu-secrets/backup_database_url
+          export KICHU_GIT_TAG=ci-test
+          export KICHU_IMAGE_DIGEST=sha256:ci-test
           docker compose -f compose.dev.yml config
           docker compose -f compose.prod.yml config
