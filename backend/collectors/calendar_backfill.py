@@ -7,7 +7,7 @@ import random
 from datetime import datetime, timezone, timedelta
 
 from collectors.bilibili_auth import get_cookie_str, get_headers, safe_get_with_wbi
-from storage.db import upsert_calendar_videos, reconcile_calendar_author, get_conn
+from storage.db import upsert_calendar_videos, reconcile_calendar_author, get_up_names
 from storage.tracked_ups import load_tracked_list
 
 CN_TZ = timezone(timedelta(hours=8))
@@ -169,14 +169,8 @@ def backfill_calendar(mids=None, recent_days=None, year=None, progress_callback=
         ups = [u for u in ups if u.get('enabled', True)]
     else:
         # 增量模式：只处理指定 mids
-        conn = get_conn()
-        ups = []
-        for mid in mids:
-            row = conn.execute('SELECT mid, name FROM ups WHERE mid=?', (mid,)).fetchone()
-            if row:
-                ups.append({'mid': row['mid'], 'name': row['name']})
-            else:
-                ups.append({'mid': mid, 'name': f'UID:{mid}'})
+        names = get_up_names(mids)
+        ups = [{'mid': mid, 'name': names.get(int(mid)) or f'UID:{mid}'} for mid in mids]
 
     if not ups:
         print('没有需要回填的 UP 主')

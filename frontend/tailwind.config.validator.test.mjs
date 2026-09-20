@@ -2319,7 +2319,7 @@ describe('[UP Requests · UpTrends/App] 文案改造与门禁接线', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════
-// [Admin Identity] 管理员判定 = 特定B站账号扫码登录（后端 auth.db 名单）
+// [Admin Identity] 管理员判定 = 特定B站账号扫码登录（后端 PostgreSQL 名单）
 // 后端契约（test_admin_identity.py）：
 //   三态判定链：X-Write-Token 超管后门 / HttpOnly Cookie 会话且 mid ∈ 名单 / 访客；
 //   身份登录全员开放，凭证和会话 token 只落服务器；

@@ -2,6 +2,8 @@
 
 本基线适用于任意 Ubuntu/Debian 主机。云厂商只负责 VM、DNS、防火墙和可选监控；应用不调用云 API。
 
+PostgreSQL 16 是唯一运行态持久层。API/Worker 只接收各自的 PostgreSQL URL secret 以及必要的 Cookie/日志路径，不配置或挂载 SQLite、dashboard JSON、tracked-UP JSON 或应用内备份目录。首次离线导入是独立的维护操作，不是服务启动步骤。
+
 ## 主机布局
 
 将 Git 检出放在 `/srv/kichu/app`，运行态放在检出目录外：
@@ -9,7 +11,8 @@
 ```text
 /srv/kichu/config/production.env
 /srv/kichu/secrets/write_token
-/srv/kichu/data/{db,auth,state,private}
+/srv/kichu/postgres
+/srv/kichu/private
 /srv/kichu/logs
 /srv/kichu/backups
 ```
@@ -19,15 +22,26 @@
 ```bash
 sudo install -d -m 0750 /srv/kichu/config
 sudo install -d -m 0700 /srv/kichu/secrets
+sudo install -d -m 0700 /srv/kichu/postgres
 sudo install -d -o 10001 -g 10001 -m 0750 \
-  /srv/kichu/data/db /srv/kichu/data/auth /srv/kichu/data/state \
-  /srv/kichu/data/private /srv/kichu/logs /srv/kichu/backups
+  /srv/kichu/private /srv/kichu/logs /srv/kichu/backups
 sudo install -m 0600 -o root -g root /dev/null /srv/kichu/secrets/write_token
 ```
 
 在仓库外填写 `production.env`，并以安全方式写入 `write_token`。`production.env` 应只对部署操作员可读；`write_token` 保持 `root:root`、`0600`，由 Docker daemon 读取并挂载为容器 secret，**不要**为此将宿主机密钥文件改为 UID `10001`。运行 Docker 的操作员仍需能调用 Docker Compose。
 
-防火墙与安全组只允许 22、80、443；API、Frontend、Worker、SQLite 均不开放主机端口。DNS 在部署前指向该主机，Caddy 使用 `KICHU_DOMAIN` 自动处理 TLS。
+四个 `*_DATABASE_URL_FILE` 都是 Docker secret 文件路径；每个文件只能有一行、不带引号的 SQLAlchemy URL，密码必须进行 URL percent-encoding，且绝不能写入 `production.env`、日志或 Compose 命令行。按 `config/production.example.env` 中的文件名创建它们：
+
+```text
+api_database_url       = postgresql+psycopg://kichu_api:<api-password>@postgres:5432/kichu
+worker_database_url    = postgresql+psycopg://kichu_worker:<worker-password>@postgres:5432/kichu
+migration_database_url = postgresql+psycopg://kichu_migration:<migration-password>@postgres:5432/kichu
+backup_database_url    = postgresql+psycopg://kichu_backup:<backup-password>@postgres:5432/kichu
+```
+
+API、Worker、backup 均没有 DDL 权限；只有 `kichu_migration` 执行 Alembic。角色密码放在对应的 `postgres_*_password` secret 文件中，仅供 PostgreSQL 初始化使用，URL secret 由相应服务单独挂载。
+
+防火墙与安全组只允许 22、80、443；API、Frontend、Worker、PostgreSQL 均不开放生产主机端口。DNS 在部署前指向该主机，Caddy 使用 `KICHU_DOMAIN` 自动处理 TLS。
 
 ## 首次部署与更新
 
@@ -38,11 +52,13 @@ git checkout <verified-tag>
 cp config/production.example.env /srv/kichu/config/production.env
 # 在仓库外填写 production.env，并创建 /srv/kichu/secrets/write_token
 docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml build
+docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml up -d postgres
+docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml --profile maintenance run --rm migrate
 docker compose --env-file /srv/kichu/config/production.env -f compose.prod.yml up -d
-curl --fail https://<domain>/api/health
+curl --fail https://<domain>/api/health/ready
 ```
 
-更新顺序是：测试、提交、创建并推送 tag、服务器检出 tag、创建备份、构建、启动、健康检查。远程仓库和访问模型由部署者选择；本基线不假定任何托管平台。
+更新顺序是：测试、提交、创建并推送 tag、服务器检出 tag、创建 PostgreSQL 备份、构建、停止写入、运行 migration、启动、readiness/heartbeat 检查。首次数据切换请遵循 [PostgreSQL 切换 Runbook](postgresql-cutover.md)。远程仓库和访问模型由部署者选择；本基线不假定任何托管平台。
 
 ## 定时备份
 

@@ -19,7 +19,6 @@
 import pytest
 
 import storage.auth_store as auth_store
-import storage.database as database
 import app as app_module
 
 
@@ -44,10 +43,8 @@ def _fake_check(key, save=True):
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
-    """独立临时数据文件 + 临时 auth.db + 已知超管口令的 Flask test client"""
-    monkeypatch.setattr(database, 'DATA_DIR', str(tmp_path))
-    monkeypatch.setattr(auth_store, 'AUTH_DB_PATH', str(tmp_path / 'auth.db'))
+def client(monkeypatch, postgres_runtime):
+    """独立 PostgreSQL 测试库 + 已知超管口令的 Flask test client"""
     monkeypatch.setattr(app_module, 'WRITE_TOKEN', ADMIN_TOKEN)
     # 采集层 mock：登录链路不依赖真实B站
     monkeypatch.setattr(app_module, 'generate_qrcode', _fake_qr)
@@ -144,9 +141,12 @@ class TestAdminChain:
         _add_admin(client, 42)
         token, _ = _login(client, monkeypatch, mid=42)
         # 直接把会话改成过期
-        conn = auth_store._conn()
-        conn.execute('UPDATE bili_sessions SET expires_at = 1 WHERE token = ?', (token,))
-        conn.commit()
+        from storage.models import browser_sessions
+        repository = auth_store._auth_repository
+        with repository._sessions.begin() as session:
+            session.execute(browser_sessions.update().where(
+                browser_sessions.c.token == token,
+            ).values(expires_at=1))
         res = client.get('/api/auth/me', headers=_use_session(client, token))
         data = res.get_json()['data']
         assert data['admin'] is False

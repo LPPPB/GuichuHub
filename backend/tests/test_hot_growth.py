@@ -19,27 +19,17 @@
 - 全部不合格（单点/停涨）→ []；limit 超过可用数返回全部
 - 同批次双字段 views 冲突 → 保留先写入观测
 """
-import json
-import os
-import tempfile
-
 import pytest
+from sqlalchemy import delete, text
 
 import storage.db as db
+from storage.models import video_snapshot_documents
 from storage.video_snapshot_reader import get_hot_growth_videos
 
 
 @pytest.fixture
-def growth_db(monkeypatch):
-    """临时 SQLite：重定向 DB_PATH/DATA_DIR 并清连接缓存，get_conn 自动执行全部 schema"""
-    tmpdir = tempfile.mkdtemp()
-    db_path = os.path.join(tmpdir, 'test.db')
-    monkeypatch.setattr(db, 'DB_PATH', db_path)
-    monkeypatch.setattr(db, 'DATA_DIR', tmpdir)
-    db._thread_local.conn = None
-    db.get_conn()
-    yield db_path
-    db._thread_local.conn = None
+def growth_db(postgres_runtime):
+    return postgres_runtime
 
 
 def _seed_batch(ts, videos, with_hot=True):
@@ -177,13 +167,9 @@ def test_limit_and_empty(growth_db):
     items = get_hot_growth_videos(limit=2)
     assert len(items) == 2
 
-    # 空库：全新临时库（换 DB_PATH）
-    import tempfile as _tf
-    empty_dir = _tf.mkdtemp()
-    db._thread_local.conn = None
-    db.DB_PATH = os.path.join(empty_dir, 'empty.db')
-    db.DATA_DIR = empty_dir
-    db.get_conn()
+    # 同一隔离 PostgreSQL 数据库清空快照表，验证空读行为。
+    with growth_db.sessions.begin() as session:
+        session.execute(delete(video_snapshot_documents))
     assert get_hot_growth_videos() == []
 
 
@@ -224,17 +210,15 @@ def test_missing_bvid_skipped(growth_db):
     assert [v['bvid'] for v in items] == ['GOOD']
 
 
-def test_corrupted_payload_skipped(growth_db):
-    """损坏的 payload_json 批次被跳过，不阻断其余批次"""
+def test_postgresql_jsonb_rejects_corrupted_payload(growth_db):
+    """PostgreSQL JSONB 在写入时拒绝非法 JSON，损坏行不会进入运行态存储。"""
     t0 = 1000000000
-    conn = db.get_conn()
-    # 批次1：非法 JSON 直写库（绕过 upsert 的 json 序列化，模拟手工损坏）
-    conn.execute(
-        "INSERT INTO video_obs_snapshot (ts, field, payload_json, item_count) VALUES (?,?,?,?)",
-        (t0, 'all_videos', '{not-valid-json', 1),
-    )
-    conn.commit()
-    # 批次2、3：正常观测
+    with pytest.raises(Exception):
+        with growth_db.sessions.begin() as session:
+            session.execute(text("""
+                INSERT INTO app.video_snapshot_documents (ts, field, payload, item_count)
+                VALUES (:ts, 'all_videos', '{not-valid-json'::jsonb, 1)
+            """), {"ts": t0})
     _seed_batch(t0, [_video('OK', '正常视频', 1000)], with_hot=False)
     _seed_batch(t0 + 2 * 3600, [_video('OK', '正常视频', 2000)], with_hot=False)
     items = get_hot_growth_videos()
@@ -244,12 +228,7 @@ def test_corrupted_payload_skipped(growth_db):
 def test_non_list_payload_skipped(growth_db):
     """payload 非列表（dict 等）视为异常跳过，不崩溃"""
     t0 = 1000000000
-    conn = db.get_conn()
-    conn.execute(
-        "INSERT INTO video_obs_snapshot (ts, field, payload_json, item_count) VALUES (?,?,?,?)",
-        (t0, 'all_videos', json.dumps({'bvid': 'DICT', 'views': 1000}), 1),
-    )
-    conn.commit()
+    db.upsert_video_obs_snapshot(t0, 'all_videos', {'bvid': 'DICT', 'views': 1000})
     _seed_batch(t0, [_video('OK', '正常视频', 1000)], with_hot=False)
     _seed_batch(t0 + 2 * 3600, [_video('OK', '正常视频', 2000)], with_hot=False)
     items = get_hot_growth_videos()

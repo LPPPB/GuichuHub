@@ -2,7 +2,7 @@
 
 设计依据（docs/架构演进实施检查清单.md）：
 - 抓取互斥锁：定时任务与手动刷新不能并发（会互相覆盖）
-- B8 双写顺序：先写 SQLite（事实源），全部成功后再刷新 JSON 缓存
+- 抓取批次的观测与 dashboard 状态由 PostgreSQL 持久化
 - A3 非空保护：某板块抓取被限流返回空时，保留旧数据
 """
 
@@ -36,7 +36,7 @@ def _get_rank_bvids():
     """当前榜单视频 bvid 列表（方案A：榜单视频强制纳入观测）。
 
     榜单 = 前端直接展示的视频集合（鬼畜榜 kichu_rank + 热门视频 hot_videos），
-    来自最近一次全量抓取的 inspiration_db.json 缓存。无论 A4 分级如何，
+    来自最近一次全量抓取的 PostgreSQL dashboard state。无论 A4 分级如何，
     这些用户看得见的视频都必须保持高频观测，否则播放量折线图会停更。
     """
     try:
@@ -59,7 +59,7 @@ def try_acquire_lock():
 
 
 def mark_crawling():
-    """锁已持有后，标记抓取状态为进行中（设置 started_at 供 _crawl_job_locked 写 SQLite 批次用）"""
+    """锁已持有后，标记抓取状态为进行中（设置 started_at 供 _crawl_job_locked 写观测批次用）"""
     _crawl_status.update({
         'crawling': True,
         'started_at': int(time.time()),
@@ -131,8 +131,7 @@ def _crawl_once(trigger):
 def _crawl_job_locked(trigger):
     """锁已持有时的抓取主流程（由 run_crawl_job / refresh_data 的工作线程调用）。
 
-    B8 双写顺序：先写 SQLite（事实源），全部成功后再刷新 JSON 缓存；
-    中途失败 JSON 保持不动，不会出现"缓存新、库里没"的幽灵数据。
+    观测和 dashboard 状态均通过 PostgreSQL repository 持久化。
     finally 释放锁——threading.Lock 允许跨线程 release（HTTP路径下锁在请求线程获取）。
     """
     print(f'[抓取] 开始（触发源: {trigger}）...')
@@ -141,7 +140,7 @@ def _crawl_job_locked(trigger):
         new_data = run_all_crawlers()
         all_videos = new_data.pop('_all_videos', [])
 
-        # ── ① 写 SQLite 时序层（B7: ts 用批次开始时刻，同批幂等）──
+        # ── ① 写 PostgreSQL 时序层（B7: ts 用批次开始时刻，同批幂等）──
         # startup（应用启动预热）只刷新看板缓存，不写观测数据：record_video 是
         # "登记 + 写一次观测"的原子操作，startup 落库会与半小时轻量观测交错，
         # 产生"成对"数据点（开发期反复重启后端尤其明显）。观测由 scheduled
@@ -177,7 +176,7 @@ def _crawl_job_locked(trigger):
                 tsdb.finish_crawl_run(run_id, 'failed', {'error': str(e)})
                 raise
 
-        # ── ② SQLite 全部成功后才刷新 JSON 缓存 ──
+        # ── ② 观测写入成功后才更新 PostgreSQL dashboard state ──
         persist_data(new_data)
         _crawl_status['last_finished_at'] = int(time.time())
         print('[抓取] 完成')
@@ -200,7 +199,7 @@ def _crawl_job_live(trigger='manual'):
 
     与 _crawl_job_locked 的差异：
       - 不调 tsdb.record_video / record_words / mark_candidates_hot
-      - 不调 persist_data（不更新 JSON 看板缓存）
+      - 不调 persist_data（不更新持久 dashboard state）
       - 只调 set_live_cache 更新实时内存缓存
       - 共用 _crawl_lock，与定时抓取互斥
 
@@ -242,7 +241,7 @@ def _crawl_job_live(trigger='manual'):
 
 
 def run_observe_job():
-    """每小时轻量观测：只对 tier 命中的视频补 obs（view+online），不动JSON缓存。
+    """每小时轻量观测：只对 tier 命中的视频补 obs（view+online），不动 dashboard state。
 
     与全量抓取的差异：不发现新视频、不抓弹幕/评论，只记录已知视频的指标变化。
     观测对象由 A4 分级策略给出（hot每小时/warm每天/cold停测），成本有恒定上界。
@@ -308,14 +307,11 @@ def run_observe_job():
 def run_analysis_job(trigger='scheduled'):
     """UP 主动态分析的调度入口（定时任务调用）。
 
-    从 tracked_ups.json 读取 enabled UP 列表，调用 start_analysis 异步执行。
+    从 PostgreSQL 读取 enabled UP 列表，调用 start_analysis 异步执行。
     start_analysis 内部有 _analysis_lock 互斥，与手动触发"刷新动态"按钮共用。
     """
-    import json
-    import os
-
     try:
-        # 复用 tracked_ups.py 的读取逻辑（避免重复实现路径拼接）
+        # 复用 tracked_ups.py 的 repository-backed 读取逻辑。
         from storage.tracked_ups import load_tracked_list
         tracked = load_tracked_list()
         if not tracked or not tracked.get('ups'):

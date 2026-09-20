@@ -1,0 +1,1 @@
+"""Focused PostgreSQL persistence repositories."""

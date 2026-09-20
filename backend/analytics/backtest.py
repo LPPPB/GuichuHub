@@ -22,6 +22,13 @@ import time
 from storage import db
 
 
+def _repository():
+    repository = db.get_business_repository()
+    if repository is None:
+        raise RuntimeError('PostgreSQL business repository is not configured')
+    return repository
+
+
 def _rank(values):
     """平均秩（处理并列）：[10,20,20,30] -> [1.0, 2.5, 2.5, 4.0]"""
     order = sorted(range(len(values)), key=lambda i: values[i])
@@ -56,17 +63,10 @@ def spearman(x, y):
 
 def list_scored_batches():
     """有 potential_score 的历史批次（时间倒序），供回测面板选择 T"""
-    conn = db.get_conn()
-    rows = conn.execute('''
-        SELECT ts, COUNT(*) AS cnt
-        FROM video_obs
-        WHERE potential_score IS NOT NULL AND views IS NOT NULL
-        GROUP BY ts
-        ORDER BY ts DESC
-    ''').fetchall()
+    rows = _repository().scored_batches()
     return [{
         'ts': r['ts'],
-        'count': r['cnt'],
+        'count': r['count'],
         'time': time.strftime('%m-%d %H:%M', time.localtime(r['ts'])),
     } for r in rows]
 
@@ -76,31 +76,18 @@ def run_backtest(ts, window_hours=48, top_n=20, min_views=100):
 
     min_views：播放量低于该值的视频跳过（太冷，增速分母不稳无意义）。
     """
-    conn = db.get_conn()
     end_ts = ts + window_hours * 3600
-    rows = conn.execute('''
-        SELECT bvid, views, potential_score FROM video_obs
-        WHERE ts=? AND potential_score IS NOT NULL AND views IS NOT NULL
-    ''', (ts,)).fetchall()
+    dataset = _repository().backtest_rows(ts, end_ts, min_views)
 
     items = []
-    unverified = 0
-    for r in rows:
+    for r in dataset['rows']:
         views_t = r['views']
-        if views_t < min_views:
-            continue
-        later = conn.execute('''
-            SELECT views FROM video_obs
-            WHERE bvid=? AND ts>? AND ts<=? AND views IS NOT NULL
-            ORDER BY ts DESC LIMIT 1
-        ''', (r['bvid'], ts, end_ts)).fetchone()
-        if not later:
-            unverified += 1
-            continue
-        views_later = later['views']
+        views_later = r['later_views']
         delta = views_later - views_t
         items.append({
             'bvid': r['bvid'],
+            'title': r['title'] or '',
+            'author': r['author'] or '',
             'views_at_T': views_t,
             'views_later': views_later,
             'views_delta': delta,
@@ -153,28 +140,15 @@ def run_backtest(ts, window_hours=48, top_n=20, min_views=100):
                 'avg_growth': round(sum(x['growth_rate'] for x in part) / len(part), 4),
             })
 
-    # 标题/作者（分块 IN 查询，避免 SQLite 变量数上限 999）
-    info = {}
-    bvids = [it['bvid'] for it in items]
-    for i in range(0, len(bvids), 500):
-        chunk = bvids[i:i + 500]
-        ph = ','.join('?' * len(chunk))
-        for r in conn.execute(f'''
-            SELECT v.bvid, v.title, u.name AS author FROM videos v
-            LEFT JOIN ups u ON u.mid = v.mid
-            WHERE v.bvid IN ({ph})
-        ''', chunk):
-            info[r['bvid']] = dict(r)
-
     return {
         'meta': {
             'ts': ts,
             'time': time.strftime('%m-%d %H:%M', time.localtime(ts)),
             'window_hours': window_hours,
             'top_n': top_n,
-            'n_scored': len(rows),          # 当时有分的视频数
+            'n_scored': dataset['scored_count'],  # 当时有分的视频数
             'n_verified': n,                # 窗口内有后续观测、可验证数
-            'n_unverified': unverified,     # 窗口内无后续观测（冷门停测等）
+            'n_unverified': dataset['unverified'],  # 窗口内无后续观测（冷门停测等）
         },
         'metrics': {
             'spearman': round(spearman([it['score'] for it in items],
@@ -194,8 +168,8 @@ def run_backtest(ts, window_hours=48, top_n=20, min_views=100):
         } for it in items],
         'table': [{
             'bvid': it['bvid'],
-            'title': (info.get(it['bvid']) or {}).get('title') or '',
-            'author': (info.get(it['bvid']) or {}).get('author') or '',
+            'title': it['title'],
+            'author': it['author'],
             'score': it['score'],
             'rank_at_T': it['rank_at_T'],
             'views_at_T': it['views_at_T'],
@@ -208,25 +182,10 @@ def run_backtest(ts, window_hours=48, top_n=20, min_views=100):
 
 def get_dev_stats():
     """数据体检：DB 健康概览（schema 版本、批次、抓取残留、行数）"""
-    conn = db.get_conn()
-    runs = {r['status']: r['c'] for r in conn.execute(
-        'SELECT status, COUNT(*) c FROM crawl_runs GROUP BY status')}
-    stale = conn.execute('''
-        SELECT id, started_at, trigger_source FROM crawl_runs
-        WHERE status='running' ORDER BY started_at DESC LIMIT 20
-    ''').fetchall()
-    vo = conn.execute('SELECT COUNT(DISTINCT ts) b, COUNT(*) r FROM video_obs').fetchone()
-    schema = conn.execute('SELECT MAX(version) v FROM schema_version').fetchone()['v']
-    return {
-        'schema_version': schema,
-        'crawl_runs': runs,
-        'stale_running': [{
-            'id': r['id'],
-            'started_at': time.strftime('%m-%d %H:%M', time.localtime(r['started_at'])),
-            'trigger': r['trigger_source'],
-        } for r in stale],
-        'video_obs_batches': vo['b'],
-        'video_obs_rows': vo['r'],
-        'videos': conn.execute('SELECT COUNT(*) c FROM videos').fetchone()['c'],
-        'ups': conn.execute('SELECT COUNT(*) c FROM ups').fetchone()['c'],
-    }
+    stats = _repository().development_stats()
+    stats['stale_running'] = [{
+        'id': row['id'],
+        'started_at': time.strftime('%m-%d %H:%M', time.localtime(row['started_at'])),
+        'trigger': row['trigger_source'],
+    } for row in stats['stale_running']]
+    return stats

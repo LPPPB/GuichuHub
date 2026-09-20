@@ -10,14 +10,15 @@
   - GET /api/up-trends/list（互粉同步）加admin守卫（访客不得触发cookie爬取/看账号信息）
 """
 
-import json
 import time
 
 import pytest
+from sqlalchemy.dialects.postgresql import insert
 
 import storage.tracked_ups as tracked_ups
 import jobs.calendar_jobs as calendar_jobs
 import app as app_module
+from storage.models import tracking_requests
 
 
 ADMIN_TOKEN = 'test-admin-token-0123456789abcdef'
@@ -76,9 +77,8 @@ def test_management_roster_requires_admin(client):
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
-    """临时 tracked_ups.json + 已知管理员口令 + B站采集层全 mock（不打真实接口）"""
-    monkeypatch.setattr(tracked_ups, 'TRACKED_FILE', str(tmp_path / 'tracked_ups.json'))
+def client(monkeypatch, postgres_runtime):
+    """独立 PostgreSQL 测试库 + 已知管理员口令 + B站采集层 mock"""
     monkeypatch.setattr(app_module, 'WRITE_TOKEN', ADMIN_TOKEN)
     monkeypatch.setattr(app_module, 'get_up_info_by_mid', lambda mid: {
         'mid': mid, 'name': f'UP{mid}', 'face': f'https://i.example/{mid}.jpg', 'sign': '签名'})
@@ -105,6 +105,12 @@ def _submit(c, vid, mid, reason=''):
     return c.post('/api/up-trends/requests',
                   json={'mid': mid, 'reason': reason},
                   headers={'X-Visitor-Id': vid})
+
+
+def _seed_pending_requests(rows):
+    repository = tracked_ups._require_state_repository()
+    with repository._sessions.begin() as session:
+        session.execute(insert(tracking_requests), rows)
 
 
 def _wait_bg(calls, timeout=2.0):
@@ -175,12 +181,11 @@ class TestSubmitRequest:
         assert res.get_json()['code'] == 'POOL_FULL'
 
     def test_submit_queue_full(self, client):
-        reqs = {'pending': [{'id': f'r{i}', 'mid': 2000 + i, 'up': {}, 'reason': '',
-                             'visitor_id': f'other-{i}', 'submitted_at': 1, 'status': 'pending'}
-                            for i in range(tracked_ups.REQUESTS_PENDING_LIMIT)],
-                'processed': []}
-        with open(tracked_ups.TRACKED_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'ups': [], 'requests': reqs}, f, ensure_ascii=False)
+        _seed_pending_requests([{
+            'id': f'r{i}', 'mid': 2000 + i, 'visitor_id': f'other-{i}',
+            'status': 'pending', 'payload': {'up': {}, 'reason': '', 'request_type': 'add'},
+            'created_at': 1, 'reviewed_at': None,
+        } for i in range(tracked_ups.REQUESTS_PENDING_LIMIT)])
         res = _submit(client, VID_A, 101)
         assert res.status_code == 429
         assert res.get_json()['code'] == 'QUEUE_FULL'
@@ -270,14 +275,14 @@ class TestReview:
         assert bf_calls == [101]
 
     def test_approve_supersedes_same_mid_pending(self, client):
-        reqs = {'pending': [
-            {'id': 'req_a', 'mid': 101, 'up': {'mid': 101, 'name': 'UP101'}, 'reason': '',
-             'visitor_id': VID_A, 'submitted_at': 1, 'status': 'pending'},
-            {'id': 'req_b', 'mid': 101, 'up': {'mid': 101, 'name': 'UP101'}, 'reason': '',
-             'visitor_id': VID_B, 'submitted_at': 2, 'status': 'pending'},
-        ], 'processed': []}
-        with open(tracked_ups.TRACKED_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'ups': [], 'requests': reqs}, f, ensure_ascii=False)
+        _seed_pending_requests([
+            {'id': 'req_a', 'mid': 101, 'visitor_id': VID_A, 'status': 'pending',
+             'payload': {'up': {'mid': 101, 'name': 'UP101'}, 'reason': '', 'request_type': 'add'},
+             'created_at': 1, 'reviewed_at': None},
+            {'id': 'req_b', 'mid': 101, 'visitor_id': VID_B, 'status': 'pending',
+             'payload': {'up': {'mid': 101, 'name': 'UP101'}, 'reason': '', 'request_type': 'add'},
+             'created_at': 2, 'reviewed_at': None},
+        ])
         res = client.post('/api/up-trends/requests/req_a/review', json={'action': 'approve'},
                           headers={'X-Write-Token': ADMIN_TOKEN})
         assert res.status_code == 200

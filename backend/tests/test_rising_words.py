@@ -1,21 +1,12 @@
 """弹幕升温榜：批次归一化、缺批容错、新词与公共过滤。"""
-import os
-import tempfile
-
 import pytest
 
 import storage.db as db
 
 
 @pytest.fixture
-def rising_db(monkeypatch):
-    tmpdir = tempfile.mkdtemp()
-    monkeypatch.setattr(db, 'DB_PATH', os.path.join(tmpdir, 'test.db'))
-    monkeypatch.setattr(db, 'DATA_DIR', tmpdir)
-    db._thread_local.conn = None
-    db.get_conn()
-    yield
-    db._thread_local.conn = None
+def rising_db(postgres_runtime):
+    return postgres_runtime
 
 
 def _batch(ts, counts):

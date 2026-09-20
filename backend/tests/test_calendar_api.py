@@ -3,25 +3,18 @@ import pytest
 
 import app as app_module
 import jobs.calendar_jobs as calendar_jobs
-import storage.db as db
 import storage.tracked_ups as tracked_ups
 
 ADMIN_TOKEN = 'calendar-test-admin-token'
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
-    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'calendar.db'))
-    monkeypatch.setattr(db, 'DATA_DIR', str(tmp_path))
-    db._thread_local.conn = None
-    db.get_conn()
-    monkeypatch.setattr(tracked_ups, 'TRACKED_FILE', str(tmp_path / 'tracked_ups.json'))
+def client(monkeypatch, postgres_runtime):
     monkeypatch.setattr(app_module, 'WRITE_TOKEN', ADMIN_TOKEN)
     monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', lambda: None)
     app_module.app.config['TESTING'] = True
     with app_module.app.test_client() as test_client:
         yield test_client
-    db._thread_local.conn = None
 
 
 def _admin_headers():
@@ -46,6 +39,23 @@ def test_backfill_requires_admin_and_returns_persistent_job(client):
     )
     assert status.status_code == 200
     assert status.get_json()['data']['status'] == 'queued'
+
+
+def test_calendar_job_status_and_active_job_are_postgresql_backed(client):
+    tracked_ups.save_tracked_list([{'mid': 77, 'name': '队列 UP', 'enabled': True}])
+    job, created = calendar_jobs.enqueue_calendar_job(
+        mode='recent', days=7, mids=[77], requested_by='test',
+    )
+
+    active = calendar_jobs.get_active_calendar_job()
+
+    assert created is True
+    assert active['id'] == job['id']
+    assert job['total_ups'] == 1
+    assert job['processed_ups'] == 0
+    assert job['progress_percent'] == 0
+    assert job['items'][0]['mid'] == 77
+    assert job['items'][0]['name'] == '队列 UP'
 
 
 def test_backfill_rejects_unbounded_manual_window(client):

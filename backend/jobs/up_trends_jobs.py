@@ -2,8 +2,8 @@
 
 管理后台分析任务的进度追踪和状态查询。
 
-V2 架构：
-  分析完成后只写 SQLite：up_obs（UP 维度）+ video_obs_snapshot（视频维度）。
+V3 架构：
+  分析完成后写 PostgreSQL：up_obs（UP 维度）+ video_obs_snapshot（视频维度）。
   读路径完全走数据库，无文件依赖。
 """
 

@@ -1,5 +1,6 @@
 """is_useless_tag / KICHU_TIDS / typeid 比较陷阱 单元测试。"""
 import collectors.bilibili as bilibili
+from storage.repositories.state import StateRepository
 from collectors.bilibili import (
     is_useless_tag,
     KICHU_TIDS,
@@ -170,10 +171,8 @@ def test_tag_filters_load_structure():
     assert '鬼畜' in stop and '视频' in stop and '瑞幸' in stop
 
 
-def test_tag_filters_save_roundtrip(monkeypatch, tmp_path):
-    """save 后 load 应一致（配置化读写闭环）"""
-    f = tmp_path / 'tag_filters.json'
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
+def test_tag_filters_save_roundtrip(postgres_runtime):
+    """save 后 load 应从 PostgreSQL 一致返回。"""
     filters = {
         'categories': {'测试分类': ['甲', '乙']},
         'ad_keywords': ['测试品牌'],
@@ -184,10 +183,8 @@ def test_tag_filters_save_roundtrip(monkeypatch, tmp_path):
     assert bilibili.load_tag_filters() == filters
 
 
-def test_tag_filters_cache_invalidated_on_save(monkeypatch, tmp_path):
+def test_tag_filters_cache_invalidated_on_save(postgres_runtime):
     """save 后缓存失效：is_useless_tag 立即用新配置，无需重启后端"""
-    f = tmp_path / 'tag_filters.json'
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
     # 初始配置：不挡"新品牌"
     bilibili.save_tag_filters({
         'categories': {'分类': ['原词']},
@@ -202,11 +199,34 @@ def test_tag_filters_cache_invalidated_on_save(monkeypatch, tmp_path):
     assert is_useless_tag('新品牌手机')
 
 
-def test_tag_filters_fallback_on_corrupt_file(monkeypatch, tmp_path):
-    """配置文件损坏 → 降级内置兜底（过滤行为不退化）"""
-    f = tmp_path / 'tag_filters.json'
-    f.write_text('{broken json', encoding='utf-8')
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
+def test_tag_filter_cache_refreshes_after_other_process_updates(
+        postgres_runtime, postgres_url, monkeypatch):
+    """A tag reader observes another process's update after the bounded cache window."""
+    reader = postgres_runtime.state
+    writer = StateRepository.from_url(postgres_url)
+    clock = [100.0]
+    monkeypatch.setattr(bilibili, '_monotonic', lambda: clock[0], raising=False)
+    bilibili._invalidate_tag_filters()
+    initial = {
+        'categories': {'分类': ['原词']},
+        'ad_keywords': [], 'activity_keywords': [], 'allowed_two_char': [],
+    }
+    updated = {**initial, 'ad_keywords': ['新品牌']}
+    try:
+        reader.save_setting('tag_filters', initial, 100)
+        assert not is_useless_tag('新品牌手机')
+
+        writer.save_setting('tag_filters', updated, 101)
+        clock[0] = 3700.0
+
+        assert is_useless_tag('新品牌手机')
+    finally:
+        bilibili._invalidate_tag_filters()
+        writer._sessions.kw['bind'].dispose()
+
+
+def test_tag_filters_fallback_without_database_override():
+    """没有 PostgreSQL 覆盖值时使用内置兜底。"""
     bilibili._invalidate_tag_filters()
     filters = bilibili.load_tag_filters()
     stop = {w for ws in filters['categories'].values() for w in ws}
@@ -216,10 +236,8 @@ def test_tag_filters_fallback_on_corrupt_file(monkeypatch, tmp_path):
     assert '叮咚' in filters['allowed_two_char']
 
 
-def test_tag_filters_fallback_on_missing_file(monkeypatch, tmp_path):
-    """配置文件缺失 → 降级内置兜底"""
-    f = tmp_path / 'nope.json'
-    monkeypatch.setattr(bilibili, '_TAG_FILTERS_PATH', str(f))
+def test_tag_filters_fallback_is_complete():
+    """内置兜底包含代表性规则。"""
     bilibili._invalidate_tag_filters()
     filters = bilibili.load_tag_filters()
     stop = {w for ws in filters['categories'].values() for w in ws}

@@ -1,18 +1,20 @@
 """分析层 — 弹幕热词二次过滤
 
 只过滤广告/品牌/活动等明确干扰词，不误杀"鬼畜""神""离谱"等弹幕用语。
-词表真源：utils/danmaku_filters.json（开发者后台可编辑，下次抓取生效）。
+词表真源：PostgreSQL 中的管理员覆盖；未覆盖时使用随版本发布的默认词表。
 结构：bad_exact=精确匹配、bad_substr=子串匹配。
-内置兜底：文件缺失/损坏时降级，保证过滤行为不退化（与 tag_filters.json 同哲学）。
+内置兜底在发布时固化且只读，运行期编辑不会回写源码目录。
 """
 
-import json
-import os
+from time import monotonic as _monotonic
 
-_DANMAKU_FILTERS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'utils', 'danmaku_filters.json',
+from storage.runtime_settings import (
+    RUNTIME_SETTING_CACHE_REFRESH_SECONDS,
+    load_runtime_setting,
+    runtime_setting_version,
+    save_runtime_setting,
 )
+from utils.release_word_rules import DANMAKU_FILTERS
 
 _FALLBACK_DANMAKU_FILTERS = {
     'allowed_exact': ['233', '2333', '666', '114514'],
@@ -84,69 +86,86 @@ _FALLBACK_DANMAKU_FILTERS = {
     ],
 }
 
+# Preserve the complete checked-in vocabulary as the immutable release default.
+_FALLBACK_DANMAKU_FILTERS = {
+    key: list(DANMAKU_FILTERS[key])
+    for key in ('allowed_exact', 'bad_exact', 'bad_substr')
+}
+
 
 def load_danmaku_filters():
-    """读取弹幕热词过滤词表。
+    """从 PostgreSQL 读取弹幕热词过滤词表。
 
     ``allowed_exact`` 是弹幕场景白名单，优先于公共停用词和人工黑名单；
     老版本配置没有该字段时自动使用数字梗白名单，保持向后兼容。
-    文件缺失/损坏时降级为内置兜底。
+    未保存覆盖值时使用随版本发布的内置兜底。
     """
-    try:
-        with open(_DANMAKU_FILTERS_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        bad_exact = data.get('bad_exact')
-        bad_substr = data.get('bad_substr')
-        if isinstance(bad_exact, list) and isinstance(bad_substr, list):
-            return {
-                'allowed_exact': [str(w) for w in data.get('allowed_exact', _FALLBACK_DANMAKU_FILTERS['allowed_exact'])
-                                  if isinstance(w, str) and str(w).strip()],
-                'bad_exact': [str(w) for w in bad_exact if isinstance(w, str) and str(w).strip()],
-                'bad_substr': [str(w) for w in bad_substr if isinstance(w, str) and str(w).strip()],
-            }
-    except Exception as e:
-        print(f'[弹幕热词过滤] 读取配置文件失败，使用内置兜底: {e}')
-    return {
+    fallback = {
         'allowed_exact': list(_FALLBACK_DANMAKU_FILTERS['allowed_exact']),
         'bad_exact': list(_FALLBACK_DANMAKU_FILTERS['bad_exact']),
         'bad_substr': list(_FALLBACK_DANMAKU_FILTERS['bad_substr']),
     }
+    data = load_runtime_setting('danmaku_filters', fallback)
+    bad_exact = data.get('bad_exact') if isinstance(data, dict) else None
+    bad_substr = data.get('bad_substr') if isinstance(data, dict) else None
+    if not isinstance(bad_exact, list) or not isinstance(bad_substr, list):
+        return fallback
+    return {
+        'allowed_exact': [str(w) for w in data.get('allowed_exact', fallback['allowed_exact'])
+                          if isinstance(w, str) and str(w).strip()],
+        'bad_exact': [str(w) for w in bad_exact if isinstance(w, str) and str(w).strip()],
+        'bad_substr': [str(w) for w in bad_substr if isinstance(w, str) and str(w).strip()],
+    }
 
 
 def save_danmaku_filters(filters):
-    """保存弹幕热词过滤词表到配置文件。filters 结构同 load_danmaku_filters 返回值。"""
-    with open(_DANMAKU_FILTERS_PATH, 'w', encoding='utf-8') as f:
-        json.dump({
-            'version': 1,
-            'description': "弹幕热词场景规则：公共停用词之后应用，保存后立即影响词云和升温榜。",
-            'allowed_exact': list(filters.get('allowed_exact', _FALLBACK_DANMAKU_FILTERS['allowed_exact'])),
-            'bad_exact': list(filters['bad_exact']),
-            'bad_substr': list(filters['bad_substr']),
-        }, f, ensure_ascii=False, indent=2)
+    """保存弹幕热词过滤词表到 PostgreSQL。"""
+    save_runtime_setting('danmaku_filters', {
+        'allowed_exact': list(filters.get('allowed_exact', _FALLBACK_DANMAKU_FILTERS['allowed_exact'])),
+        'bad_exact': list(filters['bad_exact']),
+        'bad_substr': list(filters['bad_substr']),
+    })
     _invalidate_danmaku_filters()
 
 
-# filter_danmaku_words 高频调用（dashboard 组装），词表带模块级缓存（保存后失效，无需重启后端）
+# filter_danmaku_words 高频调用（dashboard 组装）。本进程保存时立即失效；
+# 其他 API/Worker 进程通过 PostgreSQL revision 在有限窗口内发现更新。
 _DANMAKU_FILTERS_CACHE = None
+_DANMAKU_FILTERS_CACHE_VERSION = None
+_DANMAKU_FILTERS_CACHE_CHECKED_AT = None
 
 
 def _get_danmaku_filters():
     """读取预处理后的过滤词表（带模块级缓存）。"""
-    global _DANMAKU_FILTERS_CACHE
-    if _DANMAKU_FILTERS_CACHE is None:
+    global _DANMAKU_FILTERS_CACHE, _DANMAKU_FILTERS_CACHE_VERSION
+    global _DANMAKU_FILTERS_CACHE_CHECKED_AT
+    now = _monotonic()
+    refresh_due = (
+        _DANMAKU_FILTERS_CACHE_CHECKED_AT is None
+        or now - _DANMAKU_FILTERS_CACHE_CHECKED_AT >= RUNTIME_SETTING_CACHE_REFRESH_SECONDS
+    )
+    version = _DANMAKU_FILTERS_CACHE_VERSION
+    if _DANMAKU_FILTERS_CACHE is None or refresh_due:
+        version = runtime_setting_version('danmaku_filters')
+        _DANMAKU_FILTERS_CACHE_CHECKED_AT = now
+    if _DANMAKU_FILTERS_CACHE is None or version != _DANMAKU_FILTERS_CACHE_VERSION:
         raw = load_danmaku_filters()
         _DANMAKU_FILTERS_CACHE = {
             'allowed_exact': {w.lower() for w in raw.get('allowed_exact', [])},
             'bad_exact': {w.lower() for w in raw['bad_exact']},
             'bad_substr': [s.lower() for s in raw['bad_substr']],
         }
+        _DANMAKU_FILTERS_CACHE_VERSION = version
     return _DANMAKU_FILTERS_CACHE
 
 
 def _invalidate_danmaku_filters():
     """配置保存后失效缓存，下次 filter_danmaku_words 调用重新加载。"""
-    global _DANMAKU_FILTERS_CACHE
+    global _DANMAKU_FILTERS_CACHE, _DANMAKU_FILTERS_CACHE_VERSION
+    global _DANMAKU_FILTERS_CACHE_CHECKED_AT
     _DANMAKU_FILTERS_CACHE = None
+    _DANMAKU_FILTERS_CACHE_VERSION = None
+    _DANMAKU_FILTERS_CACHE_CHECKED_AT = None
 
 
 def explain_danmaku_word(word):

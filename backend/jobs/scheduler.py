@@ -4,14 +4,12 @@ V2 配置化调度（2026-07-29）：
 - 全量抓取：每天多时段（默认 03:00 + 15:00 凌晨避峰）
 - UP 主动态分析：每天 4 次（默认 04:30/10:30/16:30/22:30，错开全量抓取窗口）
 - 轻量观测：每 30 分钟（整点 + 半点，如 12:00 / 12:30）
-- SQLite 备份：每周一 06:00（避开 04:00 全量抓取）
 
 所有参数走 config.py 环境变量，Docker 部署可调，无需改代码。
 """
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from zoneinfo import ZoneInfo
-from storage import db as tsdb
 from logger import get_logger
 
 from config import (
@@ -114,13 +112,6 @@ def setup_scheduler():
                 CALENDAR_RECENT_HOURS, CALENDAR_RECENT_MINUTE,
                 CALENDAR_DAILY_HOUR, CALENDAR_DAILY_MINUTE,
                 CALENDAR_WEEKLY_DAY, CALENDAR_WEEKLY_HOUR, CALENDAR_WEEKLY_MINUTE)
-
-    # 5. SQLite 备份：每周一 06:00。
-    scheduler.add_job(
-        tsdb.backup_db, 'cron', day_of_week='mon', hour=6,
-        id='backup', name='SQLite备份 周一06:00',
-    )
-    logger.info('  注册SQLite备份: 每周一 06:00')
 
     scheduler.start()
     return scheduler

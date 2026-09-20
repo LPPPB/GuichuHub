@@ -71,9 +71,8 @@ def test_recompute_owner_empty_recent(monkeypatch):
     assert up_trends[0]['avg_views'] == 0
 
 
-def test_pool_summary_whitelist_write_and_read(monkeypatch, tmp_path):
+def test_pool_summary_whitelist_write_and_read(postgres_runtime):
     """pool_summary 字段写入白名单 + 读回（新增字段不破坏 4 字段原结构）"""
-    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'test.db'))
     ts = int(time.time())
     db.upsert_video_obs_snapshot_batch(ts, {
         'pool_summary': {'total_views': 88888, 'total_videos': 7, 'avg_views_per_video': 12698},
@@ -108,20 +107,15 @@ def test_apply_pool_summary_overrides_and_keeps_other_keys():
     assert s2 == {'total_views': 1}
 
 
-def test_load_analysis_uses_pool_summary(monkeypatch, tmp_path):
+def test_load_analysis_uses_pool_summary(postgres_runtime):
     """load_analysis 的 summary 总量字段来自 pool_summary（覆盖 up_obs SUM(views_30d)）"""
-    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'test.db'))
     ts = int(time.time())
-
-    conn = db.get_conn()
-    conn.execute("INSERT INTO ups (mid, name, face, tracked) VALUES (?,?,?,?)", (1001, 'UP甲', '', 1))
-    conn.execute('''
-        INSERT INTO up_obs (mid, ts, kichu_count, video_count_30d, views_30d, latest_pub_ts,
-                            follower_count, activity_score, activity_rank, play_rank, avg_views,
-                            video_count_total, sign, following_count, latest_videos_json, kichu_count_30d)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ''', (1001, ts, 1, 2, 3000, ts, 100, 0, 1, 1, 1500, 5, '', 0, '[]', 1))
-    conn.commit()
+    postgres_runtime.business.upsert_up_observations(ts, [{
+        'mid': 1001, 'name': 'UP甲', 'face': '', 'kichu_video_count': 1,
+        'recent_kichu_count': 1, 'recent_video_count': 2, 'total_recent_views': 3000,
+        'latest_pub_date': ts, 'follower_count': 100, 'avg_views': 1500,
+        'video_count': 5, 'sign': '', 'following_count': 0, 'latest_videos': [],
+    }], play_ranking=[{'mid': 1001}], active_ranking=[{'mid': 1001}])
 
     # 写 pool_summary：total_views=88888（≠ up_obs SUM(views_30d)=3000，用于验证覆盖）
     db.upsert_video_obs_snapshot_batch(ts, {

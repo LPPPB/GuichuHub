@@ -1,4 +1,4 @@
-"""发布日历联合投稿去重单元测试。
+"""发布日历联合投稿去重 PostgreSQL 契约测试。
 
 背景：calendar_videos 表主键是 (bvid, mid)——联合投稿的每个合作者各自写入一条，
 同一视频的播放量在聚合 SUM(views) 时被重复计算。
@@ -10,15 +10,15 @@
 - 不同视频同一天正常累加
 - 关注名单 mid 过滤 + 去重同时生效
 - upsert 幂等（同 bvid+mid 重复写入行数不变）
-不依赖真实网络与真实 DB（monkeypatch 到临时 SQLite）。
+不依赖真实网络；使用 disposable PostgreSQL fixture。
 """
-import os
-import tempfile
 from datetime import datetime, timezone, timedelta
 
 import pytest
+from sqlalchemy import func, select
 
 import storage.db as db
+from storage.models import calendar_videos
 
 CN_TZ = timezone(timedelta(hours=8))
 # 动态锚点：30 天前（第二日期 = 锚点+2 天）。写死日期是"时间炸弹"——
@@ -35,16 +35,8 @@ ANCHOR2_ISO = _ANCHOR2.strftime('%Y-%m-%d')
 
 
 @pytest.fixture
-def calendar_db(monkeypatch):
-    """临时 SQLite：重定向 DB_PATH/DATA_DIR 并清连接缓存，get_conn 自动执行全部 schema"""
-    tmpdir = tempfile.mkdtemp()
-    db_path = os.path.join(tmpdir, 'test.db')
-    monkeypatch.setattr(db, 'DB_PATH', db_path)
-    monkeypatch.setattr(db, 'DATA_DIR', tmpdir)
-    db._thread_local.conn = None
-    db.get_conn()  # 建表（V1-V9）
-    yield db_path
-    db._thread_local.conn = None
+def calendar_db(postgres_runtime):
+    return postgres_runtime
 
 
 def _video(bvid, mid, views, date_str=ANCHOR_STR, title='联合投稿视频'):
@@ -72,6 +64,17 @@ def test_calendar_data_dedup_joint_submission(calendar_db):
     day = data[ANCHOR_ISO]
     assert day['count'] == 1, '联合投稿不应计为 2 个视频'
     assert day['views'] == 100000, '联合投稿播放量不应叠加'
+
+
+def test_calendar_separate_author_batches_keep_one_canonical_video(calendar_db):
+    db.upsert_calendar_videos([_video('separate', 1001, 80000)])
+    db.upsert_calendar_videos([_video('separate', 1002, 120000)])
+    for mids in (None, [1001], [1002], [1001, 1002]):
+        day = db.get_calendar_data(mids=mids, year=ANCHOR_YEAR)[ANCHOR_ISO]
+        assert day == {'count': 1, 'views': 120000}
+        listing = db.get_calendar_day_videos(ANCHOR_ISO, mids=mids)
+        assert len(listing) == 1
+        assert listing[0]['views'] == 120000
 
 
 def test_calendar_data_views_takes_max_not_sum(calendar_db):
@@ -194,8 +197,8 @@ def test_upsert_calendar_videos_idempotent(calendar_db):
     db.upsert_calendar_videos(rows)
     db.upsert_calendar_videos(rows)
     db.upsert_calendar_videos(rows)
-    conn = db.get_conn()
-    cnt = conn.execute('SELECT COUNT(*) AS c FROM calendar_videos').fetchone()['c']
+    with calendar_db.business._sessions() as session:
+        cnt = session.scalar(select(func.count()).select_from(calendar_videos))
     assert cnt == 1
 
 

@@ -10,6 +10,7 @@
 import json
 
 import pytest
+from storage.repositories.state import StateRepository
 
 from collectors.bilibili import (
     get_meme_materials,
@@ -206,29 +207,23 @@ def test_meme_stopwords_load_from_config():
     assert '通用制作词' in cats
     assert '鬼畜' in cats['通用制作词']
     assert '视频' in cats['通用制作词']
+    assert '空耳' in cats['通用制作词']
+    assert '分区名' in cats
     # 关键测试依赖词不能被停用（test_sorted_by_heat 用"热门/冷门"构造数据）
     flat = {w for ws in cats.values() for w in ws}
     assert '热门' not in flat
     assert '冷门' not in flat
 
 
-def test_meme_stopwords_save_and_reload(monkeypatch, tmp_path):
-    """save_meme_stopwords 写文件后可重新读取（monkeypatch 路径到临时目录）"""
-    import collectors.bilibili as bilibili
-    monkeypatch.setattr(bilibili, '_MEME_STOPWORDS_PATH', str(tmp_path / 'meme_stopwords.json'))
+def test_meme_stopwords_save_and_reload(postgres_runtime):
+    """save_meme_stopwords 写入 PostgreSQL 后可重新读取。"""
     save_meme_stopwords({'测试分类': ['词A', '词B'], '空分类': []})
     cats = load_meme_stopwords()
     assert cats == {'测试分类': ['词A', '词B']}  # 空分类被清理
-    # 文件内容应为合法 JSON 且带 categories
-    with open(tmp_path / 'meme_stopwords.json', 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    assert data['categories']['测试分类'] == ['词A', '词B']
 
 
-def test_meme_stopwords_fallback_when_file_missing(monkeypatch, tmp_path):
-    """配置文件不存在时应降级为内置兜底，不崩溃"""
-    import collectors.bilibili as bilibili
-    monkeypatch.setattr(bilibili, '_MEME_STOPWORDS_PATH', str(tmp_path / 'not_exists.json'))
+def test_meme_stopwords_fallback_without_database_override():
+    """没有 PostgreSQL 覆盖值时应降级为内置兜底，不崩溃。"""
     cats = load_meme_stopwords()
     assert '鬼畜' in cats['通用制作词']
 
@@ -244,20 +239,29 @@ def test_meme_seed_words_load_from_config():
     assert '大狗叫' in words
 
 
-def test_meme_seed_words_save_and_reload(monkeypatch, tmp_path):
-    """save_meme_seed_words 写文件后可重新读取"""
-    import collectors.bilibili as bilibili
-    monkeypatch.setattr(bilibili, '_MEME_SEED_WORDS_PATH', str(tmp_path / 'meme_seed_words.json'))
+def test_meme_seed_words_save_and_reload(postgres_runtime):
+    """save_meme_seed_words 写入 PostgreSQL 后可重新读取。"""
     save_meme_seed_words(['哈基米', '  电棍  ', ''])
     words = load_meme_seed_words()
     assert words == ['哈基米', '电棍']  # 空白词被清理、两侧空白被 strip
 
 
-def test_meme_seed_words_fallback_when_file_missing(monkeypatch, tmp_path):
-    """配置文件不存在时应返回空列表（退化为纯自动发现），不崩溃"""
-    import collectors.bilibili as bilibili
-    monkeypatch.setattr(bilibili, '_MEME_SEED_WORDS_PATH', str(tmp_path / 'not_exists.json'))
-    assert load_meme_seed_words() == []
+def test_uncached_meme_rules_observe_other_process_updates(postgres_runtime, postgres_url):
+    """Meme rule loaders query PostgreSQL and immediately see another writer."""
+    writer = StateRepository.from_url(postgres_url)
+    try:
+        writer.save_setting('meme_stopwords', {'跨进程': ['新词']}, 100)
+        writer.save_setting('meme_seed_words', ['新热梗'], 100)
+
+        assert load_meme_stopwords() == {'跨进程': ['新词']}
+        assert load_meme_seed_words() == ['新热梗']
+    finally:
+        writer._sessions.kw['bind'].dispose()
+
+
+def test_meme_seed_words_builtin_defaults_are_available():
+    """没有 PostgreSQL 覆盖值时仍使用随版本发布的种子词。"""
+    assert '哈基米' in load_meme_seed_words()
 
 
 def test_meme_materials_seed_words_rescue():

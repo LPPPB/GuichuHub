@@ -1,0 +1,49 @@
+name: backend
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: kichu_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kichu_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.32"
+      - name: Run backend and PostgreSQL integration tests
+        working-directory: backend
+        run: uv run --extra dev pytest -q --no-cov
+      - name: Validate Compose files
+        run: |
+          mkdir -p /tmp/kichu-secrets /tmp/kichu-postgres
+          for name in postgres_superuser_password postgres_api_password postgres_worker_password postgres_migration_password postgres_backup_password; do printf 'test-password' > /tmp/kichu-secrets/$name; done
+          for name in api_database_url worker_database_url migration_database_url backup_database_url; do printf 'postgresql+psycopg://user:test-password@postgres/kichu' > /tmp/kichu-secrets/$name; done
+          export KICHU_DEV_SECRETS_DIR=/tmp/kichu-secrets
+          export KICHU_HOST_POSTGRES_DIR=/tmp/kichu-postgres
+          export KICHU_HOST_WRITE_TOKEN_FILE=/tmp/kichu-secrets/postgres_superuser_password
+          export KICHU_HOST_POSTGRES_SUPERUSER_PASSWORD_FILE=/tmp/kichu-secrets/postgres_superuser_password
+          export KICHU_HOST_POSTGRES_API_PASSWORD_FILE=/tmp/kichu-secrets/postgres_api_password
+          export KICHU_HOST_POSTGRES_WORKER_PASSWORD_FILE=/tmp/kichu-secrets/postgres_worker_password
+          export KICHU_HOST_POSTGRES_MIGRATION_PASSWORD_FILE=/tmp/kichu-secrets/postgres_migration_password
+          export KICHU_HOST_POSTGRES_BACKUP_PASSWORD_FILE=/tmp/kichu-secrets/postgres_backup_password
+          export KICHU_HOST_API_DATABASE_URL_FILE=/tmp/kichu-secrets/api_database_url
+          export KICHU_HOST_WORKER_DATABASE_URL_FILE=/tmp/kichu-secrets/worker_database_url
+          export KICHU_HOST_MIGRATION_DATABASE_URL_FILE=/tmp/kichu-secrets/migration_database_url
+          export KICHU_HOST_BACKUP_DATABASE_URL_FILE=/tmp/kichu-secrets/backup_database_url
+          export KICHU_GIT_TAG=ci-test
+          export KICHU_IMAGE_DIGEST=sha256:ci-test
+          docker compose -f compose.dev.yml config
+          docker compose -f compose.prod.yml config

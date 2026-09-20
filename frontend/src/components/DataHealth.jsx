@@ -24,7 +24,7 @@ export default function DataHealth() {
   useEffect(() => { load() }, [])
 
   const cards = stats ? [
-    { icon: Database, label: 'Schema 版本', value: `V${stats.schema_version}`, color: 'text-sky-600' },
+    { icon: Database, label: 'Alembic 版本', value: stats.alembic_revision, color: 'text-sky-600' },
     { icon: Activity, label: '观测批次', value: stats.video_obs_batches, color: 'text-slate-800' },
     { icon: Activity, label: '观测行数', value: stats.video_obs_rows.toLocaleString(), color: 'text-slate-800' },
     { icon: HardDrive, label: '视频登记', value: stats.videos, color: 'text-slate-800' },
@@ -35,7 +35,7 @@ export default function DataHealth() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">
-          SQLite 历史仓库健康概览：schema 迁移版本、观测数据量、抓取批次残留检测。
+          PostgreSQL 历史仓库健康概览：Alembic 迁移版本、观测数据量、抓取批次残留检测。
           <span className="text-slate-500 ml-1">残留 running = 进程被强杀未收尾的脏记录。</span>
         </p>
         <button

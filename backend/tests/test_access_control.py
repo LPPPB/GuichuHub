@@ -13,13 +13,13 @@
     不写采集 Cookie；采集登录（collect-*）与账号信息（user）仍要求管理员。
 """
 
-import json
-
 import pytest
+from sqlalchemy import select
 
 import storage.auth_store as auth_store
 import storage.database as database
 import app as app_module
+from storage.models import favorites
 
 
 ADMIN_TOKEN = 'test-admin-token-0123456789abcdef'
@@ -29,10 +29,8 @@ VID_B = '22222222-2222-2222-2222-222222222222'
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
+def client(monkeypatch, postgres_runtime):
     """独立临时数据文件 + 已知管理员口令的 Flask test client"""
-    monkeypatch.setattr(database, 'DATA_DIR', str(tmp_path))
-    monkeypatch.setattr(auth_store, 'AUTH_DB_PATH', str(tmp_path / 'auth.db'))
     monkeypatch.setattr(app_module, 'WRITE_TOKEN', ADMIN_TOKEN)
     # bili-auth 采集层 mock：路由守卫测试不依赖真实 B 站 API
     monkeypatch.setattr(app_module, 'generate_qrcode',
@@ -174,26 +172,15 @@ class TestFavoritesIsolation:
 
 class TestLegacyClaim:
 
-    def _legacy_db(self, tmp_path, owners):
-        """写入存量收藏库：owners 元素为 None（无主）或 'admin'（旧写口令归属）"""
-        db_file = tmp_path / 'inspiration_db.json'
-        favs = []
+    def _seed_legacy_favorites(self, owners):
+        """Seed imported favorites: None is unowned, admin is the old owner."""
+        repository = database._require_state_repository()
         for i, owner in enumerate(owners):
-            fav = {'id': f'meme_{i}', 'type': 'meme', 'keyword': f'存量梗{i}',
-                   'tags': [], 'notes': ''}
-            if owner is not None:
-                fav['owner'] = owner
-            favs.append(fav)
-        legacy = {
-            'hot_memes': [], 'hot_songs': [], 'hot_videos': [], 'danmaku_words': [],
-            'comments_gold': [], 'favorites': favs, 'last_updated': None,
-        }
-        db_file.write_text(json.dumps(legacy, ensure_ascii=False), encoding='utf-8')
-        return db_file
+            repository.add_favorite('meme', {'keyword': f'存量梗{i}'}, owner, 100 + i)
 
-    def test_unowned_and_admin_claimed_by_admin_session(self, client, monkeypatch, tmp_path):
+    def test_unowned_and_admin_claimed_by_admin_session(self, client, monkeypatch):
         """存量无主 + 旧'admin'归属收藏：首个 B站管理员会话访问时迁到其 mid"""
-        db_file = self._legacy_db(tmp_path, owners=[None, 'admin'])
+        self._seed_legacy_favorites(owners=[None, 'admin'])
         _add_admin(client, 1, name='站长')
         token = _login(client, monkeypatch, mid=1)
 
@@ -201,24 +188,29 @@ class TestLegacyClaim:
         data = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data']
         assert sorted(f['keyword'] for f in data) == ['存量梗0', '存量梗1']
 
-        # 落盘：owner 全部迁到 str(mid)
-        saved = json.loads(db_file.read_text(encoding='utf-8'))
-        assert [f['owner'] for f in saved['favorites']] == ['1', '1']
+        repository = database._require_state_repository()
+        with repository._sessions() as session:
+            saved_owners = session.execute(select(favorites.c.owner).order_by(
+                favorites.c.saved_at,
+            )).scalars().all()
+        assert saved_owners == ['1', '1']
 
         # 幂等：二次访问不重复
         again = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data']
         assert len(again) == 2
 
-    def test_migration_not_triggered_by_plain_user(self, client, monkeypatch, tmp_path):
+    def test_migration_not_triggered_by_plain_user(self, client, monkeypatch):
         """普通登录用户（不在管理员名单）不触发迁移，存量收藏保持无主"""
-        db_file = self._legacy_db(tmp_path, owners=[None])
+        self._seed_legacy_favorites(owners=[None])
         token = _login(client, monkeypatch, mid=99)  # 99 不在名单
 
         # 普通用户读到空（无主收藏不属于他），且不迁移
         data = client.get('/api/favorites', headers=_use_session(client, token)).get_json()['data']
         assert data == []
-        saved = json.loads(db_file.read_text(encoding='utf-8'))
-        assert 'owner' not in saved['favorites'][0]
+        repository = database._require_state_repository()
+        with repository._sessions() as session:
+            saved_owners = session.execute(select(favorites.c.owner)).scalars().all()
+        assert saved_owners == ['']
 
 
 # ==================== B站账号保护（身份登录开放 + 采集保护） ====================

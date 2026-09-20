@@ -1,20 +1,26 @@
-"""video_obs_snapshot 读取层（视频维度数据读取）
+"""PostgreSQL JSONB snapshot reader for video-dimensional analysis.
 
   - 只读不写，与 db.py 的写入职责分离
-  - payload_json 反序列化后返回，前端零感知
+  - JSONB payload 直接返回，前端零感知
   - 字段名与 analysis 字段对齐
 
 读取场景：
   1. 最新批次 4 字段：timeline / hot_videos / content_types / keyword_cloud
   2. 历史 timeline：/api/up-trends/history 的数据源
 """
-import json
 from collections import defaultdict
-from storage.db import get_conn
+from storage.db import get_business_repository
 
 
 # 合法字段白名单（与 db.py._VIDEO_SNAPSHOT_FIELDS 对齐）
 _FIELDS = ('timeline', 'hot_videos', 'all_videos', 'content_types', 'keyword_cloud', 'pool_summary')
+
+
+def _repository():
+    repository = get_business_repository()
+    if repository is None:
+        raise RuntimeError('PostgreSQL business repository is not configured')
+    return repository
 
 
 def get_video_snapshot_fields(ts, fields=None):
@@ -33,13 +39,7 @@ def get_video_snapshot_fields(ts, fields=None):
         if f not in _FIELDS:
             raise ValueError(f'非法 field: {f}，允许: {sorted(_FIELDS)}')
 
-    conn = get_conn()
-    placeholders = ','.join('?' * len(wanted))
-    rows = conn.execute(f'''
-        SELECT field, payload_json, item_count FROM video_obs_snapshot
-        WHERE ts=? AND field IN ({placeholders})
-    ''', (ts, *wanted)).fetchall()
-    return {r['field']: json.loads(r['payload_json']) for r in rows}
+    return _repository().snapshot_fields(ts, wanted)
 
 
 def get_timeline_history(start_ts, end_ts):
@@ -57,18 +57,11 @@ def get_timeline_history(start_ts, end_ts):
       start_ts: 起始时刻（含）
       end_ts: 结束时刻（含）
     """
-    conn = get_conn()
-    rows = conn.execute('''
-        SELECT ts, payload_json FROM video_obs_snapshot
-        WHERE field='timeline' AND ts BETWEEN ? AND ?
-        ORDER BY ts ASC
-    ''', (start_ts, end_ts)).fetchall()
+    rows = _repository().snapshot_documents_between(('timeline',), start_ts, end_ts)
     return [{
-        'created_at': r['ts'],
-        'analysis': {
-            'timeline': json.loads(r['payload_json']),
-        }
-    } for r in rows]
+        'created_at': row['ts'],
+        'analysis': {'timeline': row['payload']},
+    } for row in rows]
 
 
 def get_batch_ts_list(start_ts, end_ts):
@@ -76,13 +69,9 @@ def get_batch_ts_list(start_ts, end_ts):
 
     用于 /history 端点的 tracked_count 聚合或调试。
     """
-    conn = get_conn()
-    rows = conn.execute('''
-        SELECT DISTINCT ts FROM video_obs_snapshot
-        WHERE ts BETWEEN ? AND ?
-        ORDER BY ts ASC
-    ''', (start_ts, end_ts)).fetchall()
-    return [r['ts'] for r in rows]
+    return sorted({row['ts'] for row in _repository().snapshot_documents_between(
+        _FIELDS, start_ts, end_ts,
+    )})
 
 
 def get_hot_growth_videos(lookback_days=14, limit=10):
@@ -101,28 +90,21 @@ def get_hot_growth_videos(lookback_days=14, limit=10):
     起点必须距最新观测至少 1 小时，过滤分钟级噪声，保证增速口径稳定。
     """
     MIN_GAP_HOURS = 1.0
-    conn = get_conn()
-    latest_ts = conn.execute(
-        "SELECT MAX(ts) FROM video_obs_snapshot WHERE field IN ('all_videos', 'hot_videos')"
-    ).fetchone()[0]
+    repository = _repository()
+    latest_ts = repository.latest_snapshot_ts(('all_videos', 'hot_videos'))
     if not latest_ts:
         return []
 
     since = latest_ts - lookback_days * 86400
-    rows = conn.execute('''
-        SELECT ts, payload_json FROM video_obs_snapshot
-        WHERE field IN ('all_videos', 'hot_videos') AND ts >= ?
-        ORDER BY ts ASC, rowid ASC
-    ''', (since,)).fetchall()
+    rows = repository.snapshot_documents_between(
+        ('all_videos', 'hot_videos'), since, latest_ts,
+    )
 
     obs = defaultdict(list)  # bvid -> [{ts, views}, ...]（同批次双字段去重）
     meta = {}
     seen_keys = set()
     for r in rows:
-        try:
-            videos = json.loads(r['payload_json'])
-        except (ValueError, TypeError):
-            continue  # 损坏批次跳过，不阻断其余批次
+        videos = r['payload']
         if not isinstance(videos, list):
             continue  # 非列表 payload（手工编辑/旧版本写入的 dict 等）视为异常跳过
         for v in videos:

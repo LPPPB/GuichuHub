@@ -17,7 +17,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata ca-certificates curl && \
+    . /etc/os-release && \
+    install -d /usr/share/postgresql-common/pgdg && \
+    curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc && \
+    printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$VERSION_CODENAME" \
+      > /etc/apt/sources.list.d/pgdg.sources && \
+    apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 && \
     ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     groupadd --gid 10001 app && \
@@ -38,6 +45,9 @@ COPY --from=builder /app/storage /app/storage
 COPY --from=builder /app/analytics /app/analytics
 COPY --from=builder /app/jobs /app/jobs
 COPY --from=builder /app/utils /app/utils
+COPY --from=builder /app/scripts /app/scripts
+COPY --from=builder /app/alembic.ini /app/alembic.ini
+COPY --from=builder /app/alembic /app/alembic
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV TZ=Asia/Shanghai

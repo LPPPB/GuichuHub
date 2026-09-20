@@ -8,6 +8,7 @@
 import json
 
 import analytics.filters as filters
+from storage.repositories.state import StateRepository
 
 
 def _words(*ws):
@@ -57,19 +58,15 @@ def test_danmaku_filters_load_structure():
     assert all(isinstance(w, str) and w.strip() for w in data['bad_substr'])
 
 
-def test_danmaku_filters_save_roundtrip(monkeypatch, tmp_path):
-    """save 后 load 应一致（配置化读写闭环）"""
-    f = tmp_path / 'danmaku_filters.json'
-    monkeypatch.setattr(filters, '_DANMAKU_FILTERS_PATH', str(f))
+def test_danmaku_filters_save_roundtrip(postgres_runtime):
+    """save 后 load 应从 PostgreSQL 一致返回（配置化读写闭环）"""
     data = {'allowed_exact': ['666'], 'bad_exact': ['测试词'], 'bad_substr': ['测试子串']}
     filters.save_danmaku_filters(data)
     assert filters.load_danmaku_filters() == data
 
 
-def test_danmaku_filters_cache_invalidated_on_save(monkeypatch, tmp_path):
+def test_danmaku_filters_cache_invalidated_on_save(postgres_runtime):
     """save 后缓存失效：filter_danmaku_words 立即用新配置，无需重启后端"""
-    f = tmp_path / 'danmaku_filters.json'
-    monkeypatch.setattr(filters, '_DANMAKU_FILTERS_PATH', str(f))
     # 初始：不挡"新广告词"
     filters.save_danmaku_filters({'allowed_exact': ['666'], 'bad_exact': ['美团'], 'bad_substr': ['途虎']})
     assert [w['word'] for w in filters.filter_danmaku_words(_words('新广告词'))] == ['新广告词']
@@ -81,34 +78,52 @@ def test_danmaku_filters_cache_invalidated_on_save(monkeypatch, tmp_path):
     assert filters.filter_danmaku_words(_words('新子串xx')) == []
 
 
-def test_danmaku_filters_fallback_on_corrupt_file(monkeypatch, tmp_path):
-    """配置文件损坏 → 降级内置兜底（过滤行为不退化）"""
-    f = tmp_path / 'danmaku_filters.json'
-    f.write_text('{broken json', encoding='utf-8')
-    monkeypatch.setattr(filters, '_DANMAKU_FILTERS_PATH', str(f))
+def test_danmaku_cache_refreshes_after_other_process_updates(
+        postgres_runtime, postgres_url, monkeypatch):
+    """A reader refreshes its cache after another repository advances the DB revision."""
+    reader = postgres_runtime.state
+    writer = StateRepository.from_url(postgres_url)
+    clock = [100.0]
+    monkeypatch.setattr(filters, '_monotonic', lambda: clock[0], raising=False)
+    filters._invalidate_danmaku_filters()
+    try:
+        reader.save_setting('danmaku_filters', {
+            'allowed_exact': ['666'], 'bad_exact': ['旧广告'], 'bad_substr': [],
+        }, 100)
+        assert filters.filter_danmaku_words(_words('新广告')) == _words('新广告')
+
+        writer.save_setting('danmaku_filters', {
+            'allowed_exact': ['666'], 'bad_exact': ['新广告'], 'bad_substr': [],
+        }, 101)
+        clock[0] = 3700.0
+
+        assert filters.filter_danmaku_words(_words('新广告')) == []
+    finally:
+        filters._invalidate_danmaku_filters()
+        writer._sessions.kw['bind'].dispose()
+
+
+def test_danmaku_filters_fallback_without_database_override():
+    """没有 PostgreSQL 覆盖值时使用内置兜底（过滤行为不退化）"""
     filters._invalidate_danmaku_filters()
     data = filters.load_danmaku_filters()
     assert '美团' in data['bad_exact']
     assert '途虎' in data['bad_substr']
 
 
-def test_danmaku_filters_fallback_on_missing_file(monkeypatch, tmp_path):
-    """配置文件缺失 → 降级内置兜底"""
-    f = tmp_path / 'nope.json'
-    monkeypatch.setattr(filters, '_DANMAKU_FILTERS_PATH', str(f))
+def test_danmaku_filters_fallback_is_complete():
+    """内置兜底包含代表性规则。"""
     filters._invalidate_danmaku_filters()
     data = filters.load_danmaku_filters()
     assert '瑞幸' in data['bad_exact']
     assert '星探' in data['bad_substr']
 
 
-def test_danmaku_filters_save_writes_valid_json(monkeypatch, tmp_path):
-    """保存产物是合法 JSON 且保留 version 字段"""
-    f = tmp_path / 'danmaku_filters.json'
-    monkeypatch.setattr(filters, '_DANMAKU_FILTERS_PATH', str(f))
+def test_danmaku_filters_save_normalizes_missing_allowlist(postgres_runtime):
+    """保存时为旧客户端补上数字梗白名单。"""
     filters.save_danmaku_filters({'bad_exact': ['甲'], 'bad_substr': ['乙']})
-    raw = json.loads(f.read_text(encoding='utf-8'))
-    assert raw['version'] == 1
+    raw = filters.load_danmaku_filters()
+    assert raw['allowed_exact']
     assert raw['bad_exact'] == ['甲']
     assert raw['bad_substr'] == ['乙']
 

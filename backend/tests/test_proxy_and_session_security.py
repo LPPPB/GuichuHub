@@ -5,7 +5,6 @@ import pytest
 
 import app as app_module
 import storage.auth_store as auth_store
-import storage.database as database
 
 
 SESSION_COOKIE = "kichu_session"
@@ -14,10 +13,8 @@ VISITOR_ID = "11111111-1111-1111-1111-111111111111"
 
 
 @pytest.fixture
-def client(monkeypatch, tmp_path):
+def client(monkeypatch, postgres_runtime):
     """Use real Flask cookie handling and a disposable server-side session DB."""
-    monkeypatch.setattr(database, "DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(auth_store, "AUTH_DB_PATH", str(tmp_path / "auth.db"))
     monkeypatch.setattr(
         app_module,
         "generate_qrcode",
@@ -165,7 +162,7 @@ def test_production_has_no_cross_origin_access_or_proxy_trust():
 
 
 @pytest.mark.parametrize(
-    "origin", ["http://127.0.0.1:5173", "http://localhost:5173"]
+    "origin", ["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:5174", "http://localhost:5174"]
 )
 def test_development_cors_allows_only_declared_vite_origins(origin):
     """Each supported Vite origin is explicitly echoed in development only."""
