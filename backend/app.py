@@ -235,14 +235,23 @@ def _invalidate_dashboard_payload():
     _dash_payload_cache['payload'] = None
 
 
+def _with_radar_metrics(videos):
+    """为 API 响应复制视频行并附加雷达数据，不污染缓存中的原始采集结果。"""
+    from utils.radar_metrics import build_radar_metrics
+    return [
+        {**video, 'radar': build_radar_metrics(video)} if isinstance(video, dict) else video
+        for video in (videos or [])
+    ]
+
+
 def _build_dashboard_payload(data, is_live, live_cached_at=None):
     """组装 /api/dashboard 响应体（弹幕热词过滤在数据变化时只执行一次）"""
     return {
-        'kichu_rank': data.get('kichu_rank', []),
+        'kichu_rank': _with_radar_metrics(data.get('kichu_rank', [])),
         'hot_memes': data.get('hot_memes', []),
         'hot_songs': data.get('hot_songs', []),
-        'hot_videos': data.get('hot_videos', []),
-        'material_candidates': data.get('material_candidates', []),
+        'hot_videos': _with_radar_metrics(data.get('hot_videos', [])),
+        'material_candidates': _with_radar_metrics(data.get('material_candidates', [])),
         'meme_materials': data.get('meme_materials', []),
         'danmaku_words': filter_danmaku_words(data.get('danmaku_words', [])),
         'comments_gold': data.get('comments_gold', []),
