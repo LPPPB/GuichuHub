@@ -1,6 +1,7 @@
 import { useState, lazy, Suspense } from 'react'
 import { BookmarkPlus, Bookmark, Eye, MessageSquare, Subtitles, Play, ExternalLink, Users, ThumbsUp, Share2, TrendingUp, Sparkles } from 'lucide-react'
 import { proxyImage } from '../utils/image'
+import VideoRadar from './VideoRadar'
 
 const ObsTrendChart = lazy(() => import('./ObsTrendChart'))
 const AiSummary   = lazy(() => import('./AiSummary'))
@@ -34,7 +35,7 @@ export default function VideoCard({
              style={{ animationDelay: `${staggerDelay}ms` }}>
       <div className="inner">
         <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="block group">
-          <div className="flex gap-4 md:gap-5">
+          <div className="flex flex-col sm:flex-row gap-4 md:gap-5">
             {/* 封面 */}
             <div className="relative w-[144px] h-[86px] md:w-44 md:h-24 shrink-0
                             rounded-xl overflow-hidden bg-void-700 group/cover">
@@ -139,6 +140,17 @@ export default function VideoCard({
               </div>
             </div>
 
+            {video.radar && (
+              <div className="hidden lg:flex lg:w-[125px] lg:h-[125px] xl:w-[164px] xl:h-[164px] items-center justify-center shrink-0">
+                <VideoRadar
+                  radar={video.radar}
+                  potentialScore={video.potential_score}
+                  delay={staggerDelay}
+                  className="origin-top-left scale-[0.76] xl:scale-100"
+                />
+              </div>
+            )}
+
             {/* 右侧工具列 */}
             <div className="hidden sm:flex flex-col gap-1 shrink-0 -mr-1"
                  onClick={(e) => { e.preventDefault(); e.stopPropagation() }}>
@@ -164,6 +176,12 @@ export default function VideoCard({
             </div>
           </div>
         </a>
+
+        {video.radar && (
+          <div className="lg:hidden flex justify-center mt-3 pt-3 border-t border-white/5">
+            <VideoRadar radar={video.radar} potentialScore={video.potential_score} delay={staggerDelay} />
+          </div>
+        )}
 
         {expanded && (
           <div onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
