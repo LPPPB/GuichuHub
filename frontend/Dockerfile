@@ -14,7 +14,8 @@ RUN addgroup -S -g 10001 app && \
     adduser -S -D -H -u 10001 -G app app && \
     mkdir -p /var/cache/nginx /var/run && \
     touch /var/run/nginx.pid && \
-    chown -R app:app /var/cache/nginx /var/run
+    chown -R app:app /var/cache/nginx && \
+    chown app:app /var/run/nginx.pid
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
