@@ -28,7 +28,7 @@ sudo install -d -o 10001 -g 10001 -m 0750 \
 sudo install -m 0640 -o root -g 10001 /dev/null /srv/kichu/secrets/write_token
 ```
 
-在仓库外填写 `production.env`，并以安全方式写入 `write_token`。`production.env` 应只对部署操作员可读。文件型 Compose secret 是绑定挂载，容器内的 UID/GID `10001` 必须有读取权限；`write_token` 和下述密码/URL 文件使用 `root:10001`、`0640`，密钥目录本身保持 `root:root`、`0700`。不要将密钥文件所有者改为 UID `10001`。运行 Docker 的操作员仍需能调用 Docker Compose。
+在仓库外填写 `production.env`，并以安全方式写入 `write_token`。`production.env` 应只对部署操作员可读。文件型 Compose secret 是绑定挂载，需按读取进程设置权限：`write_token` 和四个 `*_database_url` 文件使用 `root:10001`、`0640`；四个 `postgres_*_password` 角色文件使用 `root:70`、`0640`，供 PostgreSQL 初始化进程读取；`postgres_superuser_password` 使用 `root:root`、`0600`。密钥目录本身保持 `root:root`、`0700`。不要将密钥文件所有者改为容器 UID。运行 Docker 的操作员仍需能调用 Docker Compose。
 
 四个 `*_DATABASE_URL_FILE` 都是 Docker secret 文件路径；每个文件只能有一行、不带引号的 SQLAlchemy URL，密码必须进行 URL percent-encoding，且绝不能写入 `production.env`、日志或 Compose 命令行。按 `config/production.example.env` 中的文件名创建它们：
 
