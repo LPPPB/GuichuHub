@@ -221,7 +221,8 @@ def _import_business(connection, source: sqlite3.Connection) -> dict[str, Any]:
 
     snapshots = _rows(source, "video_obs_snapshot")
     for row in snapshots:
-        row["payload"] = _json(row.pop("payload_json", None), [])
+        row["payload"] = _json(row.pop("payload_json", None),
+                               {} if row["field"] == "pool_summary" else [])
         row["item_count"] = row.get("item_count") or len(row["payload"])
     _upsert(connection, video_snapshot_documents, snapshots, [video_snapshot_documents.c.ts, video_snapshot_documents.c.field])
 
