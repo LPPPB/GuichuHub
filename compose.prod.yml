@@ -12,6 +12,13 @@ x-default-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
+x-backend-build: &backend-build
+  context: ./backend
+  args:
+    KICHU_PIP_INDEX_URL: ${KICHU_PIP_INDEX_URL:-https://pypi.org/simple}
+    KICHU_DEBIAN_MIRROR_HOST: ${KICHU_DEBIAN_MIRROR_HOST:-http://deb.debian.org}
+    KICHU_PGDG_APT_URL: ${KICHU_PGDG_APT_URL:-https://apt.postgresql.org/pub/repos/apt}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -40,8 +47,7 @@ services:
 
   migrate:
     profiles: ["maintenance"]
-    build:
-      context: ./backend
+    build: *backend-build
     command: ["python", "-m", "scripts.migrate"]
     environment:
       KICHU_MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_database_url
@@ -77,14 +83,15 @@ services:
   frontend:
     build:
       context: ./frontend
+      args:
+        KICHU_NPM_REGISTRY: ${KICHU_NPM_REGISTRY:-https://registry.npmjs.org/}
     logging: *default-logging
     networks:
       - core
     restart: unless-stopped
 
   api:
-    build:
-      context: ./backend
+    build: *backend-build
     command:
       - gunicorn
       - --bind=0.0.0.0:5000
@@ -125,8 +132,7 @@ services:
       - ./ops/egress/squid.conf:/etc/squid/squid.conf:ro
 
   worker:
-    build:
-      context: ./backend
+    build: *backend-build
     command: ["python", "worker_entrypoint.py"]
     environment:
       <<: *backend-environment
@@ -146,8 +152,7 @@ services:
 
   backup:
     profiles: ["maintenance"]
-    build:
-      context: ./backend
+    build: *backend-build
     command:
       - python
       - /opt/kichu/backup_postgres.py
