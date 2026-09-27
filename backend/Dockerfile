@@ -1,6 +1,7 @@
 FROM python:3.12-slim AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
+ARG KICHU_PIP_INDEX_URL=https://pypi.org/simple
+RUN python -m pip install --no-cache-dir --index-url "${KICHU_PIP_INDEX_URL}" uv==0.11.32
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -9,7 +10,10 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv export --frozen --no-dev --no-emit-project --format requirements.txt > requirements.lock.txt && \
+    python -m venv .venv && \
+    .venv/bin/pip install --no-cache-dir --require-hashes \
+      --index-url "${KICHU_PIP_INDEX_URL}" -r requirements.lock.txt
 
 COPY . .
 
@@ -17,12 +21,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends tzdata ca-certificates curl && \
+ARG KICHU_DEBIAN_MIRROR_HOST=http://deb.debian.org
+ARG KICHU_PGDG_APT_URL=https://apt.postgresql.org/pub/repos/apt
+RUN sed -i "s#http://deb.debian.org#${KICHU_DEBIAN_MIRROR_HOST}#g" /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && apt-get install -y --no-install-recommends tzdata ca-certificates curl && \
     . /etc/os-release && \
     install -d /usr/share/postgresql-common/pgdg && \
     curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc && \
-    printf 'Types: deb\nURIs: https://apt.postgresql.org/pub/repos/apt\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$VERSION_CODENAME" \
+    printf 'Types: deb\nURIs: %s\nSuites: %s-pgdg\nComponents: main\nSigned-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc\n' "$KICHU_PGDG_APT_URL" "$VERSION_CODENAME" \
       > /etc/apt/sources.list.d/pgdg.sources && \
     apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 && \
     ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \

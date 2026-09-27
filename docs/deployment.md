@@ -25,10 +25,10 @@ sudo install -d -m 0700 /srv/kichu/secrets
 sudo install -d -m 0700 /srv/kichu/postgres
 sudo install -d -o 10001 -g 10001 -m 0750 \
   /srv/kichu/private /srv/kichu/logs /srv/kichu/backups
-sudo install -m 0600 -o root -g root /dev/null /srv/kichu/secrets/write_token
+sudo install -m 0640 -o root -g 10001 /dev/null /srv/kichu/secrets/write_token
 ```
 
-在仓库外填写 `production.env`，并以安全方式写入 `write_token`。`production.env` 应只对部署操作员可读；`write_token` 保持 `root:root`、`0600`，由 Docker daemon 读取并挂载为容器 secret，**不要**为此将宿主机密钥文件改为 UID `10001`。运行 Docker 的操作员仍需能调用 Docker Compose。
+在仓库外填写 `production.env`，并以安全方式写入 `write_token`。`production.env` 应只对部署操作员可读。文件型 Compose secret 是绑定挂载，需按读取进程设置权限：`write_token` 和四个 `*_database_url` 文件使用 `root:10001`、`0640`；四个 `postgres_*_password` 角色文件使用 `root:70`、`0640`，供 PostgreSQL 初始化进程读取；`postgres_superuser_password` 使用 `root:root`、`0600`。密钥目录本身保持 `root:root`、`0700`。不要将密钥文件所有者改为容器 UID。运行 Docker 的操作员仍需能调用 Docker Compose。
 
 四个 `*_DATABASE_URL_FILE` 都是 Docker secret 文件路径；每个文件只能有一行、不带引号的 SQLAlchemy URL，密码必须进行 URL percent-encoding，且绝不能写入 `production.env`、日志或 Compose 命令行。按 `config/production.example.env` 中的文件名创建它们：
 
@@ -42,6 +42,8 @@ backup_database_url    = postgresql+psycopg://kichu_backup:<backup-password>@pos
 API、Worker、backup 均没有 DDL 权限；只有 `kichu_migration` 执行 Alembic。角色密码放在对应的 `postgres_*_password` secret 文件中，仅供 PostgreSQL 初始化使用，URL secret 由相应服务单独挂载。
 
 防火墙与安全组只允许 22、80、443；API、Frontend、Worker、PostgreSQL 均不开放生产主机端口。DNS 在部署前指向该主机，Caddy 使用 `KICHU_DOMAIN` 自动处理 TLS。
+
+构建主机如果无法下载官方软件包，可在仓库外的 `production.env` 设置 `KICHU_PIP_INDEX_URL`、`KICHU_DEBIAN_MIRROR_HOST`、`KICHU_PGDG_APT_URL` 和 `KICHU_NPM_REGISTRY`。默认值仍是官方源；这些变量仅用于构建，不参与应用运行。镜像 URL 不应包含账号或密码。后端从 `uv.lock` 导出带哈希的精确依赖清单，再通过所选 PyPI 镜像安装。
 
 ## 首次部署与更新
 

@@ -1,11 +1,17 @@
 #!/bin/sh
 set -eu
 
-read_secret() { tr -d '\r\n' < "/run/secrets/$1"; }
-export KICHU_POSTGRES_API_PASSWORD="$(read_secret postgres_api_password)"
-export KICHU_POSTGRES_WORKER_PASSWORD="$(read_secret postgres_worker_password)"
-export KICHU_POSTGRES_MIGRATION_PASSWORD="$(read_secret postgres_migration_password)"
-export KICHU_POSTGRES_BACKUP_PASSWORD="$(read_secret postgres_backup_password)"
+read_secret() {
+  value="$(tr -d '\r\n' < "/run/secrets/$1")" || return 1
+  [ -n "$value" ] || return 1
+  printf '%s' "$value"
+}
+KICHU_POSTGRES_API_PASSWORD="$(read_secret postgres_api_password)"
+KICHU_POSTGRES_WORKER_PASSWORD="$(read_secret postgres_worker_password)"
+KICHU_POSTGRES_MIGRATION_PASSWORD="$(read_secret postgres_migration_password)"
+KICHU_POSTGRES_BACKUP_PASSWORD="$(read_secret postgres_backup_password)"
+export KICHU_POSTGRES_API_PASSWORD KICHU_POSTGRES_WORKER_PASSWORD
+export KICHU_POSTGRES_MIGRATION_PASSWORD KICHU_POSTGRES_BACKUP_PASSWORD
 psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   <<'SQL'
 \getenv api_password KICHU_POSTGRES_API_PASSWORD

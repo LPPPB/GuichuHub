@@ -2,7 +2,8 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+ARG KICHU_NPM_REGISTRY=https://registry.npmjs.org/
+RUN npm ci --registry="${KICHU_NPM_REGISTRY}" --replace-registry-host=always
 
 COPY . .
 RUN npm run build
