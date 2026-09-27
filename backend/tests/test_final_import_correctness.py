@@ -97,6 +97,7 @@ CREATE TABLE up_staff_map(bvid TEXT, mid INTEGER, position INTEGER);
 INSERT INTO up_staff_map VALUES('BV1fixture',7,1);
 CREATE TABLE video_obs_snapshot(ts INTEGER, field TEXT, payload_json TEXT, item_count INTEGER);
 INSERT INTO video_obs_snapshot VALUES(101,'hot_videos','[{"bvid":"BV1fixture"}]',1);
+INSERT INTO video_obs_snapshot VALUES(101,'pool_summary','{"total_views":3,"total_videos":1}',1);
 CREATE TABLE up_card_cache(mid INTEGER, payload_json TEXT, fetched_at INTEGER);
 INSERT INTO up_card_cache VALUES(7,'{"name":"fixture"}',101);
 CREATE TABLE calendar_videos(bvid TEXT, mid INTEGER, pub_date INTEGER, pub_date_str TEXT, views INTEGER, title TEXT);
@@ -109,6 +110,15 @@ CREATE TABLE calendar_backfill_job_items(job_id TEXT, mid INTEGER, status TEXT);
 INSERT INTO calendar_backfill_job_items VALUES('job',7,'success');
 ''')
     return snapshot_paths
+
+
+def test_import_preserves_pool_summary_object(postgres_url, complete_snapshot, tmp_path):
+    report = _import(postgres_url, complete_snapshot, tmp_path / "report.json")
+    assert report["valid"]
+    repository = BusinessRepository.from_url(postgres_url)
+    assert repository.snapshot_fields(101, ("pool_summary",))["pool_summary"] == {
+        "total_views": 3, "total_videos": 1,
+    }
 
 
 @pytest.mark.parametrize("table", ["video_tags", "word_observations", "crawl_runs", "up_staff_memberships",
