@@ -15,23 +15,24 @@ const radar = {
 }
 
 it('renders an accessible radar and makes unavailable live data explicit', () => {
-  render(<VideoRadar radar={radar} potentialScore={71.3} />)
+  render(<VideoRadar radar={radar} />)
 
-  expect(screen.getByRole('img', { name: '视频数据雷达图' })).toBeInTheDocument()
-  expect(screen.getByText('潜力')).toBeInTheDocument()
-  expect(screen.getByText('71.3')).toBeInTheDocument()
+  const chart = screen.getByRole('img', { name: '视频数据雷达图' })
+  expect(chart).toBeInTheDocument()
+  expect(chart).not.toHaveTextContent('潜力')
+  expect(chart).not.toHaveTextContent('71.3')
   expect(screen.getAllByText('实时关注：暂无实时观测').length).toBeGreaterThan(0)
 })
 
 it('gives every radar a distinct SVG gradient definition', () => {
-  render(<><VideoRadar radar={radar} potentialScore={70} /><VideoRadar radar={radar} potentialScore={71} /></>)
+  render(<><VideoRadar radar={radar} /><VideoRadar radar={radar} /></>)
 
   const ids = [...document.querySelectorAll('linearGradient')].map(node => node.id)
   expect(new Set(ids).size).toBe(2)
 })
 
 it('renders unavailable live attention as an incomplete shape instead of a zero-score vertex', () => {
-  render(<VideoRadar radar={radar} potentialScore={71.3} />)
+  render(<VideoRadar radar={radar} />)
 
   expect(document.querySelector('polygon[fill^="url("]')).toBeNull()
   expect(screen.getByText(/播放规模：224,000；互动质量：6.70%/)).toBeInTheDocument()

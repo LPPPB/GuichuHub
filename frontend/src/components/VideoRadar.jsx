@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 const SIZE = 164
 const CENTER = 82
-const RADIUS = 47
+const RADIUS = 52
 const DURATION = 620
 
 function polarPoint(index, total, radius) {
@@ -24,7 +24,7 @@ function axisTooltip(axis) {
   return `${axis.label}：${(Number(axis.raw || 0) * 100).toFixed(2)}%`
 }
 
-export default function VideoRadar({ radar, potentialScore, delay = 0, className = '' }) {
+export default function VideoRadar({ radar, delay = 0, className = '' }) {
   const rootRef = useRef(null)
   const frameRef = useRef(null)
   const instanceId = useId().replace(/:/g, '')
@@ -95,7 +95,7 @@ export default function VideoRadar({ radar, potentialScore, delay = 0, className
       return `${result}${command}${x.toFixed(2)},${y.toFixed(2)}`
     }, '')
     return {
-      grid: [1 / 3, 2 / 3, 1].map(level => pointText(outer.map(([x, y]) => [
+      grid: [1 / 2, 1].map(level => pointText(outer.map(([x, y]) => [
         CENTER + (x - CENTER) * level,
         CENTER + (y - CENTER) * level,
       ]))),
@@ -110,7 +110,6 @@ export default function VideoRadar({ radar, potentialScore, delay = 0, className
 
   if (!axes.length) return null
 
-  const formattedPotential = potentialScore == null ? '—' : Number(potentialScore).toFixed(1)
   const axisSummary = axes.map(axisTooltip).join('；')
 
   return (
@@ -118,15 +117,15 @@ export default function VideoRadar({ radar, potentialScore, delay = 0, className
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="视频数据雷达图" aria-describedby={descriptionId} className="w-full h-full overflow-visible">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="rgb(var(--neon-rose))" stopOpacity="0.42" />
-            <stop offset="100%" stopColor="rgb(var(--neon-pink))" stopOpacity="0.12" />
+            <stop offset="0%" stopColor="rgb(var(--neon-rose))" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="rgb(var(--neon-pink))" stopOpacity="0.08" />
           </linearGradient>
         </defs>
         {grid.map((points, index) => (
-          <polygon key={index} points={points} fill="none" stroke="currentColor" strokeWidth="0.8" className="text-haze-400/20" />
+          <polygon key={index} points={points} fill="none" stroke="currentColor" strokeWidth="0.8" className="text-haze-400/15" />
         ))}
         {spokes.map(([x1, y1, x2, y2], index) => (
-          <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth="0.8" className="text-haze-400/20" />
+          <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth="0.8" className="text-haze-400/15" />
         ))}
         {hasIncompleteData ? (
           <path data-testid="radar-data-line" d={dataPath} fill="none" stroke="rgb(var(--neon-rose))" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -138,9 +137,6 @@ export default function VideoRadar({ radar, potentialScore, delay = 0, className
             {axis.label}
           </text>
         ))}
-        <circle cx={CENTER} cy={CENTER} r="20" fill="rgb(var(--void-800))" stroke="rgb(var(--neon-rose))" strokeOpacity="0.35" />
-        <text x={CENTER} y={CENTER - 3} textAnchor="middle" className="fill-haze-400" fontSize="8">潜力</text>
-        <text x={CENTER} y={CENTER + 9} textAnchor="middle" className="fill-haze-50" fontSize="13" fontWeight="700">{formattedPotential}</text>
         {dataPoints.map((point, index) => {
           const axis = axes[index]
           const unavailable = axis.status !== 'available' || axis.score == null

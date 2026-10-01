@@ -8,7 +8,7 @@ const AiSummary   = lazy(() => import('./AiSummary'))
 
 export default function VideoCard({
   video, index, trendColor, formatNumber,
-  onFavorite, isFavorited, staggerDelay = 0,
+  onFavorite, isFavorited, staggerDelay = 0, showRadar = false,
 }) {
   const [expanded, setExpanded]       = useState(false)
   const [showAiSummary, setShowAiSum] = useState(false)
@@ -31,7 +31,7 @@ export default function VideoCard({
   }
 
   return (
-    <article className="kb-card kb-stagger p-4 md:p-5"
+    <article className={`kb-card kb-stagger p-4 md:p-5 ${showRadar ? 'kb-video-card' : ''}`}
              style={{ animationDelay: `${staggerDelay}ms` }}>
       <div className="inner">
         <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="block group">
@@ -140,13 +140,11 @@ export default function VideoCard({
               </div>
             </div>
 
-            {video.radar && (
-              <div className="hidden lg:flex lg:w-[125px] lg:h-[125px] xl:w-[164px] xl:h-[164px] items-center justify-center shrink-0">
+            {showRadar && video.radar && (
+              <div className="kb-video-radar-slot w-[164px] h-[164px] items-center justify-center shrink-0">
                 <VideoRadar
                   radar={video.radar}
-                  potentialScore={video.potential_score}
                   delay={staggerDelay}
-                  className="origin-top-left scale-[0.76] xl:scale-100"
                 />
               </div>
             )}
@@ -176,12 +174,6 @@ export default function VideoCard({
             </div>
           </div>
         </a>
-
-        {video.radar && (
-          <div className="lg:hidden flex justify-center mt-3 pt-3 border-t border-white/5">
-            <VideoRadar radar={video.radar} potentialScore={video.potential_score} delay={staggerDelay} />
-          </div>
-        )}
 
         {expanded && (
           <div onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
