@@ -1,6 +1,6 @@
 """PostgreSQL metadata for the V3 application and authentication schemas."""
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Float, ForeignKey, Index, Integer, MetaData, String, Table, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Float, ForeignKey, Index, Integer, MetaData, String, Table, Text, UniqueConstraint, text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase
 
@@ -31,6 +31,30 @@ calendar_videos = app_table("calendar_videos", Column("bvid", String(32), Foreig
 calendar_video_authors = app_table("calendar_video_authors", Column("bvid", String(32), ForeignKey("app.videos.bvid"), primary_key=True), Column("mid", BigInteger, ForeignKey("app.ups.mid"), primary_key=True), Column("last_seen_at", BigInteger, nullable=False), Column("missing_count", Integer, nullable=False, server_default="0"), Column("status", String(16), nullable=False, server_default="active"))
 calendar_backfill_jobs = app_table("calendar_backfill_jobs", Column("id", String(64), primary_key=True), Column("mode", String(32), nullable=False), Column("status", String(16), nullable=False, server_default="queued"), Column("payload", JSONB, nullable=False, server_default="{}"), Column("created_at", BigInteger, nullable=False), Column("updated_at", BigInteger, nullable=False), Column("lease_until", BigInteger), Column("worker_id", String(128)))
 calendar_backfill_job_items = app_table("calendar_backfill_job_items", Column("job_id", String(64), ForeignKey("app.calendar_backfill_jobs.id", ondelete="CASCADE"), primary_key=True), Column("mid", BigInteger, primary_key=True), Column("status", String(16), nullable=False, server_default="queued"), Column("worker_id", String(128)), Column("payload", JSONB, nullable=False, server_default="{}"))
+up_analysis_jobs = app_table(
+    "up_analysis_jobs",
+    Column("id", UUID(as_uuid=False), primary_key=True),
+    Column("status", String(16), nullable=False, server_default="queued"),
+    Column("requested_by", Text, nullable=False),
+    Column("roster", JSONB, nullable=False),
+    Column("progress", JSONB, nullable=False, server_default="{}"),
+    Column("result_summary", JSONB, nullable=False, server_default="{}"),
+    Column("error", JSONB),
+    Column("created_at", BigInteger, nullable=False),
+    Column("started_at", BigInteger),
+    Column("updated_at", BigInteger, nullable=False),
+    Column("finished_at", BigInteger),
+    Column("worker_id", String(128)),
+    Column("lease_until", BigInteger),
+    Column("fencing_token", BigInteger, nullable=False, server_default="0"),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("batch_ts", BigInteger),
+    CheckConstraint("status IN ('queued','running','finalizing','succeeded','partial','failed')", name="ck_up_analysis_status"),
+)
+# A constant expression indexes the shared analysis resource, not each status.
+Index("uq_up_analysis_active", sql_text("(1)"), unique=True,
+      postgresql_where=up_analysis_jobs.c.status.in_(("queued", "running", "finalizing")),
+      _table=up_analysis_jobs)
 dashboard_state = app_table("dashboard_state", Column("name", String(64), primary_key=True), Column("payload", JSONB, nullable=False), Column("version", BigInteger, nullable=False, server_default="0"), Column("updated_at", BigInteger, nullable=False))
 favorites = app_table("favorites", Column("id", String(128), primary_key=True), Column("owner", String(128), nullable=False), Column("item_type", String(64), nullable=False), Column("item", JSONB, nullable=False), Column("tags", JSONB, nullable=False, server_default="[]"), Column("notes", Text, nullable=False, server_default=""), Column("saved_at", BigInteger, nullable=False))
 tracked_ups = app_table("tracked_ups", Column("mid", BigInteger, primary_key=True), Column("payload", JSONB, nullable=False), Column("enabled", Boolean, nullable=False, server_default="true"), Column("updated_at", BigInteger, nullable=False))
