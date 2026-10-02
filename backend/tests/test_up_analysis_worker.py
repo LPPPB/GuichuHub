@@ -136,3 +136,33 @@ def test_consumer_start_is_idempotent(worker, monkeypatch):
     worker.ensure_analysis_worker()
     worker.ensure_analysis_worker()
     assert starts == [1]
+
+
+@pytest.mark.parametrize("endpoint,response,code", [
+    ("arc/search", {"error": "cookie_expired"}, "collector_login_required"),
+    ("arc/search", None, "collection_failed"),
+    ("relation/stat", None, "collection_failed"),
+])
+def test_real_collector_failure_never_saves_zero_batch(worker, postgres_runtime, monkeypatch, endpoint, response, code):
+    import collectors.bilibili_user as collector
+    from sqlalchemy import text
+    # Exercise the real composition rather than replacing the final result.
+    monkeypatch.undo()
+    monkeypatch.setattr(worker.time, "time", lambda: 100)
+    monkeypatch.setattr(collector, "get_user_info", lambda: {"mid": 7})
+    monkeypatch.setattr(collector, "get_up_info_by_mid", lambda *_: None)
+    def fetch(url, *_args, **_kwargs):
+        if endpoint in url:
+            return response
+        return {"code": 0, "data": {"list": {"vlist": []}, "follower": 11, "following": 2}}
+    monkeypatch.setattr(collector, "safe_get_with_wbi", fetch)
+    with postgres_runtime.sessions.begin() as session:
+        session.execute(text("INSERT INTO app.ups(mid,name) VALUES (1,'A')"))
+        session.execute(text("INSERT INTO app.up_observations(mid,ts,payload) VALUES (1,90,CAST(:payload AS jsonb))"), {"payload": '{"follower_count":99}'})
+    job, _ = postgres_runtime.analysis_jobs.enqueue(ROSTER, "test", 99)
+    worker.run_analysis_once("worker")
+    saved = postgres_runtime.analysis_jobs.get(job["id"])
+    assert saved["status"] == "failed"
+    assert saved["error"]["code"] == code
+    with postgres_runtime.sessions() as session:
+        assert session.scalar(select(func.count()).select_from(up_observations)) == 1

@@ -554,7 +554,7 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
       setBackfillMsg('回填任务已进入队列')
     } else {
       setBackfillOk(false)
-      setBackfillMsg(data?.message || '回填启动失败')
+      setBackfillMsg(data?.retry_after ? `请等待 ${data.retry_after} 秒后重试` : (data?.message || '回填启动失败'))
       setBackfilling(false)
     }
   }, [backfilling])
@@ -563,15 +563,15 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
     if (!backfillJob?.id || backfilling) return
     setBackfilling(true)
     const res = await api.retryCalendarJob(backfillJob.id)
-    if (res?.success) {
+    if (res?.success || (res?.busy && res?.job_id)) {
       setBackfillJob(res.data)
       setActiveJobId(res.job_id)
       setBackfillOk(true)
-      setBackfillMsg('失败项目已重新进入队列')
+      setBackfillMsg(res.busy ? '已接管正在执行的重试任务' : '失败项目已重新进入队列')
     } else {
       setBackfilling(false)
       setBackfillOk(false)
-      setBackfillMsg(res?.message || '重试失败')
+      setBackfillMsg(res?.retry_after ? `请等待 ${res.retry_after} 秒后重试` : (res?.message || '重试失败'))
     }
   }, [backfillJob, backfilling])
 

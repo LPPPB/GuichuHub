@@ -9,6 +9,21 @@ from datetime import datetime, timezone, timedelta
 from collectors.bilibili_auth import get_cookie_str, get_headers, safe_get_with_wbi
 from storage.db import upsert_calendar_videos, reconcile_calendar_author, get_up_names
 from storage.tracked_ups import load_tracked_list
+from logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def _safe_fetch_error(error):
+    messages = {
+        'collector_auth_missing': '服务器采集账号未登录',
+        'cookie_expired': '采集登录已失效，请管理员更新登录后重试',
+        'request_failed': 'B站请求失败，请稍后重试',
+        'risk_control': 'B站暂时限制请求，请稍后重试',
+        'unexpected_error': '日历采集失败，请检查 Worker 日志后重试',
+    }
+    code = error.code if error.code in messages else 'request_failed'
+    return code, messages[code]
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -217,6 +232,7 @@ def backfill_calendar(mids=None, recent_days=None, year=None, progress_callback=
                 if attempts < UP_RETRY_ATTEMPTS:
                     time.sleep((0.75 * (2 ** (attempts - 1))) + random.uniform(0, 0.25))
             except Exception as exc:
+                logger.exception('calendar UP collection failed')
                 fetch_error = CalendarFetchError('unexpected_error', str(exc))
                 break
 
@@ -224,6 +240,8 @@ def backfill_calendar(mids=None, recent_days=None, year=None, progress_callback=
         pages = getattr(videos, 'pages', 0) if videos is not None else getattr(fetch_error, 'pages', 0)
         item_videos = 0
         if fetch_error is not None:
+            error_code, error_message = _safe_fetch_error(fetch_error)
+            logger.error('calendar UP %s failed: %s', mid, fetch_error)
             partial = fetch_error.partial_videos
             if partial:
                 stats = upsert_calendar_videos(partial, tracked_mids=tracked_mids)
@@ -237,11 +255,11 @@ def backfill_calendar(mids=None, recent_days=None, year=None, progress_callback=
                 failed_ups += 1
                 item_status = 'failed'
             error_info = {
-                'mid': mid, 'name': name, 'code': fetch_error.code,
-                'message': str(fetch_error), 'pages': pages,
+                'mid': mid, 'name': name, 'code': error_code,
+                'message': error_message, 'pages': pages,
             }
             errors.append(error_info)
-            print(f'{item_status}: {fetch_error.code} {fetch_error}')
+            print(f'{item_status}: {error_code} {error_message}')
         else:
             if videos:
                 stats = upsert_calendar_videos(videos, tracked_mids=tracked_mids)
@@ -264,8 +282,8 @@ def backfill_calendar(mids=None, recent_days=None, year=None, progress_callback=
             progress_callback({
                 'mid': mid, 'name': name, 'status': item_status,
                 'pages': pages, 'videos': item_videos, 'attempts': attempts,
-                'error_code': fetch_error.code if fetch_error else '',
-                'error_message': str(fetch_error) if fetch_error else '',
+                'error_code': error_code if fetch_error else '',
+                'error_message': error_message if fetch_error else '',
             })
 
         # 控制请求频率（每 UP 之间有额外间隔）

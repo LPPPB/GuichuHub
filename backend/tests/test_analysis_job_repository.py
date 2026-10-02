@@ -67,6 +67,56 @@ def test_core_commit_after_lease_deadline_writes_nothing(repo, postgres_runtime)
         assert session.scalar(select(func.count()).select_from(up_observations)) == 0
 
 
+def test_waiting_for_row_lock_rechecks_fresh_lease(repo, postgres_runtime):
+    import threading
+    from sqlalchemy import event
+    from storage.models import up_analysis_jobs
+    from storage.repositories.analysis_jobs import LostAnalysisLease
+    job, _ = repo.enqueue(ROSTER, "test", 100)
+    claim = repo.claim("worker", 101)
+    clock = [102]
+    repo._clock = lambda: clock[0]
+    waiting = threading.Event()
+    engine = postgres_runtime.sessions.kw["bind"]
+    def statement(_conn, _cursor, statement, *_args):
+        if "FOR UPDATE" in statement:
+            waiting.set()
+    with postgres_runtime.sessions.begin() as blocker:
+        blocker.execute(select(up_analysis_jobs).where(up_analysis_jobs.c.id == job["id"]).with_for_update())
+        event.listen(engine, "before_cursor_execute", statement)
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pending = pool.submit(repo.commit_core, job["id"], "worker", claim["fencing_token"], 102, RESULT)
+                assert waiting.wait(3)
+                clock[0] = 221
+                blocker.commit()
+                with pytest.raises(LostAnalysisLease):
+                    pending.result(timeout=3)
+        finally:
+            event.remove(engine, "before_cursor_execute", statement)
+    with postgres_runtime.sessions() as session:
+        assert session.scalar(select(func.count()).select_from(up_observations)) == 0
+
+
+def test_lease_expiring_during_core_writes_rolls_back(repo, postgres_runtime, monkeypatch):
+    from storage.repositories.analysis_jobs import LostAnalysisLease
+    job, _ = repo.enqueue(ROSTER, "test", 100)
+    claim = repo.claim("worker", 101)
+    clock = [102]
+    repo._clock = lambda: clock[0]
+    original = postgres_runtime.business._write_snapshot_batch
+    def delayed(*args):
+        count = original(*args)
+        clock[0] = 221
+        return count
+    monkeypatch.setattr(postgres_runtime.business, "_write_snapshot_batch", delayed)
+    with pytest.raises(LostAnalysisLease):
+        repo.commit_core(job["id"], "worker", claim["fencing_token"], 102, RESULT)
+    with postgres_runtime.sessions() as session:
+        for table in (up_observations, video_snapshot_documents):
+            assert session.scalar(select(func.count()).select_from(table)) == 0
+
+
 def test_third_expired_attempt_becomes_failed(repo):
     job, _ = repo.enqueue(ROSTER, "test", 100)
     assert repo.claim("a", 101)["attempts"] == 1

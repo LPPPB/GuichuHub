@@ -1,5 +1,6 @@
 """Durable UP analysis ownership and atomic core commits, without network I/O."""
 import uuid
+import time
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -28,6 +29,7 @@ class AnalysisJobRepository:
     def __init__(self, sessions, business):
         self._sessions = sessions
         self._business = business
+        self._clock = time.time
 
     @staticmethod
     def _id(job_id):
@@ -104,25 +106,26 @@ class AnalysisJobRepository:
             ).returning(jobs)).mappings().one()
             return dict(claimed)
 
-    @staticmethod
-    def _owned(session, job_id, worker_id, token, now):
+    def _owned(self, session, job_id, worker_id, token, now):
         row = session.execute(select(jobs).where(
             jobs.c.id == job_id, jobs.c.worker_id == worker_id,
             jobs.c.fencing_token == token, jobs.c.status.in_(("running", "finalizing")),
-            jobs.c.lease_until > now,
         ).with_for_update()).mappings().first()
-        if not row:
+        # Read a fresh clock AFTER obtaining the lock: pool/row waits can
+        # cross the lease deadline even when the caller's timestamp was valid.
+        if not row or row['lease_until'] <= max(now, self._clock()):
             raise LostAnalysisLease("analysis job lease lost")
         return dict(row)
 
     def renew(self, job_id: str, worker_id: str, token: int, now: int) -> bool:
         with self._sessions.begin() as session:
-            renewed = session.execute(update(jobs).where(
-                jobs.c.id == job_id, jobs.c.worker_id == worker_id,
-                jobs.c.fencing_token == token, jobs.c.status.in_(("running", "finalizing")),
-                jobs.c.lease_until > now,
-            ).values(lease_until=now + 120, updated_at=now))
-            return renewed.rowcount == 1
+            try:
+                self._owned(session, job_id, worker_id, token, now)
+            except LostAnalysisLease:
+                return False
+            current = max(now, int(self._clock()))
+            session.execute(update(jobs).where(jobs.c.id == job_id).values(lease_until=current + 120, updated_at=current))
+            return True
 
     def update_progress(self, job_id: str, worker_id: str, token: int, now: int, progress: dict) -> None:
         with self._sessions.begin() as session:
@@ -147,6 +150,9 @@ class AnalysisJobRepository:
                 analysis.get("play_ranking"), analysis.get("creator_ranking"),
             )
             field_count = self._business._write_snapshot_batch(session, row["batch_ts"], fields)
+            # Any blocking core writes also belong to this lease. Raising here
+            # rolls back both observation families rather than saving stale data.
+            self._owned(session, job_id, worker_id, token, now)
             saved = {"up_obs_ts": row["batch_ts"], "up_obs_rows": up_count,
                      "video_obs_snapshot_ts": row["batch_ts"], "video_obs_snapshot_fields": field_count}
             updated = session.execute(update(jobs).where(jobs.c.id == job_id).values(
