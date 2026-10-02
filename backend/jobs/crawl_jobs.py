@@ -325,7 +325,7 @@ def run_analysis_job(trigger='scheduled'):
 
         logger.info(f'[UP分析] 启动（trigger={trigger}, {len(enabled_ups)} UPs）')
         from jobs.up_trends_jobs import start_analysis
-        task_id = start_analysis(enabled_ups)
+        task_id = start_analysis(enabled_ups, requested_by=f'system:{trigger}')
 
         if task_id is None:
             logger.info('[UP分析] 已有分析任务在跑，跳过')

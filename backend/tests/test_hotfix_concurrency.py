@@ -56,23 +56,11 @@ def test_concurrent_rmw(postgres_runtime):
     assert 1 in {up['mid'] for up in final['ups']}
 
 
-def test_analysis_lock():
-    """测试3: start_analysis 执行锁"""
+def test_analysis_lock(postgres_runtime):
+    """Another process's durable active job blocks a duplicate analysis."""
     import jobs.up_trends_jobs as jobs
 
-    # 先重置执行锁（防止其他测试残留）
-    if jobs._analysis_lock.locked():
-        jobs._analysis_lock.release()
-
-    # 第一次手动 acquire 模拟"已有分析在跑"
-    acquired = jobs._analysis_lock.acquire(blocking=False)
-    assert acquired, '执行锁第一次 acquire 应该成功'
-
-    try:
-        # 此时 start_analysis 应该返回 None
-        result = jobs.start_analysis([])
-        assert result is None, f'执行锁未生效，第二次返回了 task_id={result}'
-
-        print(f'[测试3 通过] 执行锁: 已有任务在跑时，start_analysis 返回 None（路由 → 409）')
-    finally:
-        jobs._analysis_lock.release()
+    roster = [{"mid": 1, "name": "A"}]
+    job, _ = postgres_runtime.analysis_jobs.enqueue(roster, "other-process", 100)
+    assert jobs.get_running_task_id() == job["id"]
+    assert jobs.start_analysis(roster) is None
