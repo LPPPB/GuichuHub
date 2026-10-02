@@ -142,6 +142,8 @@ def postgres_runtime(clean_postgres_data, tmp_path):
     try:
         yield runtime
     finally:
+        from storage.repositories.analysis_jobs import configure_analysis_repository
+        configure_analysis_repository(None)
         db.configure_business_repository(None)
         auth_store.configure_auth_repository(None)
         database.configure_state_repository(None)

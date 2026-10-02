@@ -17,6 +17,7 @@ from storage.postgres import create_session_factory
 from storage.repositories.auth import AuthRepository
 from storage.repositories.business import BusinessRepository
 from storage.repositories.state import StateRepository
+from storage.repositories.analysis_jobs import AnalysisJobRepository, configure_analysis_repository
 from storage.settings import DatabaseSettings
 
 
@@ -29,20 +30,24 @@ class PostgresRuntime:
     business: BusinessRepository
     auth: AuthRepository
     state: StateRepository
+    analysis_jobs: AnalysisJobRepository
 
 
 def configure_postgres_runtime(role: str, env: Mapping[str, str] | None = None) -> PostgresRuntime:
     """Install PostgreSQL-backed storage adapters without connecting or running DDL."""
     settings = DatabaseSettings.from_environment(os.environ if env is None else env, role)
     sessions = create_session_factory(settings)
+    business = BusinessRepository(sessions)
     runtime = PostgresRuntime(
         role=role,
         sessions=sessions,
-        business=BusinessRepository(sessions),
+        business=business,
         auth=AuthRepository(sessions),
         state=StateRepository(sessions),
+        analysis_jobs=AnalysisJobRepository(sessions, business),
     )
     db.configure_business_repository(runtime.business)
+    configure_analysis_repository(runtime.analysis_jobs)
     auth_store.configure_auth_repository(runtime.auth)
     database.configure_state_repository(runtime.state)
     runtime_settings.configure_runtime_settings_repository(runtime.state)

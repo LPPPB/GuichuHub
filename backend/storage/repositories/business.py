@@ -523,41 +523,47 @@ class BusinessRepository:
             ).scalar_one()
 
     def upsert_snapshot_batch(self, ts: int, fields: dict[str, list | dict]) -> int:
+        with self._sessions.begin() as session:
+            return self._write_snapshot_batch(session, ts, fields)
+
+    def _write_snapshot_batch(self, session, ts: int, fields: dict[str, list | dict]) -> int:
         rows = [
             {"ts": ts, "field": field, "payload": payload,
              "item_count": len(payload) if isinstance(payload, list) else 1}
             for field, payload in fields.items()
         ]
-        with self._sessions.begin() as session:
-            for row in rows:
-                session.execute(insert(video_snapshot_documents).values(**row).on_conflict_do_update(
-                    index_elements=[video_snapshot_documents.c.ts, video_snapshot_documents.c.field],
-                    set_={"payload": row["payload"], "item_count": row["item_count"]},
-                ))
+        for row in rows:
+            session.execute(insert(video_snapshot_documents).values(**row).on_conflict_do_update(
+                index_elements=[video_snapshot_documents.c.ts, video_snapshot_documents.c.field],
+                set_={"payload": row["payload"], "item_count": row["item_count"]},
+            ))
         return len(rows)
 
     def upsert_up_observations(
         self, ts: int, observations: list[dict], play_ranking: list[dict] | None = None,
         active_ranking: list[dict] | None = None,
     ) -> int:
+        with self._sessions.begin() as session:
+            return self._write_up_observations(session, ts, observations, play_ranking, active_ranking)
+
+    def _write_up_observations(self, session, ts, observations, play_ranking, active_ranking) -> int:
         rows = [row for row in observations if row.get("mid") is not None]
         play_rank = {row.get("mid"): index for index, row in enumerate(play_ranking or [], 1)}
         activity_rank = {row.get("mid"): index for index, row in enumerate(active_ranking or [], 1)}
-        with self._sessions.begin() as session:
-            for row in rows:
-                session.execute(insert(ups).values(
-                    mid=row["mid"], name=row.get("name"), face=row.get("face"), tracked=False
-                ).on_conflict_do_nothing(index_elements=[ups.c.mid]))
-                payload = dict(row)
-                if play_ranking is not None:
-                    payload["play_rank"] = play_rank.get(row["mid"], 0)
-                if active_ranking is not None:
-                    payload["activity_rank"] = activity_rank.get(row["mid"], 0)
-                session.execute(insert(up_observations).values(
-                    mid=row["mid"], ts=ts, payload=payload
-                ).on_conflict_do_update(
-                    index_elements=[up_observations.c.mid, up_observations.c.ts], set_={"payload": payload}
-                ))
+        for row in rows:
+            session.execute(insert(ups).values(
+                mid=row["mid"], name=row.get("name"), face=row.get("face"), tracked=False
+            ).on_conflict_do_nothing(index_elements=[ups.c.mid]))
+            payload = dict(row)
+            if play_ranking is not None:
+                payload["play_rank"] = play_rank.get(row["mid"], 0)
+            if active_ranking is not None:
+                payload["activity_rank"] = activity_rank.get(row["mid"], 0)
+            session.execute(insert(up_observations).values(
+                mid=row["mid"], ts=ts, payload=payload
+            ).on_conflict_do_update(
+                index_elements=[up_observations.c.mid, up_observations.c.ts], set_={"payload": payload}
+            ))
         return len(rows)
 
     def up_observation(self, mid: int, ts: int) -> dict:
