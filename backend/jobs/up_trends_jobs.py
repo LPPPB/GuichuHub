@@ -26,9 +26,11 @@ def get_progress(task_id: str) -> dict | None:
     if job is None:
         return None
     summary = job["result_summary"]
+    done = job["status"] in TERMINAL
     return {
         **job["progress"], "task_id": job["id"], "status": job["status"],
-        "done": job["status"] in TERMINAL, "started_at": job["started_at"],
+        "done": done, "started_at": job["started_at"],
+        "worker_unavailable": not done and not _repository().worker_available(int(time.time())),
         "finished_at": job["finished_at"], "error": job["error"],
         "warnings": summary.get("warnings", []),
         "calendar_job_id": summary.get("calendar_job_id"),

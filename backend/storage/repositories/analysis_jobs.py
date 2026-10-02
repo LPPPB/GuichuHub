@@ -4,7 +4,7 @@ import uuid
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from storage.models import up_analysis_jobs as jobs, up_observations, video_snapshot_documents
+from storage.models import up_analysis_jobs as jobs, up_observations, video_snapshot_documents, worker_heartbeats
 
 ACTIVE = ("queued", "running", "finalizing")
 TERMINAL = ("succeeded", "partial", "failed")
@@ -52,6 +52,11 @@ class AnalysisJobRepository:
         with self._sessions() as session:
             row = session.execute(self._active_query()).mappings().first()
             return dict(row) if row else None
+
+    def worker_available(self, now: int) -> bool:
+        with self._sessions() as session:
+            heartbeat = session.scalar(select(func.max(worker_heartbeats.c.heartbeat_at)))
+            return heartbeat is not None and now - heartbeat <= 120
 
     def enqueue(self, roster: list[dict], requested_by: str, now: int) -> tuple[dict, bool]:
         if not roster:
