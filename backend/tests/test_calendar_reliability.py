@@ -128,7 +128,9 @@ def test_job_queue_is_persistent_and_deduplicated(monkeypatch, calendar_db):
     monkeypatch.setattr(calendar_jobs, 'load_tracked_list', lambda: {
         'ups': [{'mid': 1, 'name': 'A', 'enabled': True}],
     })
-    monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', lambda: None)
+    def forbidden():
+        raise AssertionError('enqueue must not start calendar consumer')
+    monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', forbidden)
     first, created = calendar_jobs.enqueue_calendar_job(
         mode='recent', days=7, dedupe_key='test:recent', reason='test',
     )

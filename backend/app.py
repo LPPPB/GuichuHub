@@ -1450,7 +1450,7 @@ def route_up_trends_calendar_backfill():
     if guard:
         return guard
     from datetime import datetime as _dt
-    from jobs.calendar_jobs import enqueue_calendar_job
+    from jobs.calendar_jobs import enqueue_manual_calendar_job, CalendarSubmissionCooldown
 
     body = request.get_json(silent=True) or {}
     mode = body.get('mode')
@@ -1466,11 +1466,12 @@ def route_up_trends_calendar_backfill():
         except (TypeError, ValueError):
             return jsonify({'success': False, 'message': 'year 必须为整数'}), 400
     try:
-        job, created = enqueue_calendar_job(
+        job, created = enqueue_manual_calendar_job(
             mode=mode, days=days, year=year,
             requested_by=_request_actor(), reason='管理员手动刷新',
-            dedupe_key=f'manual:{mode}:{days or year}',
         )
+    except CalendarSubmissionCooldown as exc:
+        return jsonify({'success': False, 'message': str(exc), 'retry_after': exc.retry_after}), 429, {'Retry-After': str(exc.retry_after)}
     except ValueError as exc:
         return jsonify({'success': False, 'message': str(exc)}), 400
     return jsonify({
@@ -1507,11 +1508,16 @@ def route_calendar_job_retry(job_id):
     guard = _require_admin()
     if guard:
         return guard
-    from jobs.calendar_jobs import retry_calendar_job
-    job, created = retry_calendar_job(job_id, requested_by=_request_actor())
+    from jobs.calendar_jobs import retry_calendar_job, CalendarSubmissionCooldown
+    try:
+        job, created = retry_calendar_job(job_id, requested_by=_request_actor())
+    except CalendarSubmissionCooldown as exc:
+        return jsonify({'success': False, 'message': str(exc), 'retry_after': exc.retry_after}), 429, {'Retry-After': str(exc.retry_after)}
     if not job:
         return jsonify({'success': False, 'message': '回填任务不存在'}), 404
     if not created:
+        if job['status'] in ('queued', 'running'):
+            return jsonify({'success': False, 'busy': True, 'job_id': job['id'], 'message': '相同回填任务已在运行', 'data': job}), 409
         return jsonify({'success': False, 'message': '该任务没有可重试的失败 UP', 'data': job}), 409
     return jsonify({'success': True, 'job_id': job['id'], 'data': job}), 202
 

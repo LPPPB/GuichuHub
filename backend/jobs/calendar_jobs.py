@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 from logger import get_logger
 from storage.db import get_business_repository
 from storage.tracked_ups import load_tracked_list
+from storage.repositories.business import CalendarSubmissionCooldown
 
 logger = get_logger(__name__)
 CN_TZ = timezone(timedelta(hours=8))
@@ -69,8 +70,9 @@ def get_active_calendar_job():
 
 def enqueue_calendar_job(mode='recent', days=None, year=None, mids=None,
                          requested_by='system', reason='', dedupe_key=None,
-                         dedupe_window_seconds=0):
-    """创建回填任务并唤醒 worker；返回 (job, created)。"""
+                         dedupe_window_seconds=0, parent_job_id=None,
+                         dedupe_forever=False, cooldown_seconds=0):
+    """只提交持久化任务；消费者仅由 Worker 入口启动。返回 (job, created)。"""
     if mode not in ('recent', 'year'):
         raise ValueError('mode 必须为 recent 或 year')
     if mode == 'recent':
@@ -91,10 +93,19 @@ def enqueue_calendar_job(mode='recent', days=None, year=None, mids=None,
         mode, ups, now, days=days, year=year, requested_by=requested_by,
         reason=reason, dedupe_key=dedupe_key,
         dedupe_window_seconds=dedupe_window_seconds,
+        parent_job_id=parent_job_id, dedupe_forever=dedupe_forever,
+        cooldown_seconds=cooldown_seconds,
     )
-    if created and job['status'] == 'queued':
-        ensure_calendar_worker()
     return job, created
+
+
+def enqueue_manual_calendar_job(mode='recent', days=None, year=None, mids=None,
+                                requested_by='system', reason='管理员手动刷新',
+                                parent_job_id=None):
+    # Repository serializes and normalizes the effective scope (including UP IDs).
+    return enqueue_calendar_job(mode=mode, days=days, year=year, mids=mids,
+                                requested_by=requested_by, reason=reason,
+                                parent_job_id=parent_job_id, cooldown_seconds=60)
 
 
 def enqueue_baseline_jobs(mids, requested_by='system', reason='新增或重新启用 UP'):
@@ -126,10 +137,10 @@ def retry_calendar_job(job_id, requested_by='system'):
     ]
     if not failed_mids:
         return source, False
-    return enqueue_calendar_job(
+    return enqueue_manual_calendar_job(
         mode=source['mode'], year=source.get('year'), days=source.get('days'),
         mids=failed_mids, requested_by=requested_by,
-        reason=f"重试任务 {job_id}", dedupe_key=f"retry:{job_id}",
+        reason=f"重试任务 {job_id}", parent_job_id=job_id,
     )
 
 
@@ -180,8 +191,11 @@ def _execute_job(job, worker_id):
         _finish_job(job_id, result.get('status', 'failed'), summary)
     except Exception as exc:
         logger.error('日历任务 %s 执行失败: %s', job_id, exc, exc_info=True)
-        _fail_unstarted_items(job_id, 'job_error', str(exc))
-        _finish_job(job_id, 'failed', str(exc))
+        permission_error = getattr(getattr(exc, 'orig', None), 'sqlstate', None) == '42501'
+        code = 'database_permission_denied' if permission_error else 'job_error'
+        message = 'Worker 数据库权限异常，请检查部署配置' if permission_error else '日历任务执行失败，请检查 Worker 日志后重试'
+        _fail_unstarted_items(job_id, code, message)
+        _finish_job(job_id, 'failed', message)
 
 
 def _worker_loop():

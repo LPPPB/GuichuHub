@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import uuid
+import hashlib
+import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
@@ -16,6 +18,12 @@ from sqlalchemy.orm import sessionmaker
 from storage.models import calendar_backfill_job_items, calendar_backfill_jobs, calendar_video_authors, calendar_videos, crawl_runs, up_card_cache, up_observations, ups, video_observations, video_snapshot_documents, video_tags, videos, word_observations
 
 CN_TZ = timezone(timedelta(hours=8))
+
+
+class CalendarSubmissionCooldown(ValueError):
+    def __init__(self, retry_after: int):
+        super().__init__("相同范围提交过于频繁，请稍后重试")
+        self.retry_after = retry_after
 
 
 class BusinessRepository:
@@ -951,28 +959,50 @@ class BusinessRepository:
         payload = dict(payload)
         dedupe_key = payload.get("dedupe_key")
         dedupe_window = max(0, int(payload.pop("dedupe_window_seconds", 0)))
+        forever = bool(payload.get("dedupe_forever", False))
+        cooldown = max(0, int(payload.get("cooldown_seconds", 0)))
+        scope = json.dumps([mode, payload.get("days"), payload.get("year"),
+                            sorted({int(entry["mid"]) for entry in entries})], separators=(",", ":"))
+        scope_key = hashlib.sha256(scope.encode()).hexdigest()
+        payload["scope_key"] = scope_key
         payload.update({
             "total_ups": len(entries), "processed_ups": 0, "succeeded_ups": 0,
             "empty_ups": 0, "failed_ups": 0, "partial_ups": 0, "total_videos": 0,
             "finished_at": now if not entries else None, "error_summary": "",
         })
         with self._sessions.begin() as session:
+            session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended(f"calendar-scope:{scope_key}", 0))))
             if dedupe_key:
                 session.execute(select(func.pg_advisory_xact_lock(func.hashtext(dedupe_key))))
+                conditions = [calendar_backfill_jobs.c.status.in_(("queued", "running"))]
+                if forever:
+                    conditions.append(text("TRUE"))
+                elif dedupe_window > 0:
+                    conditions.append(and_(calendar_backfill_jobs.c.status == "succeeded",
+                                           calendar_backfill_jobs.c.created_at >= now - dedupe_window))
                 duplicate_id = session.execute(
                     select(calendar_backfill_jobs.c.id)
                     .where(
                         calendar_backfill_jobs.c.payload["dedupe_key"].astext == dedupe_key,
-                        or_(
-                            calendar_backfill_jobs.c.status.in_(("queued", "running")),
-                            calendar_backfill_jobs.c.created_at >= now - dedupe_window,
-                        ),
+                        or_(*conditions),
                     )
                     .order_by(calendar_backfill_jobs.c.created_at.desc())
                     .limit(1)
                 ).scalar_one_or_none()
                 if duplicate_id:
                     return self._calendar_job(session, duplicate_id), False
+            if cooldown:
+                scoped = calendar_backfill_jobs.c.payload["scope_key"].astext == scope_key
+                active_id = session.execute(select(calendar_backfill_jobs.c.id).where(
+                    scoped, calendar_backfill_jobs.c.status.in_(("queued", "running")),
+                ).order_by(calendar_backfill_jobs.c.created_at.desc()).limit(1)).scalar_one_or_none()
+                if active_id:
+                    return self._calendar_job(session, active_id), False
+                latest_manual = session.execute(select(calendar_backfill_jobs.c.created_at).where(
+                    scoped, cast(calendar_backfill_jobs.c.payload["cooldown_seconds"].astext, BigInteger) > 0,
+                ).order_by(calendar_backfill_jobs.c.created_at.desc()).limit(1)).scalar_one_or_none()
+                if latest_manual is not None and now - latest_manual < cooldown:
+                    raise CalendarSubmissionCooldown(cooldown - (now - latest_manual))
             session.execute(insert(calendar_backfill_jobs).values(
                 id=job_id, mode=mode, status=status, payload=payload,
                 created_at=now, updated_at=now,
