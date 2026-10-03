@@ -186,6 +186,12 @@ html.dark {
   }
   .kb-card > .inner { position: relative; z-index: 1; }
 
+  .kb-video-card { container: video-card / inline-size; }
+  .kb-video-radar-slot { display: none; }
+  @container video-card (min-width: 820px) {
+    .kb-video-radar-slot { display: flex; }
+  }
+
   /* ═══ 数据条：语义双色，不加外发光，避免浅色背景下混色发灰 ═══ */
   .kb-bar--hot  { background-image: linear-gradient(90deg, var(--bar-hot-start), var(--bar-hot-end)); }
   .kb-bar--cool { background-image: linear-gradient(90deg, var(--bar-cool-start), var(--bar-cool-end)); }
