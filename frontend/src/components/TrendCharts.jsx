@@ -933,10 +933,11 @@ export function KichuRatioCard({ batches = [] }) {
     kichuRatioData.length >= 2 ? buildLineTrendOption({
       data: kichuRatioData.map(d => ({ date: d.date, value: +(d.ratio * 100).toFixed(1) })),
       color: '#00AEEC',
-      startColor: 'rgba(236,72,153,0.2)',
+      startColor: 'rgba(0,174,236,0.2)',
       yMin: ratioMin,
       yMax: ratioMax,
-      labelColor: '#be185d',
+      labelColor: '#00AEEC',
+      hideOverlappingLabels: true,
       yLabelFmt: (v) => v + '%',
       // series label formatter 收到的是 params 对象，需取 .value
       labelFmt: (p) => p.value + '%',
@@ -962,7 +963,7 @@ export function KichuRatioCard({ batches = [] }) {
         </div>
       ) : (
         <div className="space-y-3">
-          {/* 双段比例条：鬼畜（粉） + 非鬼畜（灰） */}
+          {/* 双段比例条：鬼畜（蓝） + 非鬼畜（灰） */}
           <div>
             <div className="flex items-center justify-between mb-1.5 text-xs text-slate-500">
               <span>
@@ -1039,7 +1040,7 @@ export function PlayRankingChangeCard({ batches = [] }) {
 
 // ── 折线趋势 option 工厂：折线类图表共用，避免配置重复 ─────────────
 // 统一风格：平滑曲线 + 渐变面积 + 逐点数值标签 + 末点强调 + axis tooltip
-function buildLineTrendOption({ data, color, startColor, yMin, yMax, labelColor, yLabelFmt, labelFmt, tooltipFormatter }) {
+function buildLineTrendOption({ data, color, startColor, yMin, yMax, labelColor, yLabelFmt, labelFmt, tooltipFormatter, hideOverlappingLabels = false }) {
   if (!data || data.length < 2) return null
   return {
     grid: { left: 42, right: 30, top: 26, bottom: 22 },
@@ -1081,7 +1082,15 @@ function buildLineTrendOption({ data, color, startColor, yMin, yMax, labelColor,
         fontWeight: 600,
         color: labelColor,
         formatter: labelFmt,
+        // 字体实测高度可能高于图表的测量值，留少量安全间距。
+        ...(hideOverlappingLabels ? { padding: [2, 3], backgroundColor: 'transparent' } : {}),
       },
+      // 按实际标签包围盒避让，resize 后重新计算。末点符号较大，
+      // ECharts 按符号面积排序避让，优先保留最新数值。
+      ...(hideOverlappingLabels ? {
+        showAllSymbol: true,
+        labelLayout: { hideOverlap: true },
+      } : {}),
       areaStyle: {
         color: {
           type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
