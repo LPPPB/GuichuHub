@@ -265,7 +265,7 @@ export default function App() {
         {activeTab === 'dev' && !isAdmin && <p className="p-8 text-slate-500">需要管理员权限才能访问开发者后台。</p>}
 
         {activeTab !== 'dev' && (
-          <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-10 space-y-10 animate-stagger-in">
+          <div className="w-full max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-10 space-y-10 animate-stagger-in">
             {breakerTrend.length > 0 && (
               <div className="kb-card overflow-hidden">
                 <div className="inner px-2 pt-1">
