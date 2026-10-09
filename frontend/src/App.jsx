@@ -258,7 +258,7 @@ export default function App() {
         theme={theme} onToggleTheme={toggleTheme}
       />
 
-      <main className="flex-1 min-w-0 relative z-10">
+      <main className="flex-1 min-w-0 relative z-10 flex flex-col">
         {activeTab === 'dev' && isAdmin && (
           <Suspense fallback={null}><DevConsole /></Suspense>
         )}
@@ -652,6 +652,16 @@ export default function App() {
             )}
           </div>
         )}
+        <footer className="mt-auto px-4 py-6 text-center text-xs text-haze-300">
+          <a
+            href="https://beian.miit.gov.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block rounded px-2 py-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
+          >
+            苏ICP备2026075438号-1
+          </a>
+        </footer>
       </main>
 
       {showFavorites && (
