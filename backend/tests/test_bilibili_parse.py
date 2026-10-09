@@ -15,6 +15,22 @@ from collectors.bilibili import (
 from datetime import datetime
 
 
+def test_author_avatar_survives_feed_and_search_parsing():
+    feed = parse_video_item({'bvid': 'BVavatar', 'owner': {'face': '//i0.hdslb.com/face.jpg'}})
+    assert feed['author_avatar'] == 'https://i0.hdslb.com/face.jpg'
+    search = parse_region_rank_item(_search_api_video(upic='//i1.hdslb.com/search.jpg'))
+    assert search['author_avatar'] == 'https://i1.hdslb.com/search.jpg'
+
+
+def test_detail_metadata_enrichment_preserves_existing_values_when_missing():
+    from collectors.bilibili import _apply_video_metadata
+    video = {'author_avatar': 'https://i0.hdslb.com/old.jpg', 'pub_date': 1700000000, 'tname': '鬼畜剧场'}
+    _apply_video_metadata(video, {'owner': None, 'pubdate': 0, 'tname': ''})
+    assert video == {'author_avatar': 'https://i0.hdslb.com/old.jpg', 'pub_date': 1700000000, 'tname': '鬼畜剧场'}
+    _apply_video_metadata(video, {'owner': {'face': '//i0.hdslb.com/new.jpg'}, 'pubdate': 1700000001, 'tname': '鬼畜调教'})
+    assert video == {'author_avatar': 'https://i0.hdslb.com/new.jpg', 'pub_date': 1700000001, 'tname': '鬼畜调教'}
+
+
 # ────────────── parse_region_rank_item ──────────────
 
 def _search_api_video(**overrides):

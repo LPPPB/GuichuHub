@@ -1,5 +1,6 @@
-import { render, screen } from '@testing-library/react'
-import { expect, it } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { expect, it, vi } from 'vitest'
+import { api } from '../utils/api'
 import VideoCard from './VideoCard'
 
 const video = {
@@ -29,4 +30,46 @@ it('renders one radar for a video ranking card', () => {
   render(<VideoCard video={video} index={0} formatNumber={String} showRadar />)
 
   expect(screen.getAllByRole('img', { name: '视频数据雷达图' })).toHaveLength(1)
+})
+
+it('shows author metadata and falls back cleanly after an avatar fails', () => {
+  const { container } = render(<VideoCard video={{ ...video, author_avatar: 'https://i0.hdslb.com/avatar.jpg', pub_date: 1700000000, tname: '鬼畜剧场' }} formatNumber={String} />)
+  expect(screen.getByText('2023-11-15 06:13')).toHaveAttribute('datetime', '2023-11-14T22:13:20.000Z')
+  expect(screen.getByText('鬼畜剧场')).toBeVisible()
+  expect(screen.queryByText(/UP主 ·/)).not.toBeInTheDocument()
+  const avatar = container.querySelector('.video-card-avatar img')
+  expect(avatar).toHaveAttribute('src', '/api/proxy/image?url=https%3A%2F%2Fi0.hdslb.com%2Favatar.jpg')
+  fireEvent.error(avatar)
+  expect(container.querySelector('.video-card-avatar img')).toBeNull()
+  expect(screen.getByText('测试UP')).toBeVisible()
+})
+
+it('distinguishes historical online observations from live counts including zero', () => {
+  const { rerender } = render(<VideoCard video={{ ...video, online_count: 454, online_circuit_skipped: true }} formatNumber={String} />)
+  expect(screen.getByText('最近观测 454人')).toBeVisible()
+  expect(screen.queryByText(/人正在看/)).not.toBeInTheDocument()
+  rerender(<VideoCard video={{ ...video, online_count: 0 }} formatNumber={String} />)
+  expect(screen.getByText('0人正在看')).toBeVisible()
+  rerender(<VideoCard video={{ ...video, online_count: null }} formatNumber={String} />)
+  expect(screen.queryByText(/人正在看/)).not.toBeInTheDocument()
+})
+
+it('opens and closes an observation panel without nesting controls in a video link', async () => {
+  const request = vi.spyOn(api, 'getVideoObsTrend').mockResolvedValue({ success: true, data: { points: [] } })
+  try {
+    render(<VideoCard video={video} formatNumber={String} />)
+    const button = screen.getByRole('button', { name: '观测趋势' })
+    expect(button.closest('a')).toBeNull()
+    fireEvent.click(button)
+    const close = await screen.findByRole('button', { name: '收起趋势' })
+    expect(close).toHaveAttribute('aria-expanded', 'true')
+    const panel = document.getElementById(close.getAttribute('aria-controls'))
+    expect(panel).toBeInTheDocument()
+    await within(panel).findByText(/数据积累中/)
+    expect(request).toHaveBeenCalledWith('BV1demo', 48)
+    fireEvent.click(close)
+    expect(panel).not.toBeInTheDocument()
+  } finally {
+    request.mockRestore()
+  }
 })

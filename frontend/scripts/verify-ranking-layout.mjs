@@ -8,7 +8,9 @@ import { chromium } from 'playwright-core'
 const root = resolve('dist')
 const axes = ['播放规模', '互动质量', '讨论热度', '传播能力', '增长动能', '实时关注']
 const video = {
-  bvid: 'BVlayout', title: '宽度回归测试视频', author: '测试UP', views: 10000,
+  bvid: 'BVlayout', title: '烧心大赛！【AI全民制作人】长标题在手机端也应保持整齐易读', author: '很长的测试作者名字用于验证窄屏信息布局', views: 4197000,
+  pub_date: 1700000000, tname: '鬼畜调教', trend_label: '上升期', likes: 180000, shares: 21000,
+  description: '这里是视频简介，用于验证多行文本与关键数据之间的布局。',
   danmaku: 120, comments: 80, duration: 60, potential_score: 71,
   radar: { baseline_version: 'radar-v1', axes: axes.map((label, i) => ({
     id: ['reach', 'engagement', 'discussion', 'spread', 'momentum', 'live'][i],
@@ -24,7 +26,7 @@ try {
   if (process.env.LAYOUT_SCREENSHOT_DIR) {
     await mkdir(process.env.LAYOUT_SCREENSHOT_DIR, { recursive: true })
   }
-  for (const width of [1920, 1280, 900, 390]) {
+  for (const width of [1920, 1280, 900, 390, 320]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } })
     await page.route('**/*', async route => {
       const url = new URL(route.request().url())
@@ -56,6 +58,12 @@ try {
       }
       const card = page.locator('article').first()
       await card.waitFor()
+      await page.evaluate(async () => {
+        await document.fonts.ready
+        await Promise.all(document.getAnimations().filter(animation =>
+          Number.isFinite(animation.effect.getComputedTiming().iterations)
+        ).map(animation => animation.finished.catch(() => {})))
+      })
       const sizes = await card.evaluate(el => {
         const content = el.parentElement.parentElement
         const contentRect = content.getBoundingClientRect()
@@ -83,6 +91,20 @@ try {
         `${width}px ${name}: radar visibility does not match available width`)
       assert.equal(await radar.isVisible(), width >= 1280,
         `${width}px ${name}: unexpected radar at a regression viewport`)
+      const status = await card.locator('.video-card-status').evaluate(el => ({
+        height: el.clientHeight, line: parseFloat(getComputedStyle(el).lineHeight),
+      }))
+      assert.ok(status.height < status.line * 2, 'Status must remain one line')
+      for (const button of await card.locator('.video-card-actions button').all()) {
+        const box = await button.boundingBox()
+        assert.ok(box.height >= 44 && box.x >= 0 && box.x + box.width <= width,
+          `${width}px: action must fit the viewport and have a 44px touch target: ${JSON.stringify(box)}`)
+      }
+      assert.equal(await card.locator('.video-card-views').evaluate(el => getComputedStyle(el).color), 'rgb(251, 114, 153)')
+      await card.getByRole('button', { name: '观测趋势', exact: true }).click()
+      await card.getByText(/数据积累中/).waitFor()
+      assert.equal(page.url(), 'https://layout.test/')
+      await card.getByRole('button', { name: '收起趋势', exact: true }).click()
       console.log(`${width}px ${name}: card=${Math.round(sizes.card)}px radar=${await radar.isVisible()}`)
       if (process.env.LAYOUT_SCREENSHOT_DIR) {
         await page.evaluate(async () => {
