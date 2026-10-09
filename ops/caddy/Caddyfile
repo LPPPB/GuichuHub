@@ -9,3 +9,7 @@
         reverse_proxy frontend:8080
     }
 }
+
+www.guichuhub.cn {
+    redir https://guichuhub.cn{uri} permanent
+}
