@@ -59,7 +59,7 @@ export default function Sidebar({
       {!collapsed && (
         <div className="w-[156px] shrink-0 overflow-hidden whitespace-nowrap">
           <h1 className="whitespace-nowrap text-[0.98rem] font-bold text-haze-50 leading-tight tracking-tight">
-            鬼畜灵感看板
+            GuichuHub
           </h1>
           <p className="mt-0.5 whitespace-nowrap text-[10.5px] tracking-[0.18em] text-haze-400">KICHOU · INSIGHT</p>
           {isLive && (
