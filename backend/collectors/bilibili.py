@@ -706,6 +706,7 @@ def parse_region_rank_item(video, tid=None):
         'description': desc,
         'cover': _normalize_url(video.get('pic', '')),
         'author': video.get('author', ''),
+        'author_avatar': _normalize_url(video.get('upic', '') or ''),
         'mid': video.get('mid', 0),
         'tid': real_tid,
         'tname': video.get('typename', ''),
@@ -747,6 +748,7 @@ def parse_video_item(video, with_tags=False):
         'description': desc,
         'cover': _normalize_url(video.get('pic', '') or video.get('cover', '')),
         'author': owner.get('name', '') or video.get('author', ''),
+        'author_avatar': _normalize_url(owner.get('face', '') or video.get('upic', '') or ''),
         'mid': owner.get('mid', 0) if owner else 0,
         'tid': tid,
         'tname': video.get('tname', ''),
@@ -1942,6 +1944,19 @@ def _filter_potential_candidates(unique_potential, now):
     return candidates, relaxation_steps[-1]
 
 
+def _apply_video_metadata(v, detail):
+    """Reuse an already fetched detail response; do not add per-card profile requests."""
+    avatar = (detail.get('owner') or {}).get('face')
+    if avatar:
+        v['author_avatar'] = _normalize_url(avatar)
+    if detail.get('tname'):
+        v['tname'] = detail['tname']
+    if detail.get('pubdate'):
+        published = _parse_pubdate(detail['pubdate'])
+        if published:
+            v['pub_date'] = published
+
+
 def _apply_real_stat(v, detail):
     """用 web-interface/view 返回的真实 stat 覆盖估算互动数据,并重算 trend_score/label。
 
@@ -1949,6 +1964,7 @@ def _apply_real_stat(v, detail):
     此处用真实 stat 覆盖。views/coins/favorites/danmaku/comments 优先用真实值,
     缺失时回退原值(避免 detail 字段缺失导致归零)。
     """
+    _apply_video_metadata(v, detail)
     stat = detail.get('stat', {})
     v['views'] = stat.get('view', v.get('views', 0))
     v['likes'] = stat.get('like', v.get('likes', 0))
@@ -2013,6 +2029,7 @@ def _enrich_with_stats(candidates):
             v['online_count'] = None  # A2: 抓取失败=未知(NULL)，不是0
             continue
         # 用 detail 的 cid 获取同接(避免 fetch_online_count 内部重复请求 detail)
+        _apply_video_metadata(v, detail)
         cid = detail.get('cid')
         if cid:
             v['cid'] = cid
