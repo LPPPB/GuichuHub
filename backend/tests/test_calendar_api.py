@@ -11,7 +11,9 @@ ADMIN_TOKEN = 'calendar-test-admin-token'
 @pytest.fixture
 def client(monkeypatch, postgres_runtime):
     monkeypatch.setattr(app_module, 'WRITE_TOKEN', ADMIN_TOKEN)
-    monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', lambda: None)
+    def forbidden():
+        raise AssertionError('API must not start calendar consumer')
+    monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', forbidden)
     app_module.app.config['TESTING'] = True
     with app_module.app.test_client() as test_client:
         yield test_client

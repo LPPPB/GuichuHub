@@ -139,9 +139,14 @@ def postgres_runtime(clean_postgres_data, tmp_path):
     runtime = configure_postgres_runtime(
         "offline", {"KICHU_DATABASE_URL_FILE": str(url_file)},
     )
+    # Repository tests use explicit synthetic epochs. Fresh-clock boundary
+    # tests override this independently; production retains time.time.
+    runtime.analysis_jobs._clock = lambda: 0
     try:
         yield runtime
     finally:
+        from storage.repositories.analysis_jobs import configure_analysis_repository
+        configure_analysis_repository(None)
         db.configure_business_repository(None)
         auth_store.configure_auth_repository(None)
         database.configure_state_repository(None)

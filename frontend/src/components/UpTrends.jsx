@@ -89,6 +89,19 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
   const [data, setData] = useState(null)           // current analysis result
   const [history, setHistory] = useState([])        // historical batches for charts
   const [error, setError] = useState(null)
+  const [warning, setWarning] = useState(null)
+  const pollTimer = useRef(null)
+  const pollGeneration = useRef(0)
+  const activeTask = useRef(null)
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      pollGeneration.current += 1
+      clearTimeout(pollTimer.current)
+    }
+  }, [])
   const [view, setView] = useState('analysis')      // analysis | list
   const [refreshing, setRefreshing] = useState(false)
   const [contentTypeLimit, setContentTypeLimit] = useState(10)
@@ -168,101 +181,144 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
     return () => clearInterval(timer)
   }, [loadCalendarTimeline])
 
-  // ─── Poll progress ───
-  const pollProgress = useCallback(async (taskId) => {
+  // One live polling generation; reloads/unmounts cannot revive old timers.
+  const pollProgress = useCallback((taskId) => {
+    clearTimeout(pollTimer.current)
+    const generation = ++pollGeneration.current
+    activeTask.current = taskId
+    setRefreshing(true)
+    setError(null)
+    setWarning(null)
+    setProgress({ current: 0, total: 0, current_up: '等待 Worker 执行', eta_seconds: 0 })
+    let failures = 0
+    const current = () => mounted.current && pollGeneration.current === generation
+    const stop = (message, terminal = false) => {
+      if (!current()) return
+      clearTimeout(pollTimer.current)
+      if (terminal) activeTask.current = null
+      setRefreshing(false)
+      setProgress(null)
+      setPhase('ready')
+      if (message) setError(message)
+    }
     const poll = async () => {
+      if (!current()) return
       try {
         const res = await api.upTrendsProgress(taskId)
-        if (!res.success) return
+        if (!current()) return
+        if (!res.success) {
+          if (res.code === 'task_not_found') {
+            stop(res.message || '任务不存在', true)
+            return
+          }
+          throw new Error(res.message || '任务进度暂不可用')
+        }
         const p = res.data
         setProgress(p)
         if (p.done) {
-          // 分析完成
-          if (p.error) {
-            setError(p.error)
-            setRefreshing(false)
-            setProgress(null)
-          } else if (p.result) {
-            setData(p.result)
-            setPhase('ready')
-            setRefreshing(false)
-            setProgress(null)
-            // Reload history
-            const histRes = await api.upTrendsHistory()
-            if (histRes.success) setHistory(histRes.data.batches || [])
+          if (p.status === 'failed') {
+            stop(p.error?.message || (typeof p.error === 'string' ? p.error : '分析失败'), true)
+            return
           }
+          const analysisRes = await api.upTrendsAnalysis()
+          if (!current()) return
+          if (!analysisRes.success || !analysisRes.data) throw new Error('观测已保存，但暂时无法读取结果')
+          setData(analysisRes.data)
+          if (p.status === 'partial') {
+            setWarning(p.warnings?.[0]?.message || p.error?.message || '观测已保存，后续任务未完成')
+          }
+          // A history read failure must not undo a successful core result.
+          try {
+            const histRes = await api.upTrendsHistory()
+            if (current() && histRes.success) setHistory(histRes.data.batches || [])
+          } catch { /* retain last usable history */ }
+          stop(null, true)
           return
         }
-        // 继续轮询
-        setTimeout(() => poll(), 800)
+        if (p.worker_unavailable) {
+          stop('Worker 暂不可用，任务已保留在队列中，请稍后重新连接')
+          return
+        }
+        failures = 0
+        pollTimer.current = setTimeout(poll, 800)
       } catch (e) {
-        setError('轮询进度失败: ' + e.message)
-        setRefreshing(false)
-        setProgress(null)
+        if (!current()) return
+        failures += 1
+        if (failures >= 3) {
+          stop('连接中断，已暂停查询：' + (e.message || '请稍后重新连接'))
+          return
+        }
+        pollTimer.current = setTimeout(poll, 1000 * (2 ** (failures - 1)))
       }
     }
     poll()
   }, [])
 
-  // ─── Initial check ───
   const initCheck = useCallback(async () => {
+    clearTimeout(pollTimer.current)
+    const generation = ++pollGeneration.current
+    const current = () => mounted.current && pollGeneration.current === generation
     setPhase('checking')
     setError(null)
     try {
       const check = await api.upTrendsCheck()
+      if (!current()) return
+      if (check.success === false) throw new Error(check.message || '配置检查失败')
       if (!check.has_list) {
         setPhase('setup')
         return
       }
+      activeTask.current = check.active_task_id || null
       setPhase('loading')
       const analysisRes = await api.upTrendsAnalysis()
-      if (analysisRes.success && analysisRes.data) {
-        setData(analysisRes.data)
-        setPhase('ready')
-      } else {
-        setPhase('ready')
-        setData(null)
-      }
-      const histRes = await api.upTrendsHistory()
-      if (histRes.success) {
-        setHistory(histRes.data.batches || [])
-      }
+      if (!current()) return
+      if (analysisRes.success && analysisRes.data) setData(analysisRes.data)
+      else setData(null)
+      setPhase('ready')
+      try {
+        const histRes = await api.upTrendsHistory()
+        if (current() && histRes.success) setHistory(histRes.data.batches || [])
+      } catch { /* existing analysis remains usable */ }
+      if (current() && activeTask.current) pollProgress(activeTask.current)
     } catch (e) {
+      if (!current()) return
       setError(e.message)
       setPhase('ready')
+      if (activeTask.current) pollProgress(activeTask.current)
     }
-  }, [])
+  }, [pollProgress])
 
   useEffect(() => { initCheck() }, [initCheck])
 
-  // ─── Start refresh task ───
   const startRefreshTask = useCallback(async () => {
+    clearTimeout(pollTimer.current)
+    const generation = ++pollGeneration.current
+    const current = () => mounted.current && pollGeneration.current === generation
     setRefreshing(true)
     setError(null)
-    setProgress({ current: 0, total: 0, current_up: '启动中...', eta_seconds: 0 })
+    setWarning(null)
+    setProgress({ current: 0, total: 0, current_up: '正在提交任务...', eta_seconds: 0 })
     try {
       const res = await api.upTrendsRefresh()
-      if (!res.success || !res.task_id) {
-        // busy 路径：已有分析在跑，后端把当前 task_id 返回 → 直接接管轮询
-        // 这是热修后的 409 处理（start_analysis 执行锁），双击/连点不再报错
-        if (res.busy && res.task_id) {
-          pollProgress(res.task_id)
-          return
-        }
-        setError(res.message || '启动分析失败')
-        setRefreshing(false)
-        setProgress(null)
+      if (!current()) return
+      if (res.task_id && (res.success || res.busy)) {
+        pollProgress(res.task_id)
         return
       }
-      pollProgress(res.task_id)
+      setError(res.message || '启动分析失败')
     } catch (e) {
+      if (!current()) return
       setError(e.message || '启动分析失败')
+    }
+    if (current()) {
       setRefreshing(false)
       setProgress(null)
+      setPhase('ready')
     }
   }, [pollProgress])
 
   const handleRefresh = () => startRefreshTask()
+  const handleReconnect = () => activeTask.current ? pollProgress(activeTask.current) : initCheck()
   const handleSetupComplete = () => {
     setPhase('loading')
     startRefreshTask()
@@ -838,7 +894,7 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
           <div className="flex items-center gap-3 text-sm">
             <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
             <span className="text-slate-600 truncate">
-              正在分析: <strong className="text-slate-800">{p.current_up}</strong>
+              {p.status === 'finalizing' ? '观测已保存，正在提交日历任务：' : p.status === 'queued' ? '任务状态：' : '正在分析：'} <strong className="text-slate-800">{p.current_up}</strong>
             </span>
           </div>
         </div>
@@ -921,7 +977,14 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
           {error}
-          <button onClick={handleRefresh} className="ml-3 underline hover:text-red-700">重试</button>
+          {activeTask.current
+            ? <button onClick={handleReconnect} className="ml-3 underline hover:text-red-700">重新连接</button>
+            : isAdmin && <button onClick={handleRefresh} className="ml-3 underline hover:text-red-700">重试</button>}
+        </div>
+      )}
+      {warning && (
+        <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {warning}
         </div>
       )}
 

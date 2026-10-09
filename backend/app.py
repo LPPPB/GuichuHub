@@ -1450,7 +1450,7 @@ def route_up_trends_calendar_backfill():
     if guard:
         return guard
     from datetime import datetime as _dt
-    from jobs.calendar_jobs import enqueue_calendar_job
+    from jobs.calendar_jobs import enqueue_manual_calendar_job, CalendarSubmissionCooldown
 
     body = request.get_json(silent=True) or {}
     mode = body.get('mode')
@@ -1466,11 +1466,12 @@ def route_up_trends_calendar_backfill():
         except (TypeError, ValueError):
             return jsonify({'success': False, 'message': 'year 必须为整数'}), 400
     try:
-        job, created = enqueue_calendar_job(
+        job, created = enqueue_manual_calendar_job(
             mode=mode, days=days, year=year,
             requested_by=_request_actor(), reason='管理员手动刷新',
-            dedupe_key=f'manual:{mode}:{days or year}',
         )
+    except CalendarSubmissionCooldown as exc:
+        return jsonify({'success': False, 'message': str(exc), 'retry_after': exc.retry_after}), 429, {'Retry-After': str(exc.retry_after)}
     except ValueError as exc:
         return jsonify({'success': False, 'message': str(exc)}), 400
     return jsonify({
@@ -1507,11 +1508,16 @@ def route_calendar_job_retry(job_id):
     guard = _require_admin()
     if guard:
         return guard
-    from jobs.calendar_jobs import retry_calendar_job
-    job, created = retry_calendar_job(job_id, requested_by=_request_actor())
+    from jobs.calendar_jobs import retry_calendar_job, CalendarSubmissionCooldown
+    try:
+        job, created = retry_calendar_job(job_id, requested_by=_request_actor())
+    except CalendarSubmissionCooldown as exc:
+        return jsonify({'success': False, 'message': str(exc), 'retry_after': exc.retry_after}), 429, {'Retry-After': str(exc.retry_after)}
     if not job:
         return jsonify({'success': False, 'message': '回填任务不存在'}), 404
     if not created:
+        if job['status'] in ('queued', 'running'):
+            return jsonify({'success': False, 'busy': True, 'job_id': job['id'], 'message': '相同回填任务已在运行', 'data': job}), 409
         return jsonify({'success': False, 'message': '该任务没有可重试的失败 UP', 'data': job}), 409
     return jsonify({'success': True, 'job_id': job['id'], 'data': job}), 202
 
@@ -1659,11 +1665,16 @@ def route_up_trends_list_import():
 @app.route('/api/up-trends/check', methods=['GET'])
 def route_up_trends_check():
     """健康检查：has_list 查名单配置，has_analysis 查 up_obs 是否有数据"""
-    return jsonify({
-        'success': True,
-        'has_list': has_tracked_list(),
-        'has_analysis': get_latest_batch_ts() is not None,
-    })
+    try:
+        return jsonify({
+            'success': True,
+            'has_list': has_tracked_list(),
+            'has_analysis': get_latest_batch_ts() is not None,
+            'active_task_id': get_running_task_id(),
+        })
+    except Exception:
+        app.logger.exception('UP analysis configuration query failed')
+        return jsonify({'success': False, 'code': 'analysis_queue_unavailable', 'message': '任务队列暂不可用，请稍后重新连接'}), 503
 
 
 @app.route('/api/up-trends/analysis', methods=['GET'])
@@ -1707,11 +1718,15 @@ def route_up_trends_refresh():
     if not enabled_ups:
         return jsonify({'success': False, 'message': '没有已启用的UP主'}), 400
 
-    task_id = start_analysis(enabled_ups)
+    try:
+        task_id = start_analysis(enabled_ups, requested_by=_request_actor())
+        running_id = get_running_task_id() if task_id is None else None
+    except Exception:
+        app.logger.exception('UP analysis task submission failed')
+        return jsonify({'success': False, 'code': 'analysis_queue_unavailable', 'message': '任务提交失败，请稍后重试'}), 503
     # 执行锁未抢到（已有分析在跑）→ 409，但把当前在跑的 task_id 一并返回，
     # 前端可直接接管轮询该任务，避免用户双击导致体验断链
     if task_id is None:
-        running_id = get_running_task_id()
         return jsonify({
             'success': False,
             'message': '已有分析任务正在运行，已切换到该任务进度',
@@ -1732,9 +1747,13 @@ def route_up_trends_progress():
     if not task_id:
         return jsonify({'success': False, 'message': '缺少task_id'}), 400
 
-    progress = get_progress(task_id)
+    try:
+        progress = get_progress(task_id)
+    except Exception:
+        app.logger.exception('UP analysis progress query failed')
+        return jsonify({'success': False, 'code': 'analysis_queue_unavailable', 'message': '任务进度暂不可用，请稍后重新连接'}), 503
     if not progress:
-        return jsonify({'success': False, 'message': '任务不存在'}), 404
+        return jsonify({'success': False, 'code': 'task_not_found', 'message': '任务不存在'}), 404
 
     return jsonify({'success': True, 'data': progress})
 

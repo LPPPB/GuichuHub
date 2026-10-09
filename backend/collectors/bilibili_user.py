@@ -551,8 +551,11 @@ def analyze_tracked_ups_with_progress(tracked_ups, progress_callback=None):
         if progress_callback:
             progress_callback(idx, up['name'])
 
-        videos = get_user_latest_videos(up['mid'], count=5)
-        rel_stat = get_up_relation_stat(up['mid'])
+        try:
+            videos = get_user_latest_videos(up['mid'], count=5, strict=True)
+            rel_stat = get_up_relation_stat(up['mid'], strict=True)
+        except UpCollectionError as exc:
+            return {'error': exc.code, 'message': 'UP 观测采集未完整完成，请检查 Worker 日志后重试'}
         # 刷新 UP 主最新信息（持久名单可能缺 sign，且 name/face 可能过时）
         up_info = get_up_info_by_mid(up['mid'])
         if up_info:
@@ -720,7 +723,19 @@ def get_all_mutual_followings(mid):
     print(f'共获取 {total_count} 个关注，其中互粉 {len(all_mutuals)} 个')
     return all_mutuals
 
-def get_user_latest_videos(mid, count=5):
+class UpCollectionError(RuntimeError):
+    def __init__(self, code):
+        super().__init__('UP observation request failed')
+        self.code = code
+
+
+def _check_observation_response(data, strict):
+    if strict and (not data or data.get('error') or data.get('code', 0) != 0):
+        code = 'cookie_expired' if data and data.get('error') == 'cookie_expired' else 'collection_failed'
+        raise UpCollectionError(code)
+
+
+def get_user_latest_videos(mid, count=5, strict=False):
     url = 'https://api.bilibili.com/x/space/wbi/arc/search'
     params = {
         'mid': mid,
@@ -730,8 +745,12 @@ def get_user_latest_videos(mid, count=5):
         'tid': 0,
     }
     data = safe_get_with_wbi(url, params)
+    _check_observation_response(data, strict)
     if not data or data.get('error'):
         return []
+
+    if strict and not isinstance(data.get('data', {}).get('list', {}).get('vlist'), list):
+        raise UpCollectionError('collection_failed')
 
     vlist = data.get('data', {}).get('list', {}).get('vlist', [])
     if not vlist:
@@ -794,12 +813,15 @@ def get_user_latest_videos(mid, count=5):
 
     return results
 
-def get_up_relation_stat(mid):
+def get_up_relation_stat(mid, strict=False):
     url = 'https://api.bilibili.com/x/relation/stat'
     params = {'vmid': mid}
     data = safe_get_with_wbi(url, params, max_retries=1)
+    _check_observation_response(data, strict)
     if not data or data.get('error'):
         return {'following': 0, 'follower': 0}
+    if strict and not all(key in data.get('data', {}) for key in ('following', 'follower')):
+        raise UpCollectionError('collection_failed')
     return {
         'following': data.get('data', {}).get('following', 0),
         'follower': data.get('data', {}).get('follower', 0),

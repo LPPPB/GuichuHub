@@ -114,6 +114,7 @@ def test_worker_entrypoint_initializes_services_once_then_waits(monkeypatch):
         "ensure_calendar_worker",
         lambda: calls.append("calendar"),
     )
+    monkeypatch.setattr(worker_entrypoint, "ensure_analysis_worker", lambda: calls.append("analysis"))
     monkeypatch.setattr(
         worker_entrypoint,
         "ensure_collector_handoff_worker",
@@ -154,6 +155,7 @@ def test_worker_entrypoint_initializes_services_once_then_waits(monkeypatch):
         "heartbeat",
         "scheduler",
         "calendar",
+        "analysis",
         "collector-handoff",
         "crawl:startup",
         "wait",

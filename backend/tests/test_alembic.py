@@ -8,7 +8,7 @@ from storage.migrations import alembic_heads, upgrade_database
 
 def test_alembic_has_one_postgresql_baseline_head():
     """Adding an unmerged Alembic revision must fail the release gate."""
-    assert alembic_heads() == ["0002_recovery_and_identity"]
+    assert alembic_heads() == ["0003_up_analysis_jobs"]
 
 
 def test_empty_postgres_upgrades_to_baseline(empty_postgres_url):
@@ -19,6 +19,6 @@ def test_empty_postgres_upgrades_to_baseline(empty_postgres_url):
     inspector = inspect(engine)
     assert {"app", "auth"} <= set(inspector.get_schema_names())
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM app.alembic_version")).scalar_one() == "0002_recovery_and_identity"
+        assert connection.execute(text("SELECT version_num FROM app.alembic_version")).scalar_one() == "0003_up_analysis_jobs"
     assert {"videos", "dashboard_state", "worker_heartbeats"} <= set(inspector.get_table_names(schema="app"))
     assert {"admin_accounts", "browser_sessions", "collector_credential_handoffs"} <= set(inspector.get_table_names(schema="auth"))

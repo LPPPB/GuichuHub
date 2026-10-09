@@ -50,6 +50,19 @@ def test_backfill_failure_not_counted_as_success(monkeypatch, calendar_db):
     assert result['failed_ups'] == 1
 
 
+def test_inner_calendar_errors_do_not_persist_raw_exception(monkeypatch, calendar_db):
+    marker = 'PRIVATE_URL_TOKEN_MARKER'
+    import collectors.bilibili_auth as auth
+    monkeypatch.setattr(auth, 'get_cookie_str', lambda: 'test-cookie')
+    monkeypatch.setattr(backfill, 'fetch_up_videos_by_year', lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(marker)))
+    job, _ = calendar_jobs.enqueue_calendar_job(mids=[1], days=7)
+    claimed = calendar_jobs._claim_next_job('worker')
+    calendar_jobs._execute_job(claimed, 'worker')
+    saved = calendar_db.business.calendar_job(job['id'], include_items=True)
+    assert saved['status'] == 'failed'
+    assert marker not in str(saved)
+
+
 def test_partial_fetch_is_saved_but_reported_partial(monkeypatch, calendar_db):
     partial = [_calendar_video()]
     monkeypatch.setattr(backfill, 'load_tracked_list', lambda: {
@@ -128,7 +141,9 @@ def test_job_queue_is_persistent_and_deduplicated(monkeypatch, calendar_db):
     monkeypatch.setattr(calendar_jobs, 'load_tracked_list', lambda: {
         'ups': [{'mid': 1, 'name': 'A', 'enabled': True}],
     })
-    monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', lambda: None)
+    def forbidden():
+        raise AssertionError('enqueue must not start calendar consumer')
+    monkeypatch.setattr(calendar_jobs, 'ensure_calendar_worker', forbidden)
     first, created = calendar_jobs.enqueue_calendar_job(
         mode='recent', days=7, dedupe_key='test:recent', reason='test',
     )
