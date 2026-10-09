@@ -59,9 +59,9 @@ export default function Sidebar({
       {!collapsed && (
         <div className="w-[156px] shrink-0 overflow-hidden whitespace-nowrap">
           <h1 className="whitespace-nowrap text-[0.98rem] font-bold text-haze-50 leading-tight tracking-tight">
-            鬼畜灵感看板
+            GuichuHub
           </h1>
-          <p className="mt-0.5 whitespace-nowrap text-[10.5px] tracking-[0.18em] text-haze-400">KICHOU · INSIGHT</p>
+          <p className="mt-0.5 whitespace-nowrap text-[10.5px] tracking-wide text-haze-300">个人技术小站 · 鬼畜看板</p>
           {isLive && (
             <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-[2px] rounded-full text-[10px] font-medium ${
               liveExpired ? 'kb-chip kb-chip--ghost' : 'kb-chip kb-chip--emerald'
