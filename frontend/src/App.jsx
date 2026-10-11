@@ -10,7 +10,8 @@ import FavoritesPanel from './components/FavoritesPanel'
 import MiniPlayer from './components/MiniPlayer'
 import BilibiliLogin from './components/BilibiliLogin'
 import OnlineBreakerChart from './components/OnlineBreakerChart'
-import { Flame, Music, Video, MessageCircle, Star, TrendingUp, Trophy, Zap, Sparkles, Users, Search, Tag, Code2, LayoutDashboard, LineChart, Layers, ScanSearch, ChevronRight, AlertTriangle, ExternalLink } from 'lucide-react'
+import SiteFooter from './components/SiteFooter'
+import { Flame, Music, Video, MessageCircle, Star, TrendingUp, Trophy, Zap, Sparkles, Users, Search, Tag, Code2, LayoutDashboard, LineChart, Layers, ScanSearch, ChevronRight, AlertTriangle } from 'lucide-react'
 
 const UpTrends = lazy(() => import('./components/UpTrends'))
 const BurstingVideos = lazy(() => import('./components/BurstingVideos'))
@@ -652,24 +653,11 @@ export default function App() {
             )}
           </div>
         )}
-        <footer className="mt-auto px-4 pb-6 pt-2 md:px-8">
-          <div className="mx-auto flex max-w-[1400px] flex-col items-center gap-4 border-t border-haze-400/20 pt-5 text-center sm:flex-row sm:justify-between sm:text-left">
-            <div>
-              <p className="text-xs font-semibold tracking-wide text-haze-100">GuichuHub</p>
-              <p className="mt-1 text-xs text-haze-300">个人技术小站 · 鬼畜看板</p>
-            </div>
-            <a
-              href="https://beian.miit.gov.cn/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group inline-flex min-h-11 items-center gap-2 rounded-xl border border-haze-400/20 bg-void-900/60 px-4 py-2 text-xs text-haze-300 transition-colors hover:border-primary-500/40 hover:bg-primary-50 hover:text-primary-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500"
-              title="在新窗口打开工信部备案查询"
-            >
-              <span className="whitespace-nowrap">苏ICP备2026075438号-1</span>
-              <ExternalLink size={13} aria-hidden="true" className="shrink-0 opacity-60 group-hover:opacity-100" />
-            </a>
-          </div>
-        </footer>
+        <SiteFooter
+          tabGroups={tabGroups}
+          activeTab={activeTab}
+          onNavigate={(tabId) => { setActiveTab(tabId); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+        />
       </main>
 
       {showFavorites && (
