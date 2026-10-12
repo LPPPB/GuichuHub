@@ -227,12 +227,14 @@ def _require_write_token():
 # 和组装整个响应 dict。这里把组装结果按 (数据版本, 实时缓存时刻) 缓存，
 # 数据未变时直接复用，过滤与组装零开销。
 _dash_payload_cache = {'key': None, 'payload': None}
+_dash_payload_lock = threading.RLock()
 
 
 def _invalidate_dashboard_payload():
     """配置变更后清除响应缓存，避免规则已保存但页面仍展示旧过滤结果。"""
-    _dash_payload_cache['key'] = None
-    _dash_payload_cache['payload'] = None
+    with _dash_payload_lock:
+        _dash_payload_cache['key'] = None
+        _dash_payload_cache['payload'] = None
 
 
 def _with_radar_metrics(videos):
@@ -244,14 +246,27 @@ def _with_radar_metrics(videos):
     ]
 
 
-def _build_dashboard_payload(data, is_live, live_cached_at=None):
+def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
     """组装 /api/dashboard 响应体（弹幕热词过滤在数据变化时只执行一次）"""
+    from services.radar_service import RadarService
+    from storage.repositories.radar import get_radar_repository
+    now = int(time.time()) if now is None else now
+    fields = ('kichu_rank', 'hot_videos', 'material_candidates')
+    all_rows = [v for field in fields for v in (data.get(field) or []) if isinstance(v, dict)]
+    decorated = RadarService(get_radar_repository()).decorate(all_rows, now)
+    metrics = {v.get('bvid'): v for v in decorated if v.get('bvid')}
+    def rows(field, v2=False):
+        source = data.get(field) or []
+        source = source if v2 else _with_radar_metrics(source)
+        return [{**v, 'online_observation': metrics.get(v.get('bvid'), {}).get('online_observation'),
+                 **({'radar': metrics.get(v.get('bvid'), {}).get('radar')} if v2 else {})}
+                if isinstance(v, dict) else v for v in source]
     return {
-        'kichu_rank': _with_radar_metrics(data.get('kichu_rank', [])),
+        'kichu_rank': rows('kichu_rank', True),
         'hot_memes': data.get('hot_memes', []),
         'hot_songs': data.get('hot_songs', []),
-        'hot_videos': _with_radar_metrics(data.get('hot_videos', [])),
-        'material_candidates': _with_radar_metrics(data.get('material_candidates', [])),
+        'hot_videos': rows('hot_videos'),
+        'material_candidates': rows('material_candidates'),
         'meme_materials': data.get('meme_materials', []),
         'danmaku_words': filter_danmaku_words(data.get('danmaku_words', [])),
         'comments_gold': data.get('comments_gold', []),
@@ -284,11 +299,15 @@ def route_dashboard():
         # 定时数据：以数据版本号为缓存键（数据未变则复用组装结果）
         cache_key = ('timer', get_data_version())
 
-    if _dash_payload_cache['key'] != cache_key:
-        _dash_payload_cache['key'] = cache_key
-        _dash_payload_cache['payload'] = _build_dashboard_payload(data, is_live, live_cached_at)
-
-    return jsonify({'success': True, 'data': _dash_payload_cache['payload']})
+    from storage.repositories.radar import get_radar_repository
+    repository = get_radar_repository()
+    now = int(time.time())
+    cache_key += (repository.revision() if repository else (0, None)) + (now//60,)
+    with _dash_payload_lock:
+        if _dash_payload_cache['key'] != cache_key:
+            payload = _build_dashboard_payload(data, is_live, live_cached_at, now)
+            _dash_payload_cache.update(key=cache_key, payload=payload)
+        return jsonify({'success': True, 'data': _dash_payload_cache['payload']})
 
 
 @app.route('/api/memes', methods=['GET'])
@@ -312,7 +331,10 @@ def route_videos():
 @app.route('/api/kichu-rank', methods=['GET'])
 def route_kichu_rank():
     data = get_data()
-    return jsonify({'success': True, 'data': data.get('kichu_rank', [])})
+    from services.radar_service import RadarService
+    from storage.repositories.radar import get_radar_repository
+    return jsonify({'success': True, 'data': RadarService(get_radar_repository()).decorate(
+        data.get('kichu_rank') or [], int(time.time()))})
 
 
 @app.route('/api/meme-materials', methods=['GET'])
