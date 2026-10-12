@@ -271,12 +271,15 @@ def run_observe_job():
                 if not detail:
                     continue
                 stat = detail.get('stat', {})
+                observed_at = int(time.time())
                 cid = detail.get('cid')
                 online = None
                 online_precision = None
                 if cid and not _online_breaker_open():
-                    online, online_precision, _ = fetch_online_count(bvid, cid)
+                    online, online_precision, online_display = fetch_online_count(bvid, cid)
                     _online_pacing()
+                else:
+                    online_display = None
                 tsdb.record_obs(bvid, ts, {
                     'views': stat.get('view'),
                     'likes': stat.get('like'),
@@ -287,6 +290,11 @@ def run_observe_job():
                     'danmaku': stat.get('danmaku'),
                     'online_count': online,
                     'online_precision': online_precision,
+                    'online_display': online_display,
+                    'online_observed_at': int(time.time()) if online is not None else None,
+                    'observed_at': observed_at,
+                    'metrics_source': 'bilibili_stat' if all(stat.get(k) is not None for k in
+                        ('view', 'like', 'coin', 'favorite', 'share', 'reply', 'danmaku')) else 'legacy_unknown',
                 })
                 observed += 1
             except Exception as e:

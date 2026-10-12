@@ -33,3 +33,5 @@ htmlcov/
 *.pem
 *.p12
 *.pfx
+
+.superpowers/
