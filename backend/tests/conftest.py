@@ -147,6 +147,8 @@ def postgres_runtime(clean_postgres_data, tmp_path):
     finally:
         from storage.repositories.analysis_jobs import configure_analysis_repository
         configure_analysis_repository(None)
+        from storage.repositories.radar import configure_radar_repository
+        configure_radar_repository(None)
         db.configure_business_repository(None)
         auth_store.configure_auth_repository(None)
         database.configure_state_repository(None)

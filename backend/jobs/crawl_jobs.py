@@ -128,6 +128,18 @@ def _crawl_once(trigger):
     return True
 
 
+def _radar_observations_changed():
+    from storage.repositories.radar import get_radar_repository
+    from jobs.radar_jobs import run_radar_baseline_job
+    repository = get_radar_repository()
+    if repository is not None:
+        repository.touch_observations(int(time.time()))
+        try:
+            run_radar_baseline_job()
+        except Exception as error:
+            logger.warning('雷达基线构建失败，保留明确不可用状态: %s', type(error).__name__)
+
+
 def _crawl_job_locked(trigger):
     """锁已持有时的抓取主流程（由 run_crawl_job / refresh_data 的工作线程调用）。
 
@@ -178,6 +190,8 @@ def _crawl_job_locked(trigger):
 
         # ── ② 观测写入成功后才更新 PostgreSQL dashboard state ──
         persist_data(new_data)
+        if trigger != 'startup' and all_videos:
+            _radar_observations_changed()
         _crawl_status['last_finished_at'] = int(time.time())
         print('[抓取] 完成')
     except Exception as e:
@@ -299,6 +313,8 @@ def run_observe_job():
                 observed += 1
             except Exception as e:
                 print(f'  [观测] {bvid} 失败: {e}')
+        if observed:
+            _radar_observations_changed()
         retired = tsdb.refresh_observe_tiers()
         tsdb.finish_crawl_run(run_id, 'success', {
             'targets': len(targets), 'observed': observed, 'retired_to_cold': retired,

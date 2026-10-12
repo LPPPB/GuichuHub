@@ -1,8 +1,9 @@
 """Batch observation reads; baseline persistence is owned by the Worker."""
 from collections import defaultdict
 
-from sqlalchemy import and_, select
-from storage.models import videos, video_observations as obs
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
+from storage.models import videos, video_observations as obs, radar_baselines, dashboard_state
 from config import KICHU_TIDS_WITH_PARENT
 
 COUNTS = ('views', 'likes', 'coins', 'favorites', 'shares', 'comments', 'danmaku')
@@ -77,3 +78,58 @@ class RadarRepository:
                 for row in history:
                     contexts[row['bvid']]['history'].append(dict(row))
         return list(contexts.values())
+
+    def load_active_baseline(self, now):
+        with self._sessions() as session:
+            return session.execute(select(radar_baselines.c.payload).where(
+                radar_baselines.c.cutoff_ts <= now, radar_baselines.c.valid_until > now,
+                radar_baselines.c.algorithm_version == 'radar-v2',
+            ).order_by(radar_baselines.c.cutoff_ts.desc()).limit(1)).scalar_one_or_none()
+
+    def revision(self):
+        with self._sessions() as session:
+            rows = session.execute(select(dashboard_state).where(
+                dashboard_state.c.name.in_(('radar.observations', 'radar.baseline')))).mappings()
+            state = {r['name']: r for r in rows}
+        return (state.get('radar.observations', {}).get('version', 0),
+                state.get('radar.baseline', {}).get('payload', {}).get('version'))
+
+    @staticmethod
+    def _advance(session, name, payload, now):
+        session.execute(insert(dashboard_state).values(name=name, payload=payload, version=1,
+            updated_at=now).on_conflict_do_update(index_elements=[dashboard_state.c.name],
+            set_={'payload': payload, 'version': dashboard_state.c.version+1, 'updated_at': now}))
+
+    def touch_observations(self, now):
+        with self._sessions.begin() as session:
+            self._advance(session, 'radar.observations', {}, now)
+
+    def publish_baseline(self, baseline, now):
+        with self._sessions.begin() as session:
+            session.execute(select(func.pg_advisory_xact_lock(func.hashtextextended('radar-baseline', 0))))
+            active = session.execute(select(radar_baselines.c.version).where(
+                radar_baselines.c.valid_until > now, radar_baselines.c.cutoff_ts <= now,
+            ).limit(1)).scalar_one_or_none()
+            if active:
+                return False
+            created = session.execute(insert(radar_baselines).values(
+                version=baseline['version'], algorithm_version=baseline['algorithm_version'],
+                cutoff_ts=baseline['cutoff_ts'], valid_until=baseline['valid_until'],
+                payload=baseline, created_at=now,
+            ).on_conflict_do_nothing().returning(radar_baselines.c.version)).scalar_one_or_none()
+            if not created:
+                return False
+            self._advance(session, 'radar.baseline', {'version': created}, now)
+            return True
+
+
+_radar_repository = None
+
+
+def configure_radar_repository(repository):
+    global _radar_repository
+    _radar_repository = repository
+
+
+def get_radar_repository():
+    return _radar_repository
