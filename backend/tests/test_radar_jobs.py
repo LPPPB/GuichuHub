@@ -46,6 +46,20 @@ def test_worker_refuses_a_tiny_reference_pool(postgres_runtime, monkeypatch):
     assert repo.load_active_baseline(NOW) is None
 
 
+def test_bootstrap_waits_for_real_growth_window(postgres_runtime, monkeypatch):
+    repo = RadarRepository(postgres_runtime.sessions)
+    monkeypatch.setattr('jobs.radar_jobs.get_radar_repository', lambda: repo)
+    samples = [context(i) for i in range(240)]
+    for sample in samples:
+        sample['history'] = [sample['latest']]
+    monkeypatch.setattr(repo, 'reference_contexts', lambda _: samples)
+    result = run_radar_baseline_job(NOW)
+    assert result['status'] == 'warming_up'
+    assert repo.load_active_baseline(NOW) is None
+    monkeypatch.setattr(repo, 'reference_contexts', lambda _: [context(i) for i in range(240)])
+    assert run_radar_baseline_job(NOW)['status'] == 'published'
+
+
 def test_weekly_rollover_replaces_bootstrap_without_mutating_it(postgres_runtime, monkeypatch):
     repo = RadarRepository(postgres_runtime.sessions)
     monkeypatch.setattr('jobs.radar_jobs.get_radar_repository', lambda: repo)

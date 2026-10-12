@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import time
 
 from storage.repositories.radar import get_radar_repository
-from utils.radar_v2 import build_baseline
+from utils.radar_v2 import build_baseline, MIN_REFERENCE
 
 
 def week_start(now):
@@ -26,6 +26,10 @@ def run_radar_baseline_job(now=None):
     baseline = build_baseline(repository.reference_contexts(cutoff), cutoff, start+7*86400)
     if not any(g['status'] == 'available' for groups in baseline['distributions'].values() for g in groups):
         return {'status': 'insufficient', 'sample_count': baseline['sample_count']}
+    # Legacy observations have no verifiable source. Warm up the first reference
+    # before freezing it for the week, rather than freezing an empty growth axis.
+    if not previous and not any(g['count'] >= MIN_REFERENCE for g in baseline['distributions']['speed']):
+        return {'status': 'warming_up', 'sample_count': baseline['sample_count']}
     baseline['version'] = f"radar-v2-{'weekly' if previous else 'bootstrap'}-{cutoff}"
     published = repository.publish_baseline(baseline, now)
     return {'status': 'published' if published else 'unchanged', 'version': baseline['version'],
