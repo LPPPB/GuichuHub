@@ -148,6 +148,7 @@ def _crawl_job_locked(trigger):
     """
     print(f'[抓取] 开始（触发源: {trigger}）...')
     run_id = tsdb.begin_crawl_run(trigger)
+    records_written = 0
     try:
         new_data = run_all_crawlers()
         all_videos = new_data.pop('_all_videos', [])
@@ -169,6 +170,7 @@ def _crawl_job_locked(trigger):
                 for v in all_videos:
                     source = v.pop('_source', None) or 'unknown'
                     tsdb.record_video(v, ts, source)
+                    records_written += 1
                 tsdb.record_words(new_data.get('danmaku_words', []), ts)
                 # 候选池视频保持 hot 高频观测（A4）
                 hot_bvids = [
@@ -190,8 +192,6 @@ def _crawl_job_locked(trigger):
 
         # ── ② 观测写入成功后才更新 PostgreSQL dashboard state ──
         persist_data(new_data)
-        if trigger != 'startup' and all_videos:
-            _radar_observations_changed()
         _crawl_status['last_finished_at'] = int(time.time())
         print('[抓取] 完成')
     except Exception as e:
@@ -204,6 +204,11 @@ def _crawl_job_locked(trigger):
             pass
         raise  # 重新抛出，让上层 _run_with_retry 处理重试（HTTP 路径在自己的 try 中吞掉）
     finally:
+        if records_written:
+            try:
+                _radar_observations_changed()
+            except Exception as error:
+                logger.warning('已提交观测的雷达版本推进失败: %s', type(error).__name__)
         _crawl_status['crawling'] = False
         _crawl_lock.release()
 

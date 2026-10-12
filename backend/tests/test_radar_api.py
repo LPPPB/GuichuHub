@@ -5,14 +5,14 @@ from utils.radar_v2 import build_baseline
 from tests.test_radar_v2 import context, NOW
 
 
-def prepare(runtime):
+def prepare(runtime, valid_until=NOW+86400):
     c = context(100)
     row = dict(**c['latest'], bvid=c['bvid'], first_seen=NOW-86400, pub_date=c['pub_date'], tid=216,
                online_count_raw=0, online_observed_at=NOW, online_precision='exact', online_display='0')
     runtime.business.record_video(row, ts=NOW)
     runtime.business.record_observation(c['bvid'], NOW-21600, c['history'][0])
     repo = RadarRepository(runtime.sessions)
-    repo.publish_baseline(build_baseline([context(i) for i in range(240)], NOW, NOW+86400), NOW)
+    repo.publish_baseline(build_baseline([context(i) for i in range(240)], NOW, valid_until), NOW)
     return repo, row
 
 
@@ -54,3 +54,23 @@ def test_observation_revision_refreshes_dashboard_within_same_time_bucket(client
     assert expired['online_observation']['status'] == 'stale'
     assert expired['radar']['axes'][-1]['status'] == 'stale'
     assert client.get('/api/kichu-rank').json['data'][0]['radar']['algorithm_version'] == 'radar-v2'
+
+
+def test_new_baseline_recomputes_scores_within_unchanged_minute(client, postgres_runtime, monkeypatch):
+    import app as app_module
+    repo, row = prepare(postgres_runtime, NOW+1)
+    monkeypatch.setattr(app_module, 'get_data', lambda: {'kichu_rank': [{'bvid': row['bvid']}]})
+    monkeypatch.setattr('storage.cache.get_live_cache', lambda: None)
+    clock = [NOW]
+    monkeypatch.setattr(app_module.time, 'time', lambda: clock[0])
+    app_module._invalidate_dashboard_payload()
+    first = client.get('/api/dashboard').json['data']['kichu_rank'][0]['radar']
+    samples = [context(i) for i in range(240)]
+    for i, c in enumerate(samples):
+        c['latest']['views'] = 1000000+i*10000
+    repo.publish_baseline(build_baseline(samples, NOW+1, NOW+86400), NOW+1)
+    clock[0] += 1
+    second = client.get('/api/dashboard').json['data']['kichu_rank'][0]['radar']
+    assert second['baseline_version'] != first['baseline_version']
+    assert first['axes'][0]['score'] == 41.9
+    assert second['axes'][0]['score'] == 0

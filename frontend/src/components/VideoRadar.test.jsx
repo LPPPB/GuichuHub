@@ -50,11 +50,16 @@ const v2 = {
 }
 
 it('opens a keyboard and touch accessible axis explanation and closes on Escape', () => {
-  render(<VideoRadar radar={v2} />)
+  const data = structuredClone(v2)
+  data.axes[1].components[0].score = 20
+  data.axes[1].components[1].score = 80
+  render(<VideoRadar radar={data} />)
   fireEvent.click(screen.getByRole('button', { name: '观众认可详情' }))
   expect(screen.getByRole('dialog', { name: '观众认可' })).toBeVisible()
   expect(screen.getByText('12 次/千播放')).toBeVisible()
   expect(screen.getByText(/综合相对分/)).toBeVisible()
+  expect(screen.getByRole('dialog')).toHaveTextContent('分位 20分')
+  expect(screen.getByRole('dialog')).toHaveTextContent('分位 80分')
   fireEvent.keyDown(document, { key: 'Escape' })
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })

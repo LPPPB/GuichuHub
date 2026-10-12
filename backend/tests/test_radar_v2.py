@@ -124,3 +124,18 @@ def test_numeric_strings_are_normalized_without_changing_input(baseline):
     c['latest'] = {k: str(v) if k != 'metrics_source' else v for k, v in c['latest'].items()}
     assert axes(build_video_radar(c, baseline, NOW))['growth']['raw'] == 100
     assert c['latest']['observed_at'] == str(NOW)
+
+
+@pytest.mark.parametrize('days,low,high', [(0, 0, 1), (1, 1, 3), (3, 3, 7),
+                                         (7, 7, 14), (14, 14, 30), (30, 30, None)])
+def test_age_boundaries_select_the_displayed_reference_cohort(baseline, days, low, high):
+    intervals = [(0, 1), (1, 3), (3, 7), (7, 14), (14, 30), (30, None)]
+    for metric in baseline['distributions']:
+        if metric != 'views':
+            baseline['distributions'][metric] = [dict(values=list(range(240)), count=240,
+                status='available', cohorts=[i], age_min_days=a, age_max_days=b)
+                for i, (a, b) in enumerate(intervals)]
+    c = context()
+    c['pub_date'] = NOW-days*86400
+    reference = axes(build_video_radar(c, baseline, NOW))['approval']['reference']
+    assert (reference['age_min_days'], reference['age_max_days']) == (low, high)

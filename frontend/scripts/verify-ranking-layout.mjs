@@ -16,7 +16,9 @@ const video = {
   radar: { algorithm_version: 'radar-v2', observed_at: 1700000000, baseline_version: 'radar-v2-layout', axes: axes.map((label, i) => ({
     id: ['reach', 'approval', 'retention', 'discussion', 'sharing', 'growth'][i],
     label, score: 60, raw: 60, status: 'available', unit: i === 0 ? '次' : i === 5 ? '播放/小时' : '次/千播放',
-    components: [{ id: 'demo', label, raw: 60, score: 60, reference: { count: 240, age_min_days: 0, age_max_days: 7 } }],
+    components: (i === 1 ? [{ id: 'likes_rate', label: '点赞', raw: 43, score: 80 }, { id: 'coins_rate', label: '投币', raw: 2, score: 40 }] :
+      i === 3 ? [{ id: 'comments_rate', label: '评论', raw: 2, score: 50 }, { id: 'danmaku_rate', label: '弹幕', raw: 5, score: 70 }] :
+      [{ id: 'demo', label, raw: 60, score: 60 }]).map(c => ({ ...c, reference: { count: 240, age_min_days: 0, age_max_days: 7 } })),
   })) },
 }
 const browser = await chromium.launch({
@@ -30,12 +32,13 @@ try {
   }
   for (const width of [1920, 1280, 900, 390, 320]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } })
+    await page.emulateMedia({ colorScheme: process.env.LAYOUT_COLOR_SCHEME || 'light' })
     await page.route('**/*', async route => {
       const url = new URL(route.request().url())
       if (url.hostname !== 'layout.test') return route.abort()
       if (url.pathname.startsWith('/api/')) {
         const data = url.pathname === '/api/dashboard' ? {
-          kichu_rank: [video], hot_videos: [video], hot_memes: [], hot_songs: [],
+          kichu_rank: [0, 1, 2].map(i => ({ ...video, bvid: `BVlayout${i}` })), hot_videos: [video], hot_memes: [], hot_songs: [],
           material_candidates: [], meme_materials: [], danmaku_words: [], comments_gold: [],
         } : url.pathname === '/api/auth/me' ? null : []
         return route.fulfill({ json: { success: true, data } })
@@ -97,6 +100,8 @@ try {
         if (width >= 1280) {
           await radar.getByRole('button', { name: '观众认可详情' }).click()
           await radar.getByRole('dialog', { name: '观众认可' }).waitFor()
+          await page.waitForFunction(() => Number(document.querySelector('.kb-video-radar-slot [data-testid="radar-data-polygon"]').getAttribute('points').split(' ')[0].split(',')[1]) <= 50.85)
+          await radar.getByRole('button', { name: '关闭详情' }).click({ trial: true, timeout: 1200 })
           if (process.env.LAYOUT_SCREENSHOT_DIR) await page.screenshot({ path: resolve(process.env.LAYOUT_SCREENSHOT_DIR, `${width}-radar-detail.png`) })
           await page.keyboard.press('Escape')
         } else {
@@ -104,6 +109,7 @@ try {
           const portrait = card.locator('.video-card-mobile-portrait')
           await portrait.getByRole('button', { name: '分享倾向详情' }).click()
           await portrait.getByRole('dialog', { name: '分享倾向' }).waitFor()
+          await page.waitForFunction(() => Number(document.querySelector('.video-card-mobile-portrait [data-testid="radar-data-polygon"]').getAttribute('points').split(' ')[0].split(',')[1]) <= 50.85)
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
           if (process.env.LAYOUT_SCREENSHOT_DIR) await page.screenshot({ path: resolve(process.env.LAYOUT_SCREENSHOT_DIR, `${width}-portrait-detail.png`) })
           await card.getByRole('button', { name: '收起表现', exact: true }).click()
@@ -116,8 +122,11 @@ try {
       for (const button of await card.locator('.video-card-actions button').all()) {
         if (!await button.isVisible()) continue
         const box = await button.boundingBox()
+        const actionBounds = await card.locator('.video-card-actions').boundingBox()
         assert.ok(box.height >= 44 && box.x >= 0 && box.x + box.width <= width,
           `${width}px: action must fit the viewport and have a 44px touch target: ${JSON.stringify(box)}`)
+        assert.ok(box.x >= actionBounds.x - 1 && box.x + box.width <= actionBounds.x + actionBounds.width + 1,
+          `${width}px: action must fit its card action row: ${JSON.stringify(box)}`)
       }
       assert.equal(await card.locator('.video-card-views').evaluate(el => getComputedStyle(el).color), 'rgb(251, 114, 153)')
       await card.getByRole('button', { name: '观测趋势', exact: true }).click()

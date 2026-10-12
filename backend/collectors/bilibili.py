@@ -242,6 +242,8 @@ def fetch_kichu_newest(limit=20):
         seen.add(bvid)
         item = parse_video_item(v, with_tags=False)
         item['_stats_estimated'] = True  # newlist stat 全 0，需补抓
+        item['metrics_source'] = 'estimated'
+        item.pop('observed_at', None)
         collected.append(item)
         if len(collected) >= limit:
             break
@@ -1971,6 +1973,10 @@ def _apply_real_stat(v, detail):
     stat = detail.get('stat', {})
     if all(stat.get(key) is not None for key in ('view', 'like', 'coin', 'favorite', 'share', 'reply', 'danmaku')):
         v.update(metrics_source='bilibili_stat', observed_at=int(time.time()))
+    elif v.get('metrics_source') == 'bilibili_stat':
+        # Partial replacement mixes sampling times; it cannot certify a whole row.
+        v['metrics_source'] = 'legacy_unknown'
+        v.pop('observed_at', None)
     v['views'] = stat.get('view', v.get('views', 0))
     v['likes'] = stat.get('like', v.get('likes', 0))
     v['coins'] = stat.get('coin', v.get('coins', 0))

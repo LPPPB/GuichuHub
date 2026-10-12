@@ -39,7 +39,7 @@ class RadarRepository:
                     if row['obs_bvid'] else None), 'history': [], 'online': None}
             history = session.execute(select(obs).where(
                 obs.c.bvid.in_(bvids), obs.c.metrics_source == 'bilibili_stat',
-                obs.c.observed_at.between(now-8*3600, now), obs.c.views >= 0,
+                obs.c.observed_at.between(now-7*3600-5400, now), obs.c.views >= 0,
             ).order_by(obs.c.observed_at, obs.c.ts)).mappings()
             for row in history:
                 if row['bvid'] in contexts:

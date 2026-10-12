@@ -18,7 +18,9 @@ export default function RadarDetails({ axis, radar }) {
     <dl>
       {components.map(component => <div key={component.id} className="flex flex-wrap justify-between gap-x-3">
         <dt>{component.label}</dt>
-        <dd>{component.raw == null ? '—' : `${Number(component.raw).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} ${unit}`}</dd>
+        <dd><span>{component.raw == null ? '—' : `${Number(component.raw).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} ${unit}`}</span>
+          <span className="block text-haze-400">{component.score == null ? component.reason || '子指标暂无分位分' : `分位 ${component.score}分`}</span>
+        </dd>
       </div>)}
     </dl>
     {axis.window_hours != null && <p>观测窗口 {Number(axis.window_hours).toFixed(1)} 小时 · 新增 {Number(axis.growth_views).toLocaleString()} 播放</p>}

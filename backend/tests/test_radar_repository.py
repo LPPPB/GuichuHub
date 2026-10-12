@@ -66,3 +66,13 @@ def test_zero_online_remains_valid_and_query_count_does_not_grow_per_card(postgr
     assert len(queries) <= 3
     assert len(contexts) == 20
     assert contexts['BV0']['online']['online_count'] == 0
+
+
+def test_seven_hour_growth_anchor_with_89_minute_old_endpoint_is_returned(postgres_runtime):
+    last = video()
+    last['observed_at'] = NOW-89*60
+    postgres_runtime.business.record_video(last, ts=last['observed_at'])
+    prev = {**last, 'views': 9000, 'observed_at': NOW-509*60}
+    postgres_runtime.business.record_video(prev, ts=prev['observed_at'])
+    c = RadarRepository(postgres_runtime.sessions).video_contexts(['BVradar'], NOW)['BVradar']
+    assert any(p['observed_at'] == NOW-509*60 for p in c['history'])
