@@ -3,6 +3,7 @@ import { BookmarkPlus, Bookmark, Eye, MessageSquare, Subtitles, Play, Users, Tre
 import { proxyImage } from '../utils/image'
 import { formatVideoPublishTime, videoRate } from '../utils/videoCardMeta'
 import VideoRadar from './VideoRadar'
+import { observationTime } from './RadarDetails'
 
 const ObsTrendChart = lazy(() => import('./ObsTrendChart'))
 const AiSummary = lazy(() => import('./AiSummary'))
@@ -10,6 +11,7 @@ const AiSummary = lazy(() => import('./AiSummary'))
 export default function VideoCard({ video, index, formatNumber, onFavorite, isFavorited, staggerDelay = 0, showRadar = false }) {
   const [expanded, setExpanded] = useState(false)
   const [showAiSummary, setShowAiSum] = useState(false)
+  const [showPortrait, setShowPortrait] = useState(false)
   const [failedAvatar, setFailedAvatar] = useState(null)
   const panelId = useId()
   const videoUrl = video.url || `https://www.bilibili.com/video/${video.bvid}`
@@ -23,6 +25,8 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
   const label = (video.trend_label || '').trim()
   const statusClass = /爆|飙/.test(label) ? 'kb-chip--rose' : /热|涨|上升|崛起/.test(label) ? 'kb-chip--pink' : /凉|跌|下降/.test(label) ? 'kb-chip--cyan' : 'kb-chip--ghost'
   const hasRadar = showRadar && Boolean(video.radar)
+  const observedOnline = video.online_observation
+  const isV2 = video.radar?.algorithm_version === 'radar-v2'
 
   return (
     <article className="kb-card kb-stagger kb-video-card video-card" style={{ animationDelay: `${staggerDelay}ms` }}>
@@ -68,7 +72,12 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
             <div className="video-card-secondary-metrics">
               <span><Subtitles size={14} />弹幕 <b>{video.danmaku == null ? '—' : formatNumber(video.danmaku)}</b></span>
               <span><MessageSquare size={14} />评论 <b>{video.comments == null ? '—' : formatNumber(video.comments)}</b></span>
-              {hasOnline && <span className={historical ? '' : 'video-card-online'}><Users size={14} />{historical ? `最近观测 ${online}人` : `${online}人正在看`}</span>}
+              {observedOnline ? <span className={observedOnline.status === 'available' ? 'video-card-online' : ''}>
+                <Users size={14} />{observedOnline.status === 'unavailable' ? '在看暂缺' :
+                  `${observedOnline.status === 'stale' ? '历史在看' : '在看观测'} ${observedOnline.display}人`}
+                {observedOnline.observed_at != null && <time title={`${observationTime(observedOnline.observed_at, true)}（北京时间）`}
+                  dateTime={new Date(observedOnline.observed_at * 1000).toISOString()}>· {observationTime(observedOnline.observed_at)}</time>}
+              </span> : hasOnline && <span className={historical ? '' : 'video-card-online'}><Users size={14} />{historical ? `最近观测 ${online}人` : `${online}人正在看`}</span>}
             </div>
           </div>
 
@@ -81,6 +90,10 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
             {video.material_score != null && <span className="kb-chip kb-chip--cyan">素材 <b>{video.material_score}</b><span>· {video.material_reason || '素材价值'}</span></span>}
           </div>
           <div className="video-card-actions">
+            {hasRadar && isV2 && <button type="button" className="video-card-action video-card-radar-toggle"
+              onClick={() => setShowPortrait(value => !value)} aria-expanded={showPortrait} aria-controls={`${panelId}-portrait`}>
+              <TrendingUp size={17} /><span>{showPortrait ? '收起表现' : '视频表现'}</span>
+            </button>}
             <button type="button" onClick={onFavorite} aria-pressed={Boolean(isFavorited)} className="video-card-action">
               {isFavorited ? <Bookmark size={17} fill="currentColor" /> : <BookmarkPlus size={17} />}<span>{isFavorited ? '已收藏' : '收藏'}</span>
             </button>
@@ -93,6 +106,9 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
           </div>
         </div>
 
+        {showPortrait && <div id={`${panelId}-portrait`} className="video-card-panel video-card-mobile-portrait">
+          <div className="flex justify-center py-3"><VideoRadar radar={video.radar} /></div>
+        </div>}
         {expanded && <div id={`${panelId}-trend`} className="video-card-panel">
           <Suspense fallback={<p className="text-xs text-haze-400 py-6">加载趋势图表…</p>}><ObsTrendChart bvid={video.bvid} /></Suspense>
         </div>}
