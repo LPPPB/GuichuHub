@@ -38,6 +38,13 @@ def test_final_image_loads_alembic_revisions(final_image):
     assert result.returncode == 0, result.stderr
 
 
+def test_final_image_imports_radar_api_service(final_image):
+    result = _image_run(final_image, ["python", "-c",
+        "from services.radar_service import RadarService; "
+        "assert RadarService(None).decorate([{'bvid': 'BVfixture'}], 1800000000)[0]['radar']['algorithm_version'] == 'radar-v2'"])
+    assert result.returncode == 0, result.stderr
+
+
 def test_final_image_uses_postgresql_16_client(final_image):
     """A newer dump client can emit SQL that PostgreSQL 16 rejects on restore."""
     result = _image_run(final_image, ["pg_dump", "--version"])
