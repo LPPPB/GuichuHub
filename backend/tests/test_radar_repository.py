@@ -76,3 +76,25 @@ def test_seven_hour_growth_anchor_with_89_minute_old_endpoint_is_returned(postgr
     postgres_runtime.business.record_video(prev, ts=prev['observed_at'])
     c = RadarRepository(postgres_runtime.sessions).video_contexts(['BVradar'], NOW)['BVradar']
     assert any(p['observed_at'] == NOW-509*60 for p in c['history'])
+
+
+def test_reference_collection_has_bounded_stable_ghost_quota_without_certifying_legacy(postgres_runtime):
+    business = postgres_runtime.business
+    for i in range(5):
+        row = video(f'BVeligible{i}')
+        row.pop('metrics_source')
+        business.record_video(row, ts=NOW-3600)
+    for bvid, views, tid, ts in [('BVsmall',1499,216,NOW),
+                                 ('BVmusic',10000,3,NOW),
+                                 ('BVold',10000,216,NOW-31*86400)]:
+        row=video(bvid); row.update(views=views,tid=tid); row.pop('metrics_source')
+        business.record_video(row,ts=ts)
+    repo=RadarRepository(postgres_runtime.sessions)
+    first=repo.reference_observation_targets(NOW,limit=3)
+    assert len(first)==3 and set(first)<={f'BVeligible{i}' for i in range(5)}
+    assert repo.reference_observation_targets(NOW+60,limit=3)==first
+    assert repo.reference_observation_targets(NOW,limit=0)==[]
+    assert repo.reference_contexts(NOW)==[]
+    changed = video(first[0]); changed.update(views=100)
+    business.record_video(changed,ts=NOW)
+    assert first[0] not in repo.reference_observation_targets(NOW,limit=240)

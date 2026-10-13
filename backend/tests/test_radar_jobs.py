@@ -109,3 +109,30 @@ def _assert_failed_crawl_still_revises(runtime, monkeypatch, failure):
         crawl_jobs._crawl_job_locked('scheduled')
     assert repo.video_contexts(['BV0'], NOW)['BV0']['latest']['views'] == 10000
     assert repo.revision()[0] == 1
+
+
+def test_observation_adds_reference_quota_without_extra_online_requests(postgres_runtime, monkeypatch):
+    import threading
+    from jobs import crawl_jobs
+    from collectors import bilibili
+    repo=RadarRepository(postgres_runtime.sessions)
+    for bvid in ('BVrank','BVmusic','BVref'):
+        row=context()['latest'].copy(); row.update(bvid=bvid,first_seen=NOW-86400,pub_date=NOW-86400,tid=216)
+        postgres_runtime.business.record_video(row,ts=NOW-3600)
+    monkeypatch.setattr(crawl_jobs,'_crawl_lock',threading.Lock())
+    monkeypatch.setattr(crawl_jobs.tsdb,'get_observation_targets',lambda **_: ['BVmusic','BVrank'])
+    monkeypatch.setattr(crawl_jobs,'_get_rank_bvids',lambda: ['BVrank'])
+    monkeypatch.setattr('storage.repositories.radar.get_radar_repository',lambda: repo)
+    monkeypatch.setattr(repo,'reference_observation_targets',lambda now,limit=240: ['BVref','BVrank'],raising=False)
+    details=[]; online=[]
+    def detail(bvid):
+        details.append(bvid)
+        return {'cid':1,'stat':dict(view=10000,like=200,coin=20,favorite=50,share=30,reply=5,danmaku=10)}
+    monkeypatch.setattr(bilibili,'fetch_video_detail',detail)
+    monkeypatch.setattr(bilibili,'fetch_online_count',lambda bvid,cid: (online.append(bvid) or (1,'exact','1')))
+    monkeypatch.setattr(bilibili,'_online_breaker_open',lambda: False)
+    monkeypatch.setattr(bilibili,'_online_pacing',lambda: None)
+    monkeypatch.setattr(crawl_jobs,'_radar_observations_changed',lambda: None)
+    crawl_jobs.run_observe_job()
+    assert details==['BVrank','BVmusic','BVref']
+    assert online==['BVrank','BVmusic']

@@ -276,6 +276,19 @@ def run_observe_job():
         ranked = _get_rank_bvids()
         if ranked:
             targets = list(dict.fromkeys(ranked + targets))
+        # Shared hot-tier coverage can contain fewer than 200 eligible ghost
+        # videos. A stable reference quota prevents a permanently empty baseline.
+        # Reference-only targets need complete stats, not extra online requests.
+        from storage.repositories.radar import get_radar_repository
+        repository = get_radar_repository()
+        reference_only = set()
+        if repository is not None:
+            try:
+                references = repository.reference_observation_targets(int(time.time()))
+                reference_only = set(references)-set(targets)
+                targets = list(dict.fromkeys(targets+references))
+            except Exception as error:
+                logger.warning('雷达参考观测目标读取失败，保留常规观测: %s', type(error).__name__)
         if not targets:
             print('[观测] 无观测目标')
             return
@@ -294,7 +307,7 @@ def run_observe_job():
                 cid = detail.get('cid')
                 online = None
                 online_precision = None
-                if cid and not _online_breaker_open():
+                if cid and bvid not in reference_only and not _online_breaker_open():
                     online, online_precision, online_display = fetch_online_count(bvid, cid)
                     _online_pacing()
                 else:

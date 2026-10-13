@@ -13,6 +13,27 @@ class RadarRepository:
     def __init__(self, session_factory):
         self._sessions = session_factory
 
+    def reference_observation_targets(self, now, limit=240):
+        """Stable, bounded collection coverage; old counts select targets only.
+
+        The existing hot quota is shared by several sections. Keep enough ghost
+        videos under repeated observation for the 200-sample growth reference.
+        Collection does not certify the old rows or change observation tiers.
+        """
+        limit = max(0, min(int(limit), 240))
+        if not limit:
+            return []
+        latest = select(obs.c.bvid, obs.c.views).join(
+            videos, videos.c.bvid == obs.c.bvid).where(
+                videos.c.tid.in_(KICHU_TIDS_WITH_PARENT),
+                videos.c.pub_date.between(1, now),
+                obs.c.ts.between(now-30*86400, now),
+            ).distinct(obs.c.bvid).order_by(obs.c.bvid, obs.c.ts.desc()).subquery()
+        with self._sessions() as session:
+            return list(session.execute(select(latest.c.bvid).where(
+                latest.c.views >= 1500).order_by(
+                func.md5(latest.c.bvid), latest.c.bvid).limit(limit)).scalars())
+
     def _latest(self, cutoff_ts, bvids=None):
         conditions = [obs.c.metrics_source == 'bilibili_stat',
                       obs.c.observed_at.between(cutoff_ts-30*86400, cutoff_ts)]
