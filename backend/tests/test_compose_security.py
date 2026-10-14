@@ -84,6 +84,29 @@ def test_development_services_have_no_legacy_runtime_persistence_environment():
         assert LEGACY_RUNTIME_ENV.isdisjoint(config["services"][name]["environment"])
 
 
+def test_development_published_ports_use_ingress_without_opening_api_egress():
+    config = _development_config()
+    assert config["networks"]["core"]["internal"] is True
+    for name in ("api", "frontend", "postgres"):
+        assert set(config["services"][name]["networks"]) == {"core"}
+        assert not config["services"][name].get("ports")
+    ingress = config["services"]["dev-ingress"]
+    assert set(ingress["networks"]) == {"core", "egress"}
+    assert {int(p["published"]) for p in ingress["ports"]} == {5174, 5000, 5432}
+    assert all(p["host_ip"] == "127.0.0.1" for p in ingress["ports"])
+    assert not ingress.get("secrets")
+
+
+def test_development_ingress_configuration_is_valid_in_its_real_image():
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--network", "none", "-v",
+         f"{ROOT / 'ops/dev/nginx.conf'}:/etc/nginx/nginx.conf:ro",
+         "nginx:1.27-alpine", "nginx", "-t"],
+        capture_output=True, text=True, encoding="utf-8", timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_write_token_secret_is_available_only_to_api(tmp_path):
     config = _production_config(tmp_path)
     api = config["services"]["api"]
