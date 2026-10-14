@@ -23,8 +23,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    ports:
-      - "127.0.0.1:5432:5432"
     networks: [core]
     secrets:
       - postgres_superuser_password
@@ -72,8 +70,6 @@ services:
       - api-egress
     init: true
     logging: *default-logging
-    ports:
-      - "127.0.0.1:5000:5000"
     volumes:
       - ./backend:/app
       - backend_venv:/app/.venv
@@ -116,18 +112,34 @@ services:
       - api
     environment:
       VITE_API_PROXY_TARGET: http://api:5000
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "250"
     init: true
     logging: *default-logging
-    ports:
-      - "127.0.0.1:5174:5173"
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
     networks: [core]
 
+  # Docker cannot publish ports on an internal-only network. This gateway
+  # exposes local development ports while API/PostgreSQL remain core-only.
+  dev-ingress:
+    image: nginx:1.27-alpine
+    depends_on: [frontend, api, postgres]
+    ports:
+      - "127.0.0.1:5174:5174"
+      - "127.0.0.1:5000:5000"
+      - "127.0.0.1:5432:5432"
+    networks: [core, egress]
+    volumes:
+      - ./ops/dev/nginx.conf:/etc/nginx/nginx.conf:ro
+    logging: *default-logging
+
 volumes:
   backend_venv:
+    name: ${COMPOSE_PROJECT_NAME:-kichiku-v3-dev}_backend_venv_${KICHU_DEV_BACKEND_DEPS:-default}
   frontend_node_modules:
+    name: ${COMPOSE_PROJECT_NAME:-kichiku-v3-dev}_frontend_node_modules_${KICHU_DEV_FRONTEND_DEPS:-default}
 
 networks:
   core:
