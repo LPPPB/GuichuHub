@@ -26,9 +26,12 @@ def run_radar_baseline_job(now=None):
     baseline = build_baseline(repository.reference_contexts(cutoff), cutoff, start+7*86400)
     if not any(g['status'] == 'available' for groups in baseline['distributions'].values() for g in groups):
         return {'status': 'insufficient', 'sample_count': baseline['sample_count']}
-    # Legacy observations have no verifiable source. Warm up the first reference
-    # before freezing it for the week, rather than freezing an empty growth axis.
-    if not previous and not any(g['count'] >= MIN_REFERENCE for g in baseline['distributions']['speed']):
+    # Warm up every metric before freezing the first reference for the week.
+    # Growth alone can be sufficient while all interaction references are empty.
+    if not previous and not all(
+        any(g['count'] >= MIN_REFERENCE for g in groups)
+        for groups in baseline['distributions'].values()
+    ):
         return {'status': 'warming_up', 'sample_count': baseline['sample_count']}
     baseline['version'] = f"radar-v2-{'weekly' if previous else 'bootstrap'}-{cutoff}"
     published = repository.publish_baseline(baseline, now)

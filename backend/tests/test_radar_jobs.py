@@ -60,6 +60,41 @@ def test_bootstrap_waits_for_real_growth_window(postgres_runtime, monkeypatch):
     assert run_radar_baseline_job(NOW)['status'] == 'published'
 
 
+def test_bootstrap_waits_for_interaction_references_before_freezing(monkeypatch):
+    samples = [context(i) for i in range(240)]
+    for i, sample in enumerate(samples):
+        sample['latest']['views'] = 1000+i
+        sample['history'][0]['views'] = 500+i
+
+    class ReferenceStore:
+        baseline = None
+
+        def load_active_baseline(self, now):
+            return self.baseline
+
+        def revision(self):
+            return 0, self.baseline['version'] if self.baseline else None
+
+        def reference_contexts(self, cutoff):
+            return samples
+
+        def publish_baseline(self, baseline, now):
+            self.baseline = baseline
+            return True
+
+    repository = ReferenceStore()
+    monkeypatch.setattr('jobs.radar_jobs.get_radar_repository', lambda: repository)
+    assert run_radar_baseline_job(NOW)['status'] == 'warming_up'
+    assert repository.load_active_baseline(NOW) is None
+
+    for sample in samples:
+        sample['latest']['views'] += 2000
+    assert run_radar_baseline_job(NOW+1800)['status'] == 'published'
+    frozen = repository.load_active_baseline(NOW+1800)
+    assert frozen['distributions']['likes_rate'][0]['count'] == 240
+    assert run_radar_baseline_job(NOW+3600)['status'] == 'unchanged'
+
+
 def test_weekly_rollover_replaces_bootstrap_without_mutating_it(postgres_runtime, monkeypatch):
     repo = RadarRepository(postgres_runtime.sessions)
     monkeypatch.setattr('jobs.radar_jobs.get_radar_repository', lambda: repo)
