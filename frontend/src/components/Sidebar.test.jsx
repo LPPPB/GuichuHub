@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
-import { Flame, Layers, TrendingUp, Trophy, Zap } from 'lucide-react'
+import { Flame, Layers, TrendingUp, Trophy, Users, Zap } from 'lucide-react'
 import Sidebar from './Sidebar'
 
 const groups = [
@@ -13,6 +13,7 @@ const groups = [
     { id: 'videos', label: '潜力视频', icon: Zap },
   ] },
   { id: 'assets', label: '创作资源', icon: Layers, tabs: [{ id: 'meme-materials', label: '梗素材库', icon: Layers }] },
+  { id: 'insight', label: '互动洞察', icon: Users, tabs: [{ id: 'up-trends', label: 'UP 主动态', icon: Users }] },
 ]
 
 function Harness(props) {
@@ -30,8 +31,8 @@ it('exposes the brand before opening navigation and lets the brand return home',
   render(<Harness />)
   const header = within(screen.getByRole('banner'))
   expect(header.getByText('GuichuHub')).toBeVisible()
-  await user.click(within(screen.getByRole('navigation', { name: '快捷导航' })).getByRole('button', { name: '热梗' }))
-  expect(screen.getByRole('heading', { name: 'memes' })).toBeVisible()
+  await user.click(within(screen.getByRole('navigation', { name: '快捷导航' })).getByRole('button', { name: '潜力视频' }))
+  expect(screen.getByRole('heading', { name: 'videos' })).toBeVisible()
   await user.click(header.getByRole('button', { name: 'GuichuHub 首页' }))
   expect(screen.getByRole('heading', { name: 'dashboard' })).toBeVisible()
 })
@@ -130,7 +131,7 @@ it('preserves the hidden administrator shortcut on the header brand', async () =
   expect(screen.getByRole('heading', { name: 'memes' })).toBeVisible()
 })
 
-it('restores focus to the brand when resizing and the selected desktop group is hidden', async () => {
+it('restores focus to the island brand when resizing and the selected desktop group is hidden', async () => {
   const user = userEvent.setup()
   const desktop = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }
   vi.stubGlobal('matchMedia', () => desktop)
@@ -144,7 +145,19 @@ it('restores focus to the brand when resizing and the selected desktop group is 
   const { act } = await import('@testing-library/react')
   act(() => onResize(desktop))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'GuichuHub 首页' })).toHaveFocus()
+  expect(within(screen.getByRole('complementary', { name: '桌面侧边栏' })).getByRole('button', { name: '品牌标志' })).toHaveFocus()
+})
+
+it('keeps just the three requested shortcuts available after navigating', async () => {
+  const user = userEvent.setup()
+  render(<Harness />)
+  const navigation = within(screen.getByRole('navigation', { name: '快捷导航' }))
+  expect(navigation.getAllByRole('button').map(button => button.textContent.trim())).toEqual(['鬼畜榜', '潜力视频', 'UP 主动态'])
+  await user.click(navigation.getByRole('button', { name: 'UP 主动态' }))
+  expect(screen.getByRole('heading', { name: 'up-trends' })).toBeVisible()
+  expect(navigation.getByRole('button', { name: 'UP 主动态' })).toHaveAttribute('aria-current', 'page')
+  await user.click(navigation.getByRole('button', { name: '鬼畜榜' }))
+  expect(screen.getByRole('heading', { name: 'kichu-rank' })).toBeVisible()
 })
 
 it('preserves the original compact group shortcuts and restores the full menu on expansion', async () => {

@@ -4,7 +4,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import SidebarContent from './SidebarContent'
 import './Sidebar.css'
 
-const shortcuts = ['kichu-rank', 'memes', 'videos', 'meme-materials']
+const shortcuts = ['kichu-rank', 'videos', 'up-trends']
 
 export default function Sidebar(props) {
   const { tabGroups = [], activeTab, onTabChange, isLive, liveExpired, onAdminLogin } = props
@@ -54,7 +54,7 @@ export default function Sidebar(props) {
       document.body.style.overflow = previousOverflow
       if (desktop?.matches) {
         const current = frame?.querySelector('.site-sidebar [aria-current="page"]')
-        const target = current && !current.closest('[hidden], [aria-hidden="true"], [inert]') ? current : headerRef.current?.querySelector('.site-brand')
+        const target = current && !current.closest('[hidden], [aria-hidden="true"], [inert]') ? current : frame?.querySelector('.site-sidebar [aria-label="品牌标志"]')
         target?.focus()
       } else menuRef.current?.focus()
     }
@@ -84,11 +84,11 @@ export default function Sidebar(props) {
           <Menu size={19} aria-hidden="true" /><span>菜单</span>
         </button>
       </div>
-      {activeTab === 'dashboard' && <nav className="site-shortcuts" aria-label="快捷导航">
-        {quickTabs.map(tab => <button type="button" key={tab.id} onClick={() => navigate(tab.id)}>
+      <nav className="site-shortcuts" aria-label="快捷导航">
+        {quickTabs.map(tab => <button type="button" key={tab.id} aria-current={activeTab === tab.id ? 'page' : undefined} onClick={() => navigate(tab.id)}>
           <tab.icon size={15} aria-hidden="true" /><span>{tab.label}</span>
         </button>)}
-      </nav>}
+      </nav>
     </header>
     <aside className={`site-sidebar${collapsed ? ' site-sidebar--collapsed' : ''}`} aria-label="桌面侧边栏">
       <button type="button" className="site-sidebar__collapse" onClick={() => setCollapsed(value => !value)}

@@ -19,8 +19,9 @@ const browser = await chromium.launch({
 })
 try {
   if (screenshotDir) await mkdir(screenshotDir, { recursive: true })
-  for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024, 1440]) {
-    const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: theme })
+  for (const theme of ['light', 'dark']) for (const width of [319, 320, 390, 768, 1024, 1046, 1440]) {
+    const height = [319, 1046].includes(width) ? 701 : 900
+    const page = await browser.newPage({ viewport: { width, height }, colorScheme: theme })
     const errors = []
     let fixtureMember = false
     page.on('pageerror', error => errors.push(error.message))
@@ -52,23 +53,29 @@ try {
         .map(animation => animation.finished.catch(() => {})))
     })
     const screenshot = async name => {
-      if (screenshotDir && [390, 1440].includes(width)) await page.screenshot({ path: resolve(screenshotDir, `${width}-${theme}-${name}.png`) })
+      if (screenshotDir && [319, 390, 1046, 1440].includes(width)) await page.screenshot({ path: resolve(screenshotDir, `${width}-${theme}-${name}.png`) })
     }
     await page.goto('https://navigation.test/')
     await page.getByRole('heading', { name: '正在爆发', exact: true }).waitFor()
     await settled()
-    assert.equal(await page.locator('.site-brand').isVisible(), true)
+    assert.equal(await page.locator('.site-header').isVisible(), width < 1024)
+    assert.equal(await page.locator('.site-brand').isVisible(), width < 1024)
     assert.equal(await page.locator('.site-sidebar').isVisible(), width >= 1024)
     assert.equal(await page.getByRole('button', { name: '打开导航菜单' }).isVisible(), width < 1024)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
-    const header = await page.locator('header').boundingBox()
+    const header = await page.locator('header').boundingBox() || { y: 0, height: 0 }
     const main = await page.locator('main').boundingBox()
     assert.ok(main.y >= header.y + header.height - 1, 'Header must not cover content')
+    if (width >= 1024) {
+      assert.ok(main.y < 1, 'Desktop must not retain an empty header row')
+      assert.ok((await page.locator('.site-sidebar').boundingBox()).height >= height - 34, 'Desktop island should reclaim header height')
+    }
     const shortcutButtons = page.getByRole('navigation', { name: '快捷导航' }).getByRole('button')
     if (width < 1024) {
       const boxes = await Promise.all((await shortcutButtons.all()).map(button => button.boundingBox()))
-      assert.equal(boxes.length, 4)
-      assert.ok(boxes.every(box => Math.abs(box.y - boxes[0].y) < 1 && box.height >= 44), 'Four shortcuts must share one row with touch targets')
+      assert.equal(boxes.length, 3)
+      assert.deepEqual((await shortcutButtons.allTextContents()).map(text => text.trim()), ['鬼畜榜', '潜力视频', 'UP 主动态'])
+      assert.ok(boxes.every(box => Math.abs(box.y - boxes[0].y) < 1 && box.height >= 44), 'Three shortcuts must share one row with touch targets')
     }
     await screenshot('home')
     if (width >= 1024) {
@@ -103,7 +110,7 @@ try {
       assert.equal(await drawer.getByRole('button', { name: '潜力视频', exact: true }).innerText(), '潜力视频')
       await page.keyboard.press('Escape')
       await drawer.waitFor({ state: 'detached' })
-      await page.setViewportSize({ width, height: 900 })
+      await page.setViewportSize({ width, height })
       await page.getByRole('button', { name: '展开侧边栏' }).click()
       await settled()
       assert.ok((await island.boundingBox()).width >= 248)
@@ -133,7 +140,7 @@ try {
       await drawer.waitFor({ state: 'detached' })
       assert.equal(await page.locator('.app-shell').getAttribute('inert'), null)
       assert.equal(await page.evaluate(() => document.body.style.overflow), '')
-      await page.setViewportSize({ width, height: 900 })
+      await page.setViewportSize({ width, height })
       await page.getByRole('button', { name: '打开导航菜单' }).click()
       await drawer.getByRole('button', { name: 'B 站账号登录' }).click()
       await drawer.waitFor({ state: 'detached' })
@@ -143,7 +150,7 @@ try {
       await page.getByRole('heading', { name: '正在爆发', exact: true }).waitFor()
     }
     await page.evaluate(() => window.scrollTo(0, 650))
-    assert.ok(Math.abs((await page.locator('header').boundingBox()).y) < 1, 'Brand must remain visible while scrolling')
+    if (width < 1024) assert.ok(Math.abs((await page.locator('header').boundingBox()).y) < 1, 'Narrow-screen brand must remain visible while scrolling')
     if (width >= 1024) {
       assert.ok(Math.abs((await page.locator('.site-sidebar').boundingBox()).y - header.height - 16) < 2)
       await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '热梗', exact: true }).click()
