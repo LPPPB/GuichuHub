@@ -123,6 +123,11 @@ it('preserves the hidden administrator shortcut on the header brand', async () =
   expect(onAdminLogin).not.toHaveBeenCalled()
   await user.click(brand)
   expect(onAdminLogin).toHaveBeenCalledOnce()
+  await user.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('button', { name: '热梗', exact: true }))
+  const sidebarBrand = within(screen.getByRole('complementary', { name: '桌面侧边栏' })).getByRole('button', { name: '品牌标志' })
+  for (let i = 0; i < 5; i++) await user.click(sidebarBrand)
+  expect(onAdminLogin).toHaveBeenCalledTimes(2)
+  expect(screen.getByRole('heading', { name: 'memes' })).toBeVisible()
 })
 
 it('restores focus to the brand when resizing and the selected desktop group is hidden', async () => {
@@ -142,17 +147,21 @@ it('restores focus to the brand when resizing and the selected desktop group is 
   expect(screen.getByRole('button', { name: 'GuichuHub 首页' })).toHaveFocus()
 })
 
-it('keeps every destination usable when the desktop island is collapsed', async () => {
+it('preserves the original compact group shortcuts and restores the full menu on expansion', async () => {
   const user = userEvent.setup()
   render(<Harness />)
   const collapse = screen.getByRole('button', { name: '收起侧边栏' })
+  const navigation = within(screen.getByRole('navigation', { name: '主导航' }))
+  await user.click(navigation.getByRole('button', { name: '潜力视频', exact: true }))
   expect(collapse).toHaveAttribute('aria-expanded', 'true')
   await user.click(collapse)
   expect(screen.getByRole('button', { name: '展开侧边栏' })).toHaveAttribute('aria-expanded', 'false')
-  await user.click(within(screen.getByRole('navigation', { name: '主导航' })).getByRole('button', { name: '潜力视频', exact: true }))
+  expect(navigation.queryByRole('button', { name: '热梗', exact: true })).not.toBeInTheDocument()
+  await user.click(navigation.getByRole('button', { name: '潜力视频', exact: true }))
   expect(screen.getByRole('heading', { name: 'videos' })).toBeVisible()
   await user.click(screen.getByRole('button', { name: '展开侧边栏' }))
   expect(screen.getByRole('button', { name: '收起侧边栏' })).toHaveAttribute('aria-expanded', 'true')
+  expect(navigation.getByRole('button', { name: '热梗', exact: true })).toBeVisible()
 })
 
 it('uses full navigation in the narrow-screen drawer even after collapsing the desktop island', async () => {

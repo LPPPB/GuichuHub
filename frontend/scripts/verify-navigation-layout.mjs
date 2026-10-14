@@ -22,6 +22,7 @@ try {
   for (const theme of ['light', 'dark']) for (const width of [320, 390, 768, 1024, 1440]) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: theme })
     const errors = []
+    let fixtureMember = false
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/*', async route => {
       const url = new URL(route.request().url())
@@ -29,13 +30,14 @@ try {
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="#ccebf4"/><path d="m0 100 55-65 35 35 30-45 40 75" fill="#68aabf"/><circle cx="125" cy="24" r="12" fill="#fff1b4"/></svg>' })
       if (url.hostname !== 'navigation.test') return route.abort()
       if (url.pathname.startsWith('/api/')) {
+        if (url.pathname === '/api/bili-auth/logout') fixtureMember = false
         const data = url.pathname === '/api/dashboard' ? {
           kichu_rank: [video], hot_memes: [], hot_songs: [], hot_videos: [video],
           material_candidates: [], meme_materials: [], danmaku_words: [], comments_gold: [], last_updated: '2026-10-14 18:00',
         } : url.pathname === '/api/bursting-videos' ? { videos: [video,
           { ...video, bvid: 'BVsecond', title: '朋友的酒 · 灵感混剪', views: 245000, speed: 21000 },
           { ...video, bvid: 'BVthird', title: '今天也要找到新灵感', views: 121000, speed: 23000 }],
-        } : url.pathname === '/api/auth/me' ? { admin: false, user: null } : []
+        } : url.pathname === '/api/auth/me' ? { admin: fixtureMember, user: fixtureMember ? { name: '示例站长' } : null } : []
         return route.fulfill({ json: { success: true, data } })
       }
       const path = resolve(root, url.pathname === '/' ? 'index.html' : `.${url.pathname}`)
@@ -77,6 +79,7 @@ try {
       assert.ok(islandBox.x >= 12 && islandBox.y >= header.height + 12, 'Island must have space from page edges')
       assert.ok(buttonBox.y - islandBox.y < 120, 'Collapse control belongs near the top of the island')
       assert.equal(await island.evaluate(el => getComputedStyle(el).borderRightWidth), '0px')
+      assert.equal(await island.evaluate(el => getComputedStyle(el).boxShadow.includes('0px 0px 0px 1px')), false, 'Island shadow must not recreate an outline')
       await collapse.hover()
       const hoverBox = await collapse.boundingBox()
       assert.ok(Math.abs(hoverBox.x - buttonBox.x) < 1 && Math.abs(hoverBox.y - buttonBox.y) < 1, 'Collapse control must not move on hover')
@@ -85,12 +88,12 @@ try {
       await settled()
       assert.ok((await island.boundingBox()).width <= 80)
       assert.ok((await page.locator('main').boundingBox()).x < expandedMain.x - 100, 'Collapsing must release content width')
-      const iconCenters = await island.locator('.site-nav-link > svg:first-child').evaluateAll(icons => icons.map(icon => {
+      const iconCenters = await island.locator('nav button > svg, [data-sidebar-actions] button > svg').evaluateAll(icons => icons.map(icon => {
         const box = icon.getBoundingClientRect(); return box.left + box.width / 2
       }))
       assert.ok(iconCenters.every(center => Math.abs(center - iconCenters[0]) < 1), 'Collapsed navigation and action icons must share one center line')
       const navigation = page.getByRole('navigation', { name: '主导航' })
-      for (const name of ['鬼畜榜', '热梗', '潜力视频', '梗素材库', '热歌 BGM', '素材发掘', '弹幕 & 评论', 'UP 主动态']) {
+      for (const name of ['总览', '鬼畜榜', '梗素材库', '弹幕 & 评论']) {
         assert.equal(await navigation.getByRole('button', { name, exact: true }).isVisible(), true, `${name} must remain reachable`)
       }
       await screenshot('collapsed')
@@ -148,6 +151,48 @@ try {
       assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '热梗', exact: true }).getAttribute('aria-current'), 'page')
     }
     assert.deepEqual(errors, [], 'No browser runtime errors')
+    if (width === 1440) {
+      fixtureMember = true
+      await page.reload()
+      await page.getByRole('button', { name: '刷新数据', exact: true }).waitFor()
+      await settled()
+      await screenshot('admin-home')
+      const verifyAccountMenu = async container => {
+        await container.getByRole('button', { name: /示例站长/ }).click()
+        const logout = container.getByRole('button', { name: '退出登录' })
+        const box = await logout.boundingBox()
+        assert.ok(box.y >= 0 && box.y + box.height <= 900, 'Account menu must fit the viewport')
+        await logout.click({ trial: true, timeout: 1500 })
+        await container.locator('.fixed.inset-0.z-10').click({ position: { x: 4, y: 4 } })
+      }
+      await verifyAccountMenu(page.locator('.site-sidebar'))
+      const getStyles = button => button.evaluate(el => {
+        const style = getComputedStyle(el)
+        return Object.fromEntries(['fontSize', 'fontWeight', 'color', 'backgroundColor', 'borderColor', 'borderRadius',
+          'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'].map(key => [key, style[key]]))
+      })
+      const originalStyles = {}
+      for (const name of ['我的收藏', '刷新数据', theme === 'dark' ? '切换到日间模式' : '切换到夜间模式']) {
+        originalStyles[name] = await getStyles(page.locator('.site-sidebar').getByRole('button', { name, exact: true }))
+      }
+      await page.setViewportSize({ width: 390, height: 900 })
+      await page.getByRole('button', { name: '打开导航菜单' }).click()
+      const drawer = page.getByRole('dialog', { name: '站点导航' })
+      await settled()
+      for (const [name, style] of Object.entries(originalStyles)) {
+        assert.deepEqual(await getStyles(drawer.getByRole('button', { name, exact: true })), style, `${name}: drawer must preserve the original sidebar UI`)
+      }
+      const drawerBox = await drawer.boundingBox()
+      await verifyAccountMenu(drawer)
+      assert.equal(drawerBox.x, 0, 'Drawer must attach to the viewport edge')
+      assert.equal(await drawer.evaluate(el => getComputedStyle(el).borderRadius), '0px', 'Drawer must not use an island frame')
+      if (screenshotDir) await page.screenshot({ path: resolve(screenshotDir, `390-${theme}-admin-drawer.png`) })
+      await drawer.getByRole('button', { name: /示例站长/ }).click()
+      await drawer.getByRole('button', { name: '退出登录' }).click()
+      await drawer.getByRole('button', { name: 'B 站账号登录' }).waitFor()
+      assert.equal(await drawer.getByRole('button', { name: '刷新数据', exact: true }).count(), 0)
+      assert.deepEqual(errors, [])
+    }
     console.log(`${theme} ${width}px: brand, breakpoints, navigation, focus, scroll and overflow passed`)
     await page.close()
   }
