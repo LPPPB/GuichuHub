@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Trash2, Tag, FileText, Edit3, Check, Flame, Music, Video } from 'lucide-react'
 import { api } from '../utils/api'
 
 export default function FavoritesPanel({ favorites, onClose, onRemove, formatNumber, onRefresh }) {
+  const closeRef = useRef(null)
+  useEffect(() => { closeRef.current?.focus() }, [])
   const [activeType, setActiveType] = useState('all')
   const [editingId, setEditingId] = useState(null)
   const [editTags, setEditTags] = useState('')
@@ -58,6 +60,8 @@ export default function FavoritesPanel({ favorites, onClose, onRemove, formatNum
         <div className="p-4 border-b border-slate-200 flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-800">我的收藏夹</h2>
           <button
+            ref={closeRef}
+            aria-label="关闭收藏夹"
             onClick={onClose}
             className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
           >

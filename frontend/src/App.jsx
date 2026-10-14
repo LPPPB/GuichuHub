@@ -246,7 +246,7 @@ export default function App() {
   const d = (idx, step = 45) => idx * step
 
   return (
-    <div className="min-h-screen flex">
+    <div className="app-shell">
       <Sidebar
         tabGroups={tabGroups} devTab={devTab}
         activeTab={activeTab} onTabChange={setActiveTab}
