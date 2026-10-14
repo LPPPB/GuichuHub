@@ -96,6 +96,20 @@ def test_zero_denominator_and_low_sample_are_not_high_interaction(baseline):
     assert axes(build_video_radar(c, baseline, NOW))['sharing']['status'] == 'low_sample'
 
 
+def test_low_sample_keeps_known_raw_rates_without_scoring_or_referencing(baseline):
+    sample = context()
+    sample['bvid'] = 'BVlow'
+    sample['latest'].update(views=1000, favorites=100)
+    retention = axes(build_video_radar(sample, baseline, NOW))['retention']
+    assert retention['status'] == 'low_sample'
+    assert retention['score'] is None
+    assert retention['raw'] == 100
+    assert retention['components'][0]['raw'] == 100
+
+    reference = build_baseline([context(i) for i in range(240)] + [sample], NOW, NOW+86400)
+    assert reference['distributions']['favorites_rate'][0]['count'] == 240
+
+
 def test_online_zero_precision_and_expiry_are_separate():
     c = context()
     c['online'] = dict(online_count=0, online_display='0', online_precision='exact', online_observed_at=NOW)

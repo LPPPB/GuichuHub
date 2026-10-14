@@ -77,7 +77,7 @@ def _growth(context, row):
 def _values(context, row):
     views = number(row['views'])
     values = {'views': views}
-    if views >= 1500:
+    if views > 0:
         for key in COUNTS[1:]:
             values[key+'_rate'] = float(row[key])/views*1000
     speed, _, _, _, _ = _growth(context, row)
@@ -111,7 +111,7 @@ def build_baseline(contexts, cutoff_ts, valid_until):
         global_values = []
         for c, row, age in samples:
             value = _values(c, row).get(metric)
-            if value is None:
+            if value is None or (metric.endswith('_rate') and row['views'] < 1500):
                 continue
             global_values.append(value)
             if age is not None:
