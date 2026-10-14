@@ -1,0 +1,54 @@
+name: frontend
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run frontend tests
+        run: npm test -- --maxWorkers=2
+      - name: Build production frontend
+        run: npm run build
+      - name: Install layout browser
+        run: npx playwright-core install --with-deps chromium
+      - name: Verify responsive layout and radar interactions
+        run: |
+          LAYOUT_COLOR_SCHEME=light node scripts/verify-ranking-layout.mjs
+          LAYOUT_COLOR_SCHEME=dark node scripts/verify-ranking-layout.mjs
+
+  development-bootstrap:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify development credential and data protection
+        run: node --test ops/dev/dev.test.mjs
