@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
+import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import SidebarContent from './SidebarContent'
+import MobileDrawerContent from './MobileDrawerContent'
 import './Sidebar.css'
 
 const shortcuts = ['kichu-rank', 'videos', 'up-trends']
@@ -27,7 +28,8 @@ export default function Sidebar(props) {
     const previousOverflow = document.body.style.overflow
     frame?.setAttribute('inert', '')
     document.body.style.overflow = 'hidden'
-    drawer.querySelector('button')?.focus()
+    const initialFocus = drawer.querySelector('[aria-label="关闭导航菜单"]')
+    initialFocus?.focus()
     const focusable = () => [...drawer.querySelectorAll('button:not(:disabled), a[href], [tabindex="0"]')]
       .filter(element => !element.closest('[hidden], [aria-hidden="true"], [inert]'))
     const onKeyDown = event => {
@@ -39,7 +41,7 @@ export default function Sidebar(props) {
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
     }
     const keepFocus = event => {
-      if (!drawer.contains(event.target)) drawer.querySelector('button')?.focus()
+      if (!drawer.contains(event.target)) initialFocus?.focus()
     }
     const desktop = window.matchMedia?.('(min-width: 1024px)')
     const onResize = event => { if (event.matches) setMobileOpen(false) }
@@ -101,8 +103,7 @@ export default function Sidebar(props) {
     {mobileOpen && createPortal(<div className="site-drawer-layer">
       <button type="button" className="site-drawer-backdrop" tabIndex={-1} aria-label="关闭导航遮罩" onClick={() => setMobileOpen(false)} />
       <div className="site-drawer" id="site-navigation-drawer" ref={drawerRef} role="dialog" aria-modal="true" aria-label="站点导航">
-        <button type="button" className="absolute top-3 right-3 kb-icon-btn z-10" aria-label="关闭导航菜单" onClick={() => setMobileOpen(false)}><X size={17} /></button>
-        <SidebarContent {...actions} tabGroups={tabGroups} drawer label="抽屉导航" onTabChange={navigate} onLogoClick={registerBrandClick} />
+        <MobileDrawerContent {...actions} tabGroups={tabGroups} onTabChange={navigate} onLogoClick={registerBrandClick} onClose={() => setMobileOpen(false)} />
       </div>
     </div>, document.body)}
   </>

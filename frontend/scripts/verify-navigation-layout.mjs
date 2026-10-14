@@ -122,11 +122,21 @@ try {
       await settled()
       assert.equal(await page.locator('.app-shell').getAttribute('inert'), '')
       assert.equal(await page.evaluate(() => document.body.style.overflow), 'hidden')
+      const drawerBox = await drawer.boundingBox()
+      assert.equal(drawerBox.x, 0)
+      assert.ok(drawerBox.width <= 320 && width - drawerBox.width >= 48, 'Drawer must leave a usable backdrop')
+      assert.equal(await drawer.getByRole('heading', { name: '内容趋势' }).count(), 1)
+      assert.equal(await drawer.getByRole('button', { name: '内容趋势' }).count(), 0)
+      assert.equal(await drawer.getByText('个人技术小站 · 鬼畜看板').count(), 0)
+      const rows = await drawer.locator('.mobile-drawer-item').evaluateAll(items => items.map(item => item.getBoundingClientRect().height))
+      assert.ok(rows.every(height => height >= 44), 'Drawer rows must retain touch targets')
       await screenshot('drawer')
-      await page.keyboard.press('Shift+Tab')
-      assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'B 站账号登录')
-      await page.keyboard.press('Tab')
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '关闭导航菜单')
+      await drawer.getByRole('button', { name: '品牌标志', exact: true }).focus()
+      await page.keyboard.press('Shift+Tab')
+      assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'B 站账号登录')
+      await page.keyboard.press('Tab')
+      assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '品牌标志')
       await drawer.getByRole('button', { name: '热梗', exact: true }).click()
       await drawer.waitFor({ state: 'detached' })
       await page.getByRole('heading', { name: '热梗库', exact: true }).waitFor()
@@ -170,7 +180,11 @@ try {
         const box = await logout.boundingBox()
         assert.ok(box.y >= 0 && box.y + box.height <= 900, 'Account menu must fit the viewport')
         await logout.click({ trial: true, timeout: 1500 })
-        await container.locator('.fixed.inset-0.z-10').click({ position: { x: 4, y: 4 } })
+        if (await container.locator('.mobile-drawer-footer').count()) {
+          await container.getByRole('button', { name: /示例站长/ }).click()
+        } else {
+          await container.locator('.fixed.inset-0.z-10').click({ position: { x: 4, y: 4 } })
+        }
       }
       await verifyAccountMenu(page.locator('.site-sidebar'))
       const getStyles = button => button.evaluate(el => {
@@ -186,9 +200,6 @@ try {
       await page.getByRole('button', { name: '打开导航菜单' }).click()
       const drawer = page.getByRole('dialog', { name: '站点导航' })
       await settled()
-      for (const [name, style] of Object.entries(originalStyles)) {
-        assert.deepEqual(await getStyles(drawer.getByRole('button', { name, exact: true })), style, `${name}: drawer must preserve the original sidebar UI`)
-      }
       const drawerBox = await drawer.boundingBox()
       await verifyAccountMenu(drawer)
       assert.equal(drawerBox.x, 0, 'Drawer must attach to the viewport edge')
@@ -198,6 +209,14 @@ try {
       await drawer.getByRole('button', { name: '退出登录' }).click()
       await drawer.getByRole('button', { name: 'B 站账号登录' }).waitFor()
       assert.equal(await drawer.getByRole('button', { name: '刷新数据', exact: true }).count(), 0)
+      await page.keyboard.press('Escape')
+      await drawer.waitFor({ state: 'detached' })
+      await page.setViewportSize({ width, height })
+      await settled()
+      for (const [name, style] of Object.entries(originalStyles)) {
+        if (name === '刷新数据') continue // Logout intentionally removes this admin action.
+        assert.deepEqual(await getStyles(page.locator('.site-sidebar').getByRole('button', { name, exact: true })), style, `${name}: desktop UI must stay unchanged`)
+      }
       assert.deepEqual(errors, [])
     }
     console.log(`${theme} ${width}px: brand, breakpoints, navigation, focus, scroll and overflow passed`)
