@@ -73,6 +73,10 @@ class BusinessRepository:
                     "online_count": video.get("online_count_raw", video.get("online_count")),
                     "online_precision": video.get("online_precision"),
                     "potential_score": video.get("potential_score"),
+                    "metrics_source": video.get('metrics_source', 'legacy_unknown'),
+                    "observed_at": video.get('observed_at'),
+                    "online_observed_at": video.get('online_observed_at'),
+                    "online_display": video.get('online_display'),
                 }
                 session.execute(insert(video_observations).values(**metrics).on_conflict_do_update(
                     index_elements=[video_observations.c.bvid, video_observations.c.ts],
@@ -90,6 +94,7 @@ class BusinessRepository:
         row = {column.name: metrics.get(column.name) for column in video_observations.columns
                if column.name not in {"bvid", "ts"}}
         row.update(bvid=bvid, ts=ts)
+        row['metrics_source'] = metrics.get('metrics_source', 'legacy_unknown')
         if "online_count_raw" in metrics:
             row["online_count"] = metrics["online_count_raw"]
         statement = insert(video_observations).values(**row).on_conflict_do_update(

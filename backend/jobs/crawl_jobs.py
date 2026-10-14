@@ -128,6 +128,18 @@ def _crawl_once(trigger):
     return True
 
 
+def _radar_observations_changed():
+    from storage.repositories.radar import get_radar_repository
+    from jobs.radar_jobs import run_radar_baseline_job
+    repository = get_radar_repository()
+    if repository is not None:
+        repository.touch_observations(int(time.time()))
+        try:
+            run_radar_baseline_job()
+        except Exception as error:
+            logger.warning('雷达基线构建失败，保留明确不可用状态: %s', type(error).__name__)
+
+
 def _crawl_job_locked(trigger):
     """锁已持有时的抓取主流程（由 run_crawl_job / refresh_data 的工作线程调用）。
 
@@ -136,6 +148,7 @@ def _crawl_job_locked(trigger):
     """
     print(f'[抓取] 开始（触发源: {trigger}）...')
     run_id = tsdb.begin_crawl_run(trigger)
+    records_written = 0
     try:
         new_data = run_all_crawlers()
         all_videos = new_data.pop('_all_videos', [])
@@ -157,6 +170,7 @@ def _crawl_job_locked(trigger):
                 for v in all_videos:
                     source = v.pop('_source', None) or 'unknown'
                     tsdb.record_video(v, ts, source)
+                    records_written += 1
                 tsdb.record_words(new_data.get('danmaku_words', []), ts)
                 # 候选池视频保持 hot 高频观测（A4）
                 hot_bvids = [
@@ -190,6 +204,11 @@ def _crawl_job_locked(trigger):
             pass
         raise  # 重新抛出，让上层 _run_with_retry 处理重试（HTTP 路径在自己的 try 中吞掉）
     finally:
+        if records_written:
+            try:
+                _radar_observations_changed()
+            except Exception as error:
+                logger.warning('已提交观测的雷达版本推进失败: %s', type(error).__name__)
         _crawl_status['crawling'] = False
         _crawl_lock.release()
 
@@ -257,6 +276,19 @@ def run_observe_job():
         ranked = _get_rank_bvids()
         if ranked:
             targets = list(dict.fromkeys(ranked + targets))
+        # Shared hot-tier coverage can contain fewer than 200 eligible ghost
+        # videos. A stable reference quota prevents a permanently empty baseline.
+        # Reference-only targets need complete stats, not extra online requests.
+        from storage.repositories.radar import get_radar_repository
+        repository = get_radar_repository()
+        reference_only = set()
+        if repository is not None:
+            try:
+                references = repository.reference_observation_targets(int(time.time()))
+                reference_only = set(references)-set(targets)
+                targets = list(dict.fromkeys(targets+references))
+            except Exception as error:
+                logger.warning('雷达参考观测目标读取失败，保留常规观测: %s', type(error).__name__)
         if not targets:
             print('[观测] 无观测目标')
             return
@@ -271,12 +303,15 @@ def run_observe_job():
                 if not detail:
                     continue
                 stat = detail.get('stat', {})
+                observed_at = int(time.time())
                 cid = detail.get('cid')
                 online = None
                 online_precision = None
-                if cid and not _online_breaker_open():
-                    online, online_precision, _ = fetch_online_count(bvid, cid)
+                if cid and bvid not in reference_only and not _online_breaker_open():
+                    online, online_precision, online_display = fetch_online_count(bvid, cid)
                     _online_pacing()
+                else:
+                    online_display = None
                 tsdb.record_obs(bvid, ts, {
                     'views': stat.get('view'),
                     'likes': stat.get('like'),
@@ -287,10 +322,17 @@ def run_observe_job():
                     'danmaku': stat.get('danmaku'),
                     'online_count': online,
                     'online_precision': online_precision,
+                    'online_display': online_display,
+                    'online_observed_at': int(time.time()) if online is not None else None,
+                    'observed_at': observed_at,
+                    'metrics_source': 'bilibili_stat' if all(stat.get(k) is not None for k in
+                        ('view', 'like', 'coin', 'favorite', 'share', 'reply', 'danmaku')) else 'legacy_unknown',
                 })
                 observed += 1
             except Exception as e:
                 print(f'  [观测] {bvid} 失败: {e}')
+        if observed:
+            _radar_observations_changed()
         retired = tsdb.refresh_observe_tiers()
         tsdb.finish_crawl_run(run_id, 'success', {
             'targets': len(targets), 'observed': observed, 'retired_to_cold': retired,

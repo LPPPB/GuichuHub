@@ -73,3 +73,15 @@ it('opens and closes an observation panel without nesting controls in a video li
     request.mockRestore()
   }
 })
+
+it('reuses exactly one online slot with timestamp, precision, zero and stale states', () => {
+  const obs = { count: 1000, display: '1000+', precision: 'rounded', observed_at: 1700000000, status: 'available' }
+  const { rerender } = render(<VideoCard video={{ ...video, online_count: 454, online_observation: obs }} formatNumber={String} />)
+  expect(screen.getAllByText(/在看观测 1000\+/)).toHaveLength(1)
+  expect(screen.queryByText(/454/)).not.toBeInTheDocument()
+  expect(screen.getByText(/06:13/)).toBeVisible()
+  rerender(<VideoCard video={{ ...video, online_observation: { ...obs, count: 0, display: '0', status: 'stale' } }} formatNumber={String} />)
+  expect(screen.getByText(/历史在看 0人/)).toBeVisible()
+  rerender(<VideoCard video={{ ...video, online_observation: { status: 'unavailable' } }} formatNumber={String} />)
+  expect(screen.getByText('在看暂缺')).toBeVisible()
+})

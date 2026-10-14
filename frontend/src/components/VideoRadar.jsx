@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import RadarDetails, { observationTime } from './RadarDetails'
 
 const SIZE = 164
 const CENTER = 82
@@ -17,7 +18,8 @@ function pointText(points) {
   return points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ')
 }
 
-function axisTooltip(axis) {
+function axisTooltip(axis, v2 = false) {
+  if (v2) return `${axis.label}：${axis.score == null ? axis.reason || '暂无可信观测' : `${axis.score}分`}`
   if (axis.status !== 'available') return `${axis.label}：暂无实时观测`
   if (axis.id === 'reach' || axis.id === 'live') return `${axis.label}：${Number(axis.raw || 0).toLocaleString()}`
   if (axis.id === 'momentum') return `${axis.label}：${axis.score}`
@@ -32,7 +34,21 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
   const descriptionId = `video-radar-description-${instanceId}`
   const [active, setActive] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [selected, setSelected] = useState(null)
   const axes = radar?.axes || []
+  const v2 = radar?.algorithm_version === 'radar-v2'
+
+  useEffect(() => {
+    if (!selected) return undefined
+    const outside = event => { if (!rootRef.current?.contains(event.target)) setSelected(null) }
+    const escape = event => { if (event.key === 'Escape') setSelected(null) }
+    document.addEventListener('pointerdown', outside)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [selected])
 
   const reducedMotion = typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -95,7 +111,7 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
       return `${result}${command}${x.toFixed(2)},${y.toFixed(2)}`
     }, '')
     return {
-      grid: [1 / 2, 1].map(level => pointText(outer.map(([x, y]) => [
+      grid: (v2 ? [0.25, 0.5, 0.75, 1] : [1 / 2, 1]).map(level => pointText(outer.map(([x, y]) => [
         CENTER + (x - CENTER) * level,
         CENTER + (y - CENTER) * level,
       ]))),
@@ -106,15 +122,17 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
       hasIncompleteData: data.some(point => point == null),
       labels: axes.map((axis, index) => ({ axis, point: polarPoint(index, total, RADIUS + 16) })),
     }
-  }, [axes, progress])
+  }, [axes, progress, v2])
 
   if (!axes.length) return null
 
-  const axisSummary = axes.map(axisTooltip).join('；')
+  const axisSummary = axes.map(axis => axisTooltip(axis, v2)).join('；')
+  const selectedAxis = axes.find(axis => axis.id === selected?.id)
 
   return (
-    <div ref={rootRef} className={`relative w-[164px] h-[164px] shrink-0 select-none ${className}`}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="视频数据雷达图" aria-describedby={descriptionId} className="w-full h-full overflow-visible">
+    <div ref={rootRef} className={`relative w-[164px] shrink-0 select-none ${v2 ? 'video-radar-v2' : 'h-[164px]'} ${className}`}
+      onMouseLeave={() => setSelected(current => current?.pinned ? current : null)}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="视频数据雷达图" aria-describedby={descriptionId} className="w-full h-[164px] overflow-visible">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="rgb(var(--neon-rose))" stopOpacity="0.28" />
@@ -123,6 +141,10 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
         </defs>
         {grid.map((points, index) => (
           <polygon key={index} points={points} fill="none" stroke="currentColor" strokeWidth="0.8" className="text-haze-400/15" />
+        ))}
+        {v2 && [25, 50, 75, 100].map((value, index) => (
+          <text key={value} x={CENTER + 4} y={CENTER - RADIUS * (index + 1) / 4 + 4}
+            className="fill-haze-500" fontSize="8">{value}</text>
         ))}
         {spokes.map(([x1, y1, x2, y2], index) => (
           <line key={index} x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth="0.8" className="text-haze-400/15" />
@@ -143,7 +165,7 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
           const [x, y] = point || outerPoints[index]
           return (
             <g key={axis.id}>
-              <title>{axisTooltip(axis)}</title>
+              <title>{axisTooltip(axis, v2)}</title>
               {unavailable ? (
                 <>
                   <circle cx={x} cy={y} r="4" fill="rgb(var(--void-800))" stroke="rgb(var(--haze-500))" strokeWidth="1.2" opacity="0.9" />
@@ -157,6 +179,18 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
           )
         })}
       </svg>
+      {v2 && labels.map(({ axis, point: [x, y] }) => <button key={axis.id} type="button"
+        className="video-radar-hit" style={{ left: `${x / SIZE * 100}%`, top: `${y}px` }}
+        aria-label={`${axis.label}详情`} aria-expanded={selected?.id === axis.id}
+        aria-controls={`${descriptionId}-detail`}
+        onMouseEnter={() => setSelected(current => current?.pinned ? current : { id: axis.id, pinned: false })}
+        onClick={() => setSelected(current => current?.id === axis.id && current.pinned ? null : { id: axis.id, pinned: true })} />)}
+      {v2 && <p className="text-center text-[9px] leading-4 text-haze-400 mt-1"><span>相对站内观测样本</span><br />观测 {observationTime(radar.observed_at)}</p>}
+      {v2 && selectedAxis && <div id={`${descriptionId}-detail`} className="video-radar-detail"
+        role="dialog" aria-label={selectedAxis.label}>
+        <RadarDetails axis={selectedAxis} radar={radar} />
+        <button type="button" onClick={() => setSelected(null)} className="text-bili-default mt-2">关闭详情</button>
+      </div>}
       <span id={descriptionId} className="sr-only">{axisSummary}</span>
     </div>
   )

@@ -242,6 +242,8 @@ def fetch_kichu_newest(limit=20):
         seen.add(bvid)
         item = parse_video_item(v, with_tags=False)
         item['_stats_estimated'] = True  # newlist stat 全 0，需补抓
+        item['metrics_source'] = 'estimated'
+        item.pop('observed_at', None)
         collected.append(item)
         if len(collected) >= limit:
             break
@@ -658,6 +660,7 @@ def _build_video_dict(fields, pts=None, stats_estimated=False):
     拼 url,并按需追加 pts(排行榜)/_stats_estimated(估算标记)。
     """
     result = dict(fields)
+    result['metrics_source'] = 'estimated' if stats_estimated else fields.get('metrics_source', 'legacy_unknown')
     result['description'] = (fields.get('description') or '')[:300]
     result['url'] = f'https://www.bilibili.com/video/{fields["bvid"]}'
     trend_score = calc_trend_score(
@@ -763,6 +766,8 @@ def parse_video_item(video, with_tags=False):
         'duration': _parse_duration(video.get('duration', 0)),
         'pub_date': _parse_pubdate(video.get('pubdate', 0) or video.get('senddate', 0)),
     }
+    if all(stat.get(key) is not None for key in ('view', 'like', 'coin', 'favorite', 'share', 'reply', 'danmaku')):
+        fields.update(metrics_source='bilibili_stat', observed_at=int(time.time()))
     return _build_video_dict(fields)
 
 def fetch_popular_multi(pages=3, ps=50):
@@ -1966,6 +1971,12 @@ def _apply_real_stat(v, detail):
     """
     _apply_video_metadata(v, detail)
     stat = detail.get('stat', {})
+    if all(stat.get(key) is not None for key in ('view', 'like', 'coin', 'favorite', 'share', 'reply', 'danmaku')):
+        v.update(metrics_source='bilibili_stat', observed_at=int(time.time()))
+    elif v.get('metrics_source') == 'bilibili_stat':
+        # Partial replacement mixes sampling times; it cannot certify a whole row.
+        v['metrics_source'] = 'legacy_unknown'
+        v.pop('observed_at', None)
     v['views'] = stat.get('view', v.get('views', 0))
     v['likes'] = stat.get('like', v.get('likes', 0))
     v['coins'] = stat.get('coin', v.get('coins', 0))
@@ -2051,6 +2062,7 @@ def _enrich_with_stats(candidates):
         if online_display is not None:
             v['online_display'] = online_display
             v['online_precision'] = online_precision
+            v['online_observed_at'] = int(time.time())
         # 排行榜/搜索视频:用真实 stat 覆盖估算值
         if v.get('_stats_estimated'):
             _apply_real_stat(v, detail)

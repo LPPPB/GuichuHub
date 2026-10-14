@@ -8,8 +8,8 @@ from sqlalchemy import create_engine, text
 from storage.migrations import _config, alembic_heads, upgrade_database
 
 
-def test_analysis_job_is_the_only_new_head():
-    assert alembic_heads() == ["0003_up_analysis_jobs"]
+def test_analysis_job_chain_has_one_current_head():
+    assert alembic_heads() == ["0004_radar_v2"]
 
 
 def test_upgrade_from_0002_preserves_observations(empty_postgres_url):

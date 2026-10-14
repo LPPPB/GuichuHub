@@ -17,6 +17,7 @@ from storage.postgres import create_session_factory
 from storage.repositories.auth import AuthRepository
 from storage.repositories.business import BusinessRepository
 from storage.repositories.state import StateRepository
+from storage.repositories.radar import RadarRepository, configure_radar_repository
 from storage.repositories.analysis_jobs import AnalysisJobRepository, configure_analysis_repository
 from storage.settings import DatabaseSettings
 
@@ -31,6 +32,7 @@ class PostgresRuntime:
     auth: AuthRepository
     state: StateRepository
     analysis_jobs: AnalysisJobRepository
+    radar: RadarRepository
 
 
 def configure_postgres_runtime(role: str, env: Mapping[str, str] | None = None) -> PostgresRuntime:
@@ -45,6 +47,7 @@ def configure_postgres_runtime(role: str, env: Mapping[str, str] | None = None) 
         auth=AuthRepository(sessions),
         state=StateRepository(sessions),
         analysis_jobs=AnalysisJobRepository(sessions, business),
+        radar=RadarRepository(sessions),
     )
     db.configure_business_repository(runtime.business)
     configure_analysis_repository(runtime.analysis_jobs)
@@ -52,4 +55,5 @@ def configure_postgres_runtime(role: str, env: Mapping[str, str] | None = None) 
     database.configure_state_repository(runtime.state)
     runtime_settings.configure_runtime_settings_repository(runtime.state)
     tracked_ups.configure_state_repository(runtime.state)
+    configure_radar_repository(runtime.radar)
     return runtime

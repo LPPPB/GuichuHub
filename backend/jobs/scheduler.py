@@ -56,6 +56,7 @@ def setup_scheduler():
     """
     # 延迟 import：避免 app.py 顶层 import 时触发 crawl_jobs → collectors 链加载
     from jobs.crawl_jobs import run_crawl_job, run_observe_job, run_analysis_job
+    from jobs.radar_jobs import run_radar_baseline_job
 
     scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
 
@@ -113,5 +114,7 @@ def setup_scheduler():
                 CALENDAR_DAILY_HOUR, CALENDAR_DAILY_MINUTE,
                 CALENDAR_WEEKLY_DAY, CALENDAR_WEEKLY_HOUR, CALENDAR_WEEKLY_MINUTE)
 
+    scheduler.add_job(run_radar_baseline_job, 'cron', day_of_week='mon', hour=0, minute=0,
+                      id='radar_baseline', name='雷达参考基线 每周一 00:00')
     scheduler.start()
     return scheduler

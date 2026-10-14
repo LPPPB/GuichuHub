@@ -21,6 +21,15 @@ videos = app_table("videos", Column("bvid", String(32), primary_key=True), Colum
 ups = app_table("ups", Column("mid", BigInteger, primary_key=True), Column("name", Text), Column("face", Text), Column("tracked", Boolean, nullable=False, server_default="false"))
 video_observations = app_table("video_observations", Column("bvid", String(32), ForeignKey("app.videos.bvid", ondelete="CASCADE"), primary_key=True), Column("ts", BigInteger, primary_key=True), Column("views", BigInteger), Column("likes", BigInteger), Column("coins", BigInteger), Column("favorites", BigInteger), Column("shares", BigInteger), Column("comments", BigInteger), Column("danmaku", BigInteger), Column("online_count", BigInteger), Column("online_precision", String(16)), Column("potential_score", Float))
 Index("idx_video_observations_ts", video_observations.c.ts)
+video_observations.append_column(Column('metrics_source', String(32), nullable=False, server_default='legacy_unknown'))
+video_observations.append_column(Column('observed_at', BigInteger))
+video_observations.append_column(Column('online_observed_at', BigInteger))
+video_observations.append_column(Column('online_display', Text))
+Index('idx_video_observations_radar_time', video_observations.c.bvid, video_observations.c.observed_at)
+radar_baselines = app_table('radar_baselines', Column('version', String(80), primary_key=True),
+    Column('algorithm_version', String(32), nullable=False), Column('cutoff_ts', BigInteger, nullable=False),
+    Column('valid_until', BigInteger, nullable=False), Column('payload', JSONB, nullable=False),
+    Column('created_at', BigInteger, nullable=False))
 video_tags = app_table("video_tags", Column("bvid", String(32), ForeignKey("app.videos.bvid", ondelete="CASCADE"), primary_key=True), Column("tag", Text, primary_key=True), Column("ts", BigInteger, nullable=False))
 word_observations = app_table("word_observations", Column("word", Text, primary_key=True), Column("ts", BigInteger, primary_key=True), Column("scope", String(32), primary_key=True, server_default="danmaku"), Column("count", Integer, nullable=False))
 crawl_runs = app_table("crawl_runs", Column("id", BigInteger, primary_key=True, autoincrement=True), Column("started_at", BigInteger, nullable=False), Column("finished_at", BigInteger), Column("status", String(16), nullable=False), Column("trigger_source", Text), Column("stats", JSONB, nullable=False, server_default="{}"))
