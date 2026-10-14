@@ -19,6 +19,7 @@ export default function BilibiliLogin({ onClose, onLoginSuccess, mode = 'identit
   const [userInfo, setUserInfo] = useState(null)
   const pollRef = useRef(null)
   const expiredRef = useRef(false)
+  const closeRef = useRef(null)
 
   const generateQr = async () => {
     setStatus('loading')
@@ -72,6 +73,7 @@ export default function BilibiliLogin({ onClose, onLoginSuccess, mode = 'identit
   }
 
   useEffect(() => {
+    closeRef.current?.focus()
     generateQr()
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
@@ -88,7 +90,7 @@ export default function BilibiliLogin({ onClose, onLoginSuccess, mode = 'identit
           <h2 className="text-xl font-bold text-slate-800">
             {isCollect ? '采集账号登录' : 'B站账号登录'}
           </h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
+          <button ref={closeRef} aria-label="关闭登录" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100">
             <X size={20} />
           </button>
         </div>

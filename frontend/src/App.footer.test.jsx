@@ -13,6 +13,7 @@ vi.mock('./utils/api', () => ({
     getInteractionQuality: vi.fn().mockResolvedValue({ success: true, data: [] }),
     getTagHeat: vi.fn().mockResolvedValue({ success: true, data: [] }),
     getRisingWords: vi.fn().mockResolvedValue({ success: true, data: [], meta: null }),
+    getQrcode: vi.fn().mockResolvedValue({ success: false, message: '测试环境' }),
   },
 }))
 
@@ -45,6 +46,15 @@ it('navigates to an existing dashboard tab without inventing a route', async () 
   const footer = within(screen.getByRole('contentinfo'))
   await user.click(footer.getByRole('button', { name: '热梗' }))
   expect(await screen.findByRole('heading', { name: '热梗库' })).toBeInTheDocument()
+})
+
+it('moves focus from the navigation drawer into the login panel', async () => {
+  const user = userEvent.setup()
+  render(<App />)
+  await user.click(screen.getByRole('button', { name: '打开导航菜单' }))
+  await user.click(within(screen.getByRole('dialog', { name: '站点导航' })).getByRole('button', { name: 'B 站账号登录' }))
+  expect(screen.queryByRole('dialog', { name: '站点导航' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '关闭登录' })).toHaveFocus()
 })
 
 it('keeps the ICP link and displays the approved public security filing as a safe query link', () => {
