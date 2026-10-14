@@ -69,6 +69,42 @@ try {
       assert.ok(boxes.every(box => Math.abs(box.y - boxes[0].y) < 1 && box.height >= 44), 'Four shortcuts must share one row with touch targets')
     }
     await screenshot('home')
+    if (width >= 1024) {
+      const island = page.locator('.site-sidebar')
+      const collapse = page.getByRole('button', { name: '收起侧边栏' })
+      const islandBox = await island.boundingBox()
+      const buttonBox = await collapse.boundingBox()
+      assert.ok(islandBox.x >= 12 && islandBox.y >= header.height + 12, 'Island must have space from page edges')
+      assert.ok(buttonBox.y - islandBox.y < 120, 'Collapse control belongs near the top of the island')
+      assert.equal(await island.evaluate(el => getComputedStyle(el).borderRightWidth), '0px')
+      await collapse.hover()
+      const hoverBox = await collapse.boundingBox()
+      assert.ok(Math.abs(hoverBox.x - buttonBox.x) < 1 && Math.abs(hoverBox.y - buttonBox.y) < 1, 'Collapse control must not move on hover')
+      const expandedMain = await page.locator('main').boundingBox()
+      await collapse.click()
+      await settled()
+      assert.ok((await island.boundingBox()).width <= 80)
+      assert.ok((await page.locator('main').boundingBox()).x < expandedMain.x - 100, 'Collapsing must release content width')
+      const iconCenters = await island.locator('.site-nav-link > svg:first-child').evaluateAll(icons => icons.map(icon => {
+        const box = icon.getBoundingClientRect(); return box.left + box.width / 2
+      }))
+      assert.ok(iconCenters.every(center => Math.abs(center - iconCenters[0]) < 1), 'Collapsed navigation and action icons must share one center line')
+      const navigation = page.getByRole('navigation', { name: '主导航' })
+      for (const name of ['鬼畜榜', '热梗', '潜力视频', '梗素材库', '热歌 BGM', '素材发掘', '弹幕 & 评论', 'UP 主动态']) {
+        assert.equal(await navigation.getByRole('button', { name, exact: true }).isVisible(), true, `${name} must remain reachable`)
+      }
+      await screenshot('collapsed')
+      await page.setViewportSize({ width: 390, height: 900 })
+      await page.getByRole('button', { name: '打开导航菜单' }).click()
+      const drawer = page.getByRole('dialog', { name: '站点导航' })
+      assert.equal(await drawer.getByRole('button', { name: '潜力视频', exact: true }).innerText(), '潜力视频')
+      await page.keyboard.press('Escape')
+      await drawer.waitFor({ state: 'detached' })
+      await page.setViewportSize({ width, height: 900 })
+      await page.getByRole('button', { name: '展开侧边栏' }).click()
+      await settled()
+      assert.ok((await island.boundingBox()).width >= 248)
+    }
     if (width < 1024) {
       await page.getByRole('button', { name: '打开导航菜单' }).click()
       const drawer = page.getByRole('dialog', { name: '站点导航' })
@@ -106,7 +142,7 @@ try {
     await page.evaluate(() => window.scrollTo(0, 650))
     assert.ok(Math.abs((await page.locator('header').boundingBox()).y) < 1, 'Brand must remain visible while scrolling')
     if (width >= 1024) {
-      assert.ok(Math.abs((await page.locator('.site-sidebar').boundingBox()).y - header.height) < 2)
+      assert.ok(Math.abs((await page.locator('.site-sidebar').boundingBox()).y - header.height - 16) < 2)
       await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '热梗', exact: true }).click()
       await page.getByRole('heading', { name: '热梗库', exact: true }).waitFor()
       assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '热梗', exact: true }).getAttribute('aria-current'), 'page')
