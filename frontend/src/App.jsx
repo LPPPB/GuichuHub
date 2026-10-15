@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'
 import MemeCard from './components/MemeCard'
 import SongCard from './components/SongCard'
 import VideoCard from './components/VideoCard'
+import RankingSource from './components/RankingSource'
 import DanmakuCloud from './components/DanmakuCloud'
 import CommentList from './components/CommentList'
 import FavoritesPanel from './components/FavoritesPanel'
@@ -298,9 +299,10 @@ export default function App() {
 
                   <Section title="鬼畜区排行榜" icon={<Trophy size={20} className="text-haze-50" />}
                            total={data.kichu_rank?.length} moreText="查看全部" more={() => setActiveTab('kichu-rank')}>
+                    <RankingSource meta={data.kichu_rank_meta} />
                     <div className="space-y-3">
                       {data.kichu_rank?.slice(0, 3).map((v, i) => (
-                        <VideoCard key={v.bvid || i} video={v} index={i} trendColor={trendColor} formatNumber={formatNumber}
+                        <VideoCard key={v.bvid || i} video={v} index={i} displayRank={data.kichu_rank_meta?.source === 'bilibili_official_ranking_v2' ? v.official_rank : undefined} trendColor={trendColor} formatNumber={formatNumber}
                                    onFavorite={() => handleAddFavorite('video', v)} isFavorited={isFav('video', v)} staggerDelay={d(i)} />
                       ))}
                       {data.kichu_rank?.length === 0 && <EmptyHint text="暂无鬼畜区排行数据" />}
@@ -320,7 +322,8 @@ export default function App() {
 
                   <Section title="鬼畜潜力视频" icon={<Zap size={20} className="text-primary-500" />}
                            moreText="查看全部" more={() => setActiveTab('videos')}
-                           desc="已发布的鬼畜作品中具有爆发潜力的视频，综合批内热度（转发/评论/弹幕密度 × 播放）与互动质量率，乘以新鲜度与同接补正计算潜力指数。">
+                           desc="已发布的鬼畜作品中具有爆发潜力的视频，分数用于比较本批候选作品。">
+                    <RankingSource meta={data.potential_meta} />
                     <div className="space-y-3">
                       {data.hot_videos?.slice(0, 4).map((v, i) => (
                         <VideoCard key={v.bvid || i} video={v} index={i} trendColor={trendColor} formatNumber={formatNumber}
@@ -398,10 +401,11 @@ export default function App() {
             {!loading && activeTab === 'kichu-rank' && (
               <>
                 <PageHeader title="鬼畜区排行榜" icon={<Trophy size={22} className="text-haze-50" />}
-                            subtitle="B站鬼畜区最新热门作品，学习对标必看。" />
+                            subtitle="鬼畜区热门作品，学习对标必看。" />
+                <RankingSource meta={data.kichu_rank_meta} />
                 <div className="space-y-3">
                   {data.kichu_rank?.map((v, i) => (
-                    <VideoCard key={v.bvid || i} video={v} index={i} trendColor={trendColor} formatNumber={formatNumber} showRadar
+                    <VideoCard key={v.bvid || i} video={v} index={i} displayRank={data.kichu_rank_meta?.source === 'bilibili_official_ranking_v2' ? v.official_rank : undefined} trendColor={trendColor} formatNumber={formatNumber} showRadar
                                onFavorite={() => handleAddFavorite('video', v)} isFavorited={isFav('video', v)} staggerDelay={d(i)} />
                   ))}
                   {data.kichu_rank?.length === 0 && <EmptyHint text="暂无鬼畜区排行数据" />}
@@ -526,7 +530,8 @@ export default function App() {
               <>
                 <PageHeader title="鬼畜潜力视频" icon={<Zap size={22} className="text-haze-50" />}
                             subtitle="已发布的鬼畜作品中具有爆发潜力的视频。"
-                            note="综合批内相对热度与互动质量率（赞币藏/播放），乘以新鲜度与同接补正计算潜力指数，已剔除百万级以上已火视频与过低播放内容。" />
+                            note="结合本批相对热度、互动质量、新鲜度与同接补正计算潜力指数；分数用于比较本批候选作品。" />
+                <RankingSource meta={data.potential_meta} />
                 <div className="space-y-3">
                   {data.hot_videos?.map((v, i) => (
                     <VideoCard key={v.bvid || i} video={v} index={i} trendColor={trendColor} formatNumber={formatNumber} showRadar
