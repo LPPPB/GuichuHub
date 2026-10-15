@@ -263,6 +263,8 @@ def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
                 if isinstance(v, dict) else v for v in source]
     return {
         'kichu_rank': rows('kichu_rank', True),
+        'kichu_rank_meta': data.get('kichu_rank_meta'),
+        'potential_meta': data.get('potential_meta'),
         'hot_memes': data.get('hot_memes', []),
         'hot_songs': data.get('hot_songs', []),
         'hot_videos': rows('hot_videos'),
@@ -284,20 +286,27 @@ def route_dashboard():
     - 实时缓存过期/不存在：返回定时数据 + is_live=False 标识
     """
     from storage.cache import get_live_cache, get_data_version
+    from services.collection_views import select_collection_views
+    from config import load_collection_policy
 
     # 优先读实时缓存（手动抓取数据，未过期则返回）
     live = get_live_cache()
+    persisted=get_data() or {}
+    mode=load_collection_policy(os.environ).mode
+    now=int(time.time())
     if live:
         data = live['data']
         is_live = True
         live_cached_at = live['cached_at']
-        cache_key = ('live', live_cached_at)
+        cache_key = ('live', live_cached_at, get_data_version(),mode)
     else:
-        data = get_data()
+        data = persisted
         is_live = False
         live_cached_at = None
         # 定时数据：以数据版本号为缓存键（数据未变则复用组装结果）
-        cache_key = ('timer', get_data_version())
+        cache_key = ('timer', get_data_version(),mode)
+
+    data={**data,**select_collection_views(persisted,live=live,mode=mode,now=now)}
 
     from storage.repositories.radar import get_radar_repository
     repository = get_radar_repository()
@@ -330,10 +339,14 @@ def route_videos():
 
 @app.route('/api/kichu-rank', methods=['GET'])
 def route_kichu_rank():
-    data = get_data()
+    from services.collection_views import select_collection_views
+    from config import load_collection_policy
+    from storage.cache import get_live_cache
+    data=select_collection_views(get_data() or {},live=get_live_cache(),
+        mode=load_collection_policy(os.environ).mode,now=int(time.time()))
     from services.radar_service import RadarService
     from storage.repositories.radar import get_radar_repository
-    return jsonify({'success': True, 'data': RadarService(get_radar_repository()).decorate(
+    return jsonify({'success': True, 'meta':data['kichu_rank_meta'], 'data': RadarService(get_radar_repository()).decorate(
         data.get('kichu_rank') or [], int(time.time()))})
 
 

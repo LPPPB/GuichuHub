@@ -21,6 +21,12 @@ def select_collection_views(persisted,*,live,mode,now):
                 last_attempt=persisted.get('official_kichu_attempt'))
     potential=persisted.get('potential_v2_snapshot')
     temporary=live_data.get('potential_v2_snapshot')
+    def valid_potential(value):
+        return (isinstance(value,dict) and isinstance(value.get('items'),list)
+                and value.get('meta',{}).get('outcome')=='success'
+                and value.get('meta',{}).get('rules_version')=='strict-real-stats-v1')
+    potential=potential if valid_potential(potential) else None
+    temporary=temporary if valid_potential(temporary) else None
     if temporary is not None and (potential is None or temporary.get('meta',{}).get('fetched_at',0)>
                                   potential.get('meta',{}).get('fetched_at',0)):
         potential=temporary
