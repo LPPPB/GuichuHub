@@ -455,7 +455,8 @@ def route_refresh():
     与定时抓取共用 _crawl_lock 互斥，不会并发。
     数据仅供即时展示，TTL 10 分钟后自动回退到定时数据（数据库）。
     """
-    if not try_acquire_lock():
+    guard=try_acquire_lock()
+    if guard is None:
         return jsonify({
             'success': False,
             'message': '数据正在更新中，请稍候',
@@ -469,12 +470,18 @@ def route_refresh():
         实时抓取失败时清空实时缓存，前端会自动回退到定时数据。
         """
         try:
-            _crawl_job_live('manual')
+            _crawl_job_live('manual',guard=guard)
         except Exception:
             pass  # 异常已记录在 _crawl_status，前端轮询 /api/status 可见
 
     thread = threading.Thread(target=_safe_crawl_live, daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except Exception:
+        guard.release()
+        from jobs.crawl_jobs import _crawl_status
+        _crawl_status['crawling']=False
+        raise
     return jsonify({
         'success': True,
         'message': '已开始实时刷新（约2-3分钟），数据不落库',
