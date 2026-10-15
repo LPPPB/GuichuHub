@@ -112,7 +112,10 @@ def generate_collection(*,context,official_snapshot,pending,mode):
             video['_preserve_tier']=bvid not in visible
         summary=dict(mode=mode,rules_version='strict-real-stats-v1',requests=context.summary(),
                      discovery_count=sum(map(len,discovery.lanes.values())),
-                     legacy_count=len(legacy_hot),strict_count=len((strict.snapshot or {}).get('items',[])))
+                     legacy_count=len(legacy_hot),strict_count=len((strict.snapshot or {}).get('items',[])),
+                     coverage=(strict.snapshot or {}).get('meta',{}).get('sources',{}),
+                     rejected=(strict.snapshot or {}).get('meta',{}).get('rejected',{}),
+                     duration_seconds=max(0,int(context.clock())-context.now))
         return dict(kichu_rank=kichu[:20],hot_videos=legacy_hot,hot_memes=hot_memes,hot_songs=hot_songs,
                     material_candidates=material,meme_materials=meme_materials,danmaku_words=danmaku,
                     comments_gold=comments,potential_v2_snapshot=strict.snapshot,

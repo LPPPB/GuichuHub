@@ -74,6 +74,7 @@ def test_production_services_receive_only_role_specific_database_url_secrets(tmp
     assert api["environment"]["KICHU_API_DATABASE_URL_FILE"] == "/run/secrets/api_database_url"
     assert worker["environment"]["KICHU_WORKER_DATABASE_URL_FILE"] == "/run/secrets/worker_database_url"
     for service in (api, worker):
+        assert service['environment']['COLLECTION_RULES_MODE']=='shadow'
         assert all(volume["target"] not in {"/data/db", "/data/auth", "/data/state"} for volume in service["volumes"])
         assert LEGACY_RUNTIME_ENV.isdisjoint(service["environment"])
 

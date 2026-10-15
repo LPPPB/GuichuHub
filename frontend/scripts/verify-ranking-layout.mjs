@@ -30,7 +30,7 @@ try {
   if (process.env.LAYOUT_SCREENSHOT_DIR) {
     await mkdir(process.env.LAYOUT_SCREENSHOT_DIR, { recursive: true })
   }
-  for (const width of [1920, 1280, 900, 390, 320]) {
+  for (const width of [1920, 1440, 1280, 900, 390, 320]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } })
     await page.emulateMedia({ colorScheme: process.env.LAYOUT_COLOR_SCHEME || 'light' })
     await page.route('**/*', async route => {
@@ -38,7 +38,10 @@ try {
       if (url.hostname !== 'layout.test') return route.abort()
       if (url.pathname.startsWith('/api/')) {
         const data = url.pathname === '/api/dashboard' ? {
-          kichu_rank: [0, 1, 2].map(i => ({ ...video, bvid: `BVlayout${i}` })), hot_videos: [video], hot_memes: [], hot_songs: [],
+          kichu_rank: [0, 1, 2].map(i => ({ ...video, bvid: i===0 ? video.bvid : `BVlayout${i}`,official_rank:i+7 })), hot_videos: [video], hot_memes: [], hot_songs: [],
+          kichu_rank_meta:{source:'bilibili_official_ranking_v2',status:'available',fetched_at:1700000000,
+            historical:true,last_attempt:{outcome:'error'}},
+          potential_meta:{source:'independent_discovery',status:'available',fetched_at:1700000000},
           material_candidates: [], meme_materials: [], danmaku_words: [], comments_gold: [],
         } : url.pathname === '/api/auth/me' ? null : []
         return route.fulfill({ json: { success: true, data } })
@@ -46,11 +49,13 @@ try {
       const path = resolve(root, url.pathname === '/' ? 'index.html' : `.${url.pathname}`)
       assert.ok(path.startsWith(root + sep))
       const contentType = path.endsWith('.js') ? 'application/javascript' :
-        path.endsWith('.css') ? 'text/css' : 'text/html'
+        path.endsWith('.css') ? 'text/css' : path.endsWith('.svg') ? 'image/svg+xml' :
+          path.endsWith('.png') ? 'image/png' : 'text/html'
       return route.fulfill({ body: await readFile(path), contentType })
     })
     await page.goto('https://layout.test/')
     await page.getByRole('heading', { name: '鬼畜区排行榜', exact: true }).waitFor()
+    await page.getByText('哔哩哔哩官方榜',{exact:true}).waitFor()
     assert.equal(await page.getByRole('img', { name: '视频数据雷达图' }).count(), 0)
     for (const name of ['鬼畜区排行榜', '鬼畜潜力视频']) {
       if (name === '鬼畜区排行榜') {
@@ -63,6 +68,11 @@ try {
       }
       const card = page.locator('article').first()
       await card.waitFor()
+      assert.equal(await card.locator('.kb-rank').textContent(),name==='鬼畜区排行榜'?'7':'1')
+      if (name==='鬼畜区排行榜') {
+        await page.getByText(/更新失败/).waitFor()
+        await page.getByText(/历史榜单/).waitFor()
+      } else await page.getByText(/独立发现 · 本批相对评分/).waitFor()
       await page.evaluate(async () => {
         await document.fonts.ready
         await Promise.all(document.getAnimations().filter(animation =>
@@ -135,6 +145,7 @@ try {
       await card.getByRole('button', { name: '收起趋势', exact: true }).click()
       console.log(`${width}px ${name}: card=${Math.round(sizes.card)}px radar=${await radar.isVisible()}`)
       if (process.env.LAYOUT_SCREENSHOT_DIR) {
+        await page.evaluate(()=>window.scrollTo(0,0))
         await page.evaluate(async () => {
           await document.fonts.ready
           await Promise.all(document.getAnimations().filter(animation =>

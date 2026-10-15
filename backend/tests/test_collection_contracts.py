@@ -60,6 +60,6 @@ def test_manual_scripts_import_without_http(monkeypatch):
     monkeypatch.setattr(requests, 'get', forbidden)
     import collectors.bilibili as bilibili
     monkeypatch.setattr(bilibili.time, 'sleep', lambda _: None)
-    for name in ('tests.test_kichu_rank', 'tests.test_ranking'):
+    for name in ('tests.test_kichu_rank', 'tests.test_ranking','tests.test_date_fields','tests.test_popular_kichu'):
         importlib.import_module(name)
     assert calls == []
