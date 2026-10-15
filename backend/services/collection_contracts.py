@@ -158,3 +158,4 @@ class PotentialResult:
     snapshot: dict | None
     pending: list
     attempt: dict
+    evaluated: list = field(default_factory=list)

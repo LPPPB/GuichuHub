@@ -1343,7 +1343,7 @@ def is_useless_tag(kw):
 
 def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     print('正在提取热梗...')
-    all_videos = kichu_videos + music_videos + funny_videos + popular_videos
+    all_videos = _deduplicate_by_bvid(kichu_videos + music_videos + funny_videos + popular_videos)
     meme_dict = {}
 
     # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
@@ -2138,12 +2138,17 @@ def make_collection_context(policy, now, seed_cursor=0):
         'newest':lambda:source('/x/web-interface/newlist',{'rid':119,'type':0,'pn':1,'ps':20},('data','archives')),
         'detail':lambda bvid:source('/x/web-interface/view',{'bvid':bvid},('data',),dict),
         'tags':lambda bvid:paced(lambda:fetch_video_tags(bvid)),
-        'online':lambda bvid,cid:paced(lambda:fetch_online_count(bvid,cid)),
+        'online':lambda bvid,cid:SourceResult(outcome='skipped',error_code='circuit')
+            if _online_breaker_open() else paced(lambda:fetch_online_count(bvid,cid)),
         'seed_words':load_meme_seed_words,'seed_cursor':seed_cursor,
     })
 
 
-def run_all_crawlers():
+def run_all_crawlers(*, context=None, official_snapshot=None, pending=None, mode=None):
+    if context is not None:
+        from collectors.generation import generate_collection
+        return generate_collection(context=context,official_snapshot=official_snapshot,
+                                   pending=pending or [],mode=mode or context.policy.mode)
     print('=' * 60)
     print('开始执行爬虫任务...')
     start_time = time.time()

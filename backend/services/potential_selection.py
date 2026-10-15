@@ -113,4 +113,4 @@ def generate_potential(discovery, *, context, now, history):
           'candidate_count':len(videos),'qualified_count':len(qualified),'pending_count':len(pending),
           'rejected':dict(rejected),'sources':dict(Counter(s for v in videos.values() for s in v.get('sources',[]))),
           'partial':bool(attempt.get('partial')),'requests':context.summary()}
-    return PotentialResult({'items':qualified[:30],'meta':meta},pending,attempt)
+    return PotentialResult({'items':qualified[:30],'meta':meta},pending,attempt,qualified)
