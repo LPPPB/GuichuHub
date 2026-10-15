@@ -85,7 +85,7 @@ def video_from_api(raw: dict, *, endpoint: str, observed_at: int) -> dict:
                  metrics_source='legacy_unknown', observed_at=None,
                  url=f"https://www.bilibili.com/video/{raw.get('bvid', '')}")
     video.update({value: None for value in STAT_KEYS.values()})
-    sample = core_stat_sample(raw, endpoint=endpoint, observed_at=observed_at)
+    sample = None if endpoint == 'newest' else core_stat_sample(raw, endpoint=endpoint, observed_at=observed_at)
     if sample:
         video.update(sample.metrics, metrics_source='bilibili_stat',
                      metrics_endpoint=endpoint, observed_at=observed_at)
@@ -132,6 +132,11 @@ class CollectionPolicy:
             raise ValueError('Invalid collection threshold range')
         if self.mode != 'legacy' and self.observe_limit < 50:
             raise ValueError('OBSERVE_HOT_LIMIT must cover 50 visible candidates')
+        caps = dict(candidate_limit=400,pending_limit=400,detail_limit=160,tag_limit=64,
+                    online_limit=160,discovery_limit=60,popular_pages=15,kichu_search_pages=16,
+                    music_search_pages=7,funny_search_pages=7,seed_search_pages=8)
+        if any(getattr(self,key)>cap for key,cap in caps.items()):
+            raise ValueError('Collection budget exceeds the supported cap')
 
 
 @dataclass

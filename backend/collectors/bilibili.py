@@ -4,6 +4,7 @@ import time
 import re
 import os
 import html
+from collectors.collection_context import record_http_attempt
 from datetime import datetime, timezone, timedelta
 from config import (
     POTENTIAL_VIEWS_MAX, POTENTIAL_VIEWS_MIN,
@@ -138,6 +139,7 @@ def get_headers():
 def safe_get(url, params=None, max_retries=2, return_error_code=False):
     for i in range(max_retries + 1):
         try:
+            record_http_attempt()
             resp = requests.get(url, headers=get_headers(), params=params, timeout=10)
             # 412 限流：记录日志但不立即抛出，走重试逻辑
             if resp.status_code == 412:
@@ -1665,6 +1667,7 @@ def fetch_danmaku_xml(cid):
     url = f'https://comment.bilibili.com/{cid}.xml'
     try:
         import xml.etree.ElementTree as ET
+        record_http_attempt()
         resp = requests.get(url, headers=get_headers(), timeout=10)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
@@ -2105,6 +2108,39 @@ def _filter_material_candidates(music_videos, funny_videos, now):
     material_candidates = material_candidates[:20]
     print(f'  - 素材发掘: {len(material_candidates)} 条 / 候选池 {len(material_unique)}')
     return material_candidates
+
+
+def make_collection_context(policy, now, seed_cursor=0):
+    """Adapt raw API envelopes without collapsing empty responses into errors."""
+    from collectors.collection_context import RoundContext, SourceResult
+    root = 'https://api.bilibili.com'
+    def paced(loader):
+        try:
+            return loader()
+        finally:
+            _online_pacing()
+    def source(path, params, keys, expected=list):
+        response = paced(lambda:safe_get(root+path,params=params,return_error_code=True))
+        if not isinstance(response,dict) or response.get('code') != 0:
+            return SourceResult(outcome='error',error_code='upstream')
+        value = response
+        for key in keys:
+            if not isinstance(value,dict) or key not in value:
+                return SourceResult(outcome='invalid',error_code='shape')
+            value = value[key]
+        return SourceResult(value) if isinstance(value,expected) else SourceResult(outcome='invalid',error_code='shape')
+    return RoundContext(policy,now=now,loaders={
+        'popular_page':lambda page:source('/x/web-interface/popular',{'pn':page,'ps':50},('data','list')),
+        'search_page':lambda keyword,tid,order,page:source('/x/web-interface/search/type',
+            {'search_type':'video','keyword':keyword,'tids':tid,'order':order,'page':page,'page_size':20},('data','result')),
+        'all_ranking':lambda:source('/x/web-interface/ranking/v2',{'rid':0,'type':'all'},('data','list')),
+        'region_ranking':lambda rid:source('/x/web-interface/ranking/region',{'rid':rid,'day':3},('data',)),
+        'newest':lambda:source('/x/web-interface/newlist',{'rid':119,'type':0,'pn':1,'ps':20},('data','archives')),
+        'detail':lambda bvid:source('/x/web-interface/view',{'bvid':bvid},('data',),dict),
+        'tags':lambda bvid:paced(lambda:fetch_video_tags(bvid)),
+        'online':lambda bvid,cid:paced(lambda:fetch_online_count(bvid,cid)),
+        'seed_words':load_meme_seed_words,'seed_cursor':seed_cursor,
+    })
 
 
 def run_all_crawlers():
