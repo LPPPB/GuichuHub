@@ -16,6 +16,21 @@ from runtime_paths import RuntimePaths
 load_dotenv()
 
 
+def load_collection_policy(env):
+    """Read only the supplied mapping; validate before collection starts."""
+    from dataclasses import fields
+    from services.collection_contracts import CollectionPolicy
+    aliases = {'mode': 'COLLECTION_RULES_MODE', 'observe_limit': 'OBSERVE_HOT_LIMIT',
+               'views_min': 'POTENTIAL_VIEWS_MIN', 'views_max': 'POTENTIAL_VIEWS_MAX',
+               'engagement_min': 'POTENTIAL_ENGAGEMENT_MIN', 'age_days': 'POTENTIAL_AGE_DAYS'}
+    values = {}
+    for item in fields(CollectionPolicy):
+        key = aliases.get(item.name, 'COLLECTION_' + item.name.upper())
+        if key in env:
+            values[item.name] = env[key] if item.name == 'mode' else int(env[key])
+    return CollectionPolicy(**values)
+
+
 # ==================== 运维参数（必须 .env 化）====================
 
 # 运行时路径通过 KICHU_* 环境变量注入；未配置时仅回退到本地开发目录。
