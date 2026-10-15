@@ -1,7 +1,7 @@
 """Manual network probe; importing this module never runs it."""
 
 def main():
-    
+
     import requests
     from collectors.bilibili import fetch_ranking, KICHU_TID, MUSIC_TID
 

@@ -186,8 +186,8 @@ def fetch_ranking(tid=0, day=3):
 def fetch_ranking_v2(rid=0):
     """全站排行榜（ranking/v2）。
 
-    注意：B站已停止为分区维护独立排行榜，ranking/v2?rid=<子分区ID> 一律返回空列表。
-    因此本函数只支持 rid=0（全站榜），调用方需自行按 tid 过滤目标分区视频。
+    本函数保留旧的列表返回契约，默认 rid=0 用于独立发现。
+    新版官方鬼畜榜 rid=1007 的保序解析、状态及失败处理由 official_ranking 模块负责。
     字段结构与 popular feed 一致（stat/owner/pubdate/tid/tname/pic），可直接用 parse_video_item 解析。
     """
     url = 'https://api.bilibili.com/x/web-interface/ranking/v2'

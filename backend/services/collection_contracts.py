@@ -1,6 +1,8 @@
 """Versioned collection values; no HTTP or database work at import time."""
 from dataclasses import dataclass, field
 from typing import Literal
+from html import unescape
+import re
 
 STAT_KEYS = dict(view='views', like='likes', coin='coins', favorite='favorites',
                  share='shares', reply='comments', danmaku='danmaku')
@@ -51,6 +53,48 @@ def core_stat_sample(raw: dict, *, endpoint: str, observed_at: int) -> StatSampl
     if any(value is None for value in metrics.values()):
         return None
     return StatSample(metrics, endpoint, observed_at)
+
+
+def video_from_api(raw: dict, *, endpoint: str, observed_at: int) -> dict:
+    """Normalize metadata without manufacturing missing interaction counts."""
+    owner = raw.get('owner') if isinstance(raw.get('owner'), dict) else {}
+    def clean(value):
+        return unescape(re.sub(r'<[^>]*>', '', str(value or '')))
+    def url(value):
+        value = str(value or '')
+        return 'https:' + value if value.startswith('//') else value
+    duration = raw.get('duration', 0)
+    if isinstance(duration, str) and ':' in duration:
+        try:
+            parts = [int(p) for p in duration.split(':')]
+            duration = sum(p * 60**i for i, p in enumerate(reversed(parts)))
+        except ValueError:
+            duration = 0
+    video = dict(bvid=raw.get('bvid'), aid=nonnegative_int(raw.get('aid')),
+                 cid=nonnegative_int(raw.get('cid')), title=clean(raw.get('title')),
+                 description=clean(raw.get('desc') or raw.get('description'))[:300],
+                 cover=url(raw.get('pic') or raw.get('cover')),
+                 author=clean(owner.get('name') or raw.get('author')),
+                 author_avatar=url(owner.get('face') or raw.get('upic')),
+                 mid=nonnegative_int(owner.get('mid') or raw.get('mid')),
+                 tid=nonnegative_int(raw.get('tid') or raw.get('typeid')),
+                 tname=clean(raw.get('tname') or raw.get('typename')),
+                 category_v2=normalize_category(raw),
+                 pub_date=nonnegative_int(raw.get('pubdate') or raw.get('senddate')) or 0,
+                 duration=nonnegative_int(duration) or 0, tags=[], first_seen=observed_at,
+                 metrics_source='legacy_unknown', observed_at=None,
+                 url=f"https://www.bilibili.com/video/{raw.get('bvid', '')}")
+    video.update({value: None for value in STAT_KEYS.values()})
+    sample = core_stat_sample(raw, endpoint=endpoint, observed_at=observed_at)
+    if sample:
+        video.update(sample.metrics, metrics_source='bilibili_stat',
+                     metrics_endpoint=endpoint, observed_at=observed_at)
+    elif endpoint == 'search':
+        video['views'] = nonnegative_int(raw.get('play'))
+    tag = raw.get('tag')
+    if isinstance(tag, str):
+        video['tags'] = [t.strip() for t in tag.split(',') if t.strip()]
+    return video
 
 
 @dataclass(frozen=True)
