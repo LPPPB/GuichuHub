@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/prerender-home.mjs",
+    "icons": "node scripts/generate-favicons.mjs",
+    "test:seo": "npm run build && node scripts/verify-seo.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
