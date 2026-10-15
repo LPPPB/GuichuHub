@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { resolve, sep } from 'node:path'
 import { JSDOM } from 'jsdom'
 
 const document = new JSDOM(await readFile('dist/index.html', 'utf8')).window.document
@@ -23,5 +24,16 @@ assert.match(robots, /Allow: \/\s/)
 assert.match(robots, /Disallow: \/api\//)
 assert.match(robots, /Sitemap: https:\/\/guichuhub.cn\/sitemap.xml/)
 const sitemap = new JSDOM(await readFile('dist/sitemap.xml', 'utf8'), { contentType: 'text/xml' }).window.document
-assert.deepEqual([...sitemap.querySelectorAll('loc')].map(node => node.textContent), ['https://guichuhub.cn/'])
+const urls = [...sitemap.querySelectorAll('loc')].map(node => node.textContent)
+assert.ok(urls.includes('https://guichuhub.cn/'))
+assert.equal(new Set(urls).size, urls.length)
+for (const href of urls) {
+  const url = new URL(href)
+  assert.equal(url.origin, 'https://guichuhub.cn')
+  assert.equal(url.search + url.hash, '')
+  const path = resolve('dist', `.${decodeURIComponent(url.pathname)}`, url.pathname.endsWith('/') ? 'index.html' : '')
+  assert.ok(path.startsWith(resolve('dist') + sep))
+  const page = new JSDOM(await readFile(path, 'utf8')).window.document
+  assert.equal(page.querySelector('link[rel="canonical"]')?.href, href)
+}
 console.log('Built HTML is crawlable without JavaScript: one H1, site metadata, local icons, robots, sitemap, and WebSite JSON-LD.')
