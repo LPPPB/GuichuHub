@@ -51,7 +51,7 @@ def discover_candidates(*, context, official_snapshot, pending, now):
         response = context.call(name,*args)
         if response.outcome != 'success' or not isinstance(response.value,list):
             return []
-        normalized = [video_from_api(raw,endpoint=endpoint,observed_at=now)
+        normalized = [video_from_api(raw,endpoint=endpoint,observed_at=response.observed_at or now)
                       for raw in response.value if isinstance(raw,dict) and raw.get('bvid')]
         if lane:
             for video in normalized:

@@ -2129,7 +2129,7 @@ def make_collection_context(policy, now, seed_cursor=0):
                 return SourceResult(outcome='invalid',error_code='shape')
             value = value[key]
         return SourceResult(value) if isinstance(value,expected) else SourceResult(outcome='invalid',error_code='shape')
-    return RoundContext(policy,now=now,loaders={
+    return RoundContext(policy,now=now,clock=time.time,loaders={
         'popular_page':lambda page:source('/x/web-interface/popular',{'pn':page,'ps':50},('data','list')),
         'search_page':lambda keyword,tid,order,page:source('/x/web-interface/search/type',
             {'search_type':'video','keyword':keyword,'tids':tid,'order':order,'page':page,'page_size':20},('data','result')),

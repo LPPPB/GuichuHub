@@ -14,11 +14,13 @@ class SourceResult:
     value: object = None
     outcome: str = 'success'
     error_code: str | None = None
+    observed_at: int | None = None
 
 
 class RoundContext:
-    def __init__(self, policy, *, loaders, now):
+    def __init__(self, policy, *, loaders, now, clock=None):
         self.policy, self.loaders, self.now = policy, loaders, now
+        self.clock = clock or (lambda:now)
         self._cache = {}
         self._counts = {name: Counter() for name in ('logical','http_attempts','cache_hits','skipped')}
         self.events = []
@@ -54,6 +56,8 @@ class RoundContext:
                 with self.activate():
                     value = loader()
                     result = value if isinstance(value,SourceResult) else SourceResult(value)
+                    if result.outcome == 'success' and result.observed_at is None:
+                        result.observed_at = int(self.clock())
             except requests.RequestException:
                 result = SourceResult(outcome='error',error_code='network')
             finally:
