@@ -146,6 +146,10 @@ def postgres_runtime(clean_postgres_data, tmp_path):
         yield runtime
     finally:
         from storage.repositories.analysis_jobs import configure_analysis_repository
+        from jobs.collection_lock import configure_collection_lock
+        configure_collection_lock(None)
+        from storage.repositories.collection_state import configure_collection_repository
+        configure_collection_repository(None)
         configure_analysis_repository(None)
         from storage.repositories.radar import configure_radar_repository
         configure_radar_repository(None)

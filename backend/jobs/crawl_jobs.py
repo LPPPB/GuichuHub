@@ -6,8 +6,9 @@
 - A3 非空保护：某板块抓取被限流返回空时，保留旧数据
 """
 
-import threading
+import os
 import time
+from uuid import uuid4
 
 from storage.cache import get_data, persist_data
 from storage import db as tsdb
@@ -18,7 +19,9 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
-_crawl_lock = threading.Lock()
+from jobs.collection_lock import get_collection_lock, CollectionLockLost
+from storage.repositories.collection_state import get_collection_repository
+from config import load_collection_policy
 _crawl_status = {
     'crawling': False,
     'started_at': None,
@@ -39,23 +42,15 @@ def _get_rank_bvids():
     来自最近一次全量抓取的 PostgreSQL dashboard state。无论 A4 分级如何，
     这些用户看得见的视频都必须保持高频观测，否则播放量折线图会停更。
     """
-    try:
-        data = get_data() or {}
-        bvids = []
-        for key in ('kichu_rank', 'hot_videos'):
-            for item in data.get(key, []) or []:
-                b = (item or {}).get('bvid')
-                if b:
-                    bvids.append(b)
-        return bvids
-    except Exception as e:
-        logger.warning(f'[观测] 读取榜单 bvid 失败: {e}')
-        return []
+    from services.collection_views import select_collection_views
+    data=select_collection_views(get_data() or {},live=None,
+        mode=load_collection_policy(os.environ).mode,now=int(time.time()))
+    return list(dict.fromkeys(v['bvid'] for key in ('kichu_rank','hot_videos')
+                             for v in data[key] if v.get('bvid')))
 
 
-def try_acquire_lock():
-    """尝试获取抓取锁。返回 True 表示成功（可以开始抓取），False 表示已有任务在跑。"""
-    return _crawl_lock.acquire(blocking=False)
+def try_acquire_lock(trigger='manual'):
+    return get_collection_lock().try_acquire(trigger=trigger)
 
 
 def mark_crawling():
@@ -86,14 +81,15 @@ def _acquire_crawl_lock_with_wait():
     """带超时等待的锁获取，避免与短时观测任务冲突时静默跳过定时抓取。
 
     全量抓取触发时若观测任务正在跑，等待其释放（每 5 秒重试，最多 5 分钟）。
-    返回 True 拿到锁，False 超时未拿到。
+    返回原始 session guard，超时返回 None。
     """
     deadline = time.time() + _CRAWL_LOCK_WAIT_TIMEOUT
     while True:
-        if _crawl_lock.acquire(blocking=False):
-            return True
+        guard=try_acquire_lock('full')
+        if guard is not None:
+            return guard
         if time.time() >= deadline:
-            return False
+            return None
         time.sleep(_CRAWL_LOCK_WAIT_INTERVAL)
 
 
@@ -114,7 +110,8 @@ def _crawl_once(trigger):
     except Exception as e:
         logger.warning(f'[抓取] 登录态检测失败: {e}，继续以游客模式抓取')
 
-    if not _acquire_crawl_lock_with_wait():
+    guard=_acquire_crawl_lock_with_wait()
+    if guard is None:
         msg = f'抓取锁等待超时（{_CRAWL_LOCK_WAIT_TIMEOUT}秒），已有任务长时间占用（触发源: {trigger}）'
         logger.warning(f'[抓取] {msg}')
         raise RuntimeError(msg)  # 抛异常让 _run_with_retry 延迟重试，不再静默跳过
@@ -124,7 +121,7 @@ def _crawl_once(trigger):
         'last_error': None,
     })
     # _crawl_job_locked 内部 finally 释放锁；异常向上抛给 _run_with_retry
-    _crawl_job_locked(trigger)
+    _crawl_job_locked(trigger,guard=guard)
     return True
 
 
@@ -140,123 +137,107 @@ def _radar_observations_changed():
             logger.warning('雷达基线构建失败，保留明确不可用状态: %s', type(error).__name__)
 
 
-def _crawl_job_locked(trigger):
-    """锁已持有时的抓取主流程（由 run_crawl_job / refresh_data 的工作线程调用）。
+def _collect_round():
+    policy=load_collection_policy(os.environ)
+    if policy.mode=='legacy':
+        return run_all_crawlers()
+    from collectors.bilibili import make_collection_context
+    data=get_data() or {}
+    prior=data.get('potential_v2_attempt') or {}
+    context=make_collection_context(policy,int(time.time()),seed_cursor=prior.get('seed_cursor',0))
+    return run_all_crawlers(context=context,official_snapshot=data.get('official_kichu_snapshot'),
+                            pending=data.get('potential_pending'),mode=policy.mode)
 
-    观测和 dashboard 状态均通过 PostgreSQL repository 持久化。
-    finally 释放锁——threading.Lock 允许跨线程 release（HTTP路径下锁在请求线程获取）。
-    """
-    print(f'[抓取] 开始（触发源: {trigger}）...')
-    run_id = tsdb.begin_crawl_run(trigger)
-    records_written = 0
+
+def _crawl_job_locked(trigger,*,guard):
+    records_written=0
+    run_id=None
+    mode=None
+    attempt_identity=dict(attempt_id=uuid4().hex,started_at=int(time.time()),started_at_ns=time.time_ns())
     try:
-        new_data = run_all_crawlers()
-        all_videos = new_data.pop('_all_videos', [])
-
-        # ── ① 写 PostgreSQL 时序层（B7: ts 用批次开始时刻，同批幂等）──
-        # startup（应用启动预热）只刷新看板缓存，不写观测数据：record_video 是
-        # "登记 + 写一次观测"的原子操作，startup 落库会与半小时轻量观测交错，
-        # 产生"成对"数据点（开发期反复重启后端尤其明显）。观测由 scheduled
-        # 全量抓取（03:00/15:00）与轻量观测任务（每30分钟）负责。
-        if trigger == 'startup':
-            tsdb.finish_crawl_run(run_id, 'success', {
-                'mode': 'startup_no_obs',
-                'videos_crawled': len(all_videos),
-            })
-            print(f'[时序库] startup 模式：跳过观测写入（{len(all_videos)} 视频仅刷新缓存）')
-        else:
-            ts = _crawl_status['started_at']
-            try:
-                for v in all_videos:
-                    source = v.pop('_source', None) or 'unknown'
-                    tsdb.record_video(v, ts, source)
-                    records_written += 1
-                tsdb.record_words(new_data.get('danmaku_words', []), ts)
-                # 候选池视频保持 hot 高频观测（A4）
-                hot_bvids = [
-                    v['bvid']
-                    for v in new_data.get('hot_videos', []) + new_data.get('material_candidates', [])
-                    if v.get('bvid')
-                ]
-                tsdb.mark_candidates_hot(hot_bvids)
-                retired = tsdb.refresh_observe_tiers()
-                tsdb.finish_crawl_run(run_id, 'success', {
-                    'videos_recorded': len(all_videos),
-                    'hot_marked': len(hot_bvids),
-                    'retired_to_cold': retired,
-                })
-                print(f'[时序库] 登记 {len(all_videos)} 视频，{len(hot_bvids)} 候选标记hot，{retired} 视频退役cold')
-            except Exception as e:
-                tsdb.finish_crawl_run(run_id, 'failed', {'error': str(e)})
-                raise
-
-        # ── ② 观测写入成功后才更新 PostgreSQL dashboard state ──
-        persist_data(new_data)
-        _crawl_status['last_finished_at'] = int(time.time())
-        print('[抓取] 完成')
-    except Exception as e:
-        _crawl_status['last_error'] = str(e)
-        print(f'[抓取] 失败: {e}')
-        # 无论成败都收尾 crawl_run，避免进程被杀/异常中断后残留 running 记录
-        try:
-            tsdb.finish_crawl_run(run_id, 'failed', {'error': str(e)[:200]})
-        except Exception:
-            pass
-        raise  # 重新抛出，让上层 _run_with_retry 处理重试（HTTP 路径在自己的 try 中吞掉）
-    finally:
-        if records_written:
-            try:
-                _radar_observations_changed()
-            except Exception as error:
-                logger.warning('已提交观测的雷达版本推进失败: %s', type(error).__name__)
-        _crawl_status['crawling'] = False
-        _crawl_lock.release()
-
-
-def _crawl_job_live(trigger='manual'):
-    """实时抓取主流程：抓取数据只更新内存缓存，不落库。
-
-    与 _crawl_job_locked 的差异：
-      - 不调 tsdb.record_video / record_words / mark_candidates_hot
-      - 不调 persist_data（不更新持久 dashboard state）
-      - 只调 set_live_cache 更新实时内存缓存
-      - 共用 _crawl_lock，与定时抓取互斥
-
-    用途：用户点"刷新"按钮时触发，数据仅供即时展示，TTL 过期后回退到定时数据。
-    定时抓取仍走 _crawl_job_locked 落库，作为后续数据分析的事实源。
-
-    参数:
-      trigger: 触发源（'manual' / 'live'）
-    """
-    from storage.cache import set_live_cache, invalidate_live_cache
-
-    print(f'[实时抓取] 开始（触发源: {trigger}）...')
-    _crawl_status['started_at'] = int(time.time())
-    try:
-        new_data = run_all_crawlers()
-
-        # A3 非空保护：某板块为空时不覆盖（复用 persist_data 的合并逻辑）
-        # 但只更新实时缓存，不落盘
-        merged = {}
-        for key, value in new_data.items():
-            if value:
-                merged[key] = value
+        guard.assert_held()
+        mode=load_collection_policy(os.environ).mode
+        run_id=tsdb.begin_crawl_run(trigger)
+        new_data=_collect_round()
+        all_videos=new_data.pop('_all_videos',[])
+        result=new_data.pop('_potential_result',None)
+        if result is not None:
+            result.attempt.update(attempt_identity)
+            if result.snapshot is not None:
+                result.snapshot['meta'].update(attempt_identity)
+        summary=new_data.pop('_collection_summary',{})
+        ts=_crawl_status.get('started_at') or int(time.time())
+        business=tsdb.get_business_repository()
+        from services.collection_contracts import STAT_KEYS,nonnegative_int
+        for video in all_videos:
+            guard.assert_held()
+            row=dict(video)
+            source=row.pop('_source',None) or 'unknown'
+            preserve=row.pop('_preserve_tier',False)
+            row.setdefault('first_seen',ts)
+            # Reused official samples are metadata only. Never invent a fresh point.
+            real=(row.get('metrics_source')=='bilibili_stat'
+                  and all(nonnegative_int(row.get(k)) is not None for k in STAT_KEYS.values())
+                  and ts<=row.get('observed_at',0)<=int(time.time()))
+            if trigger=='startup' or (result is not None and not real):
+                business.register_video_metadata({**row,'source':source},new_tier=row.get('observe_tier','warm'))
+            elif preserve:
+                business.record_video(row,ts=ts,source=source,preserve_tier=True)
+                records_written+=1
             else:
-                print(f'  [警告] {key} 实时抓取为空，跳过该板块')
-
-        # 写入实时缓存（不调 persist_data，不落库）
-        set_live_cache(merged)
-        _crawl_status['last_finished_at'] = int(time.time())
-        print('[实时抓取] 完成（仅更新实时缓存，未落库）')
-
-    except Exception as e:
-        _crawl_status['last_error'] = str(e)
-        invalidate_live_cache()  # 失败时清空实时缓存，回退到定时数据
-        print(f'[实时抓取] 失败: {e}')
+                tsdb.record_video(row,ts,source)
+                records_written+=1
+        if trigger!='startup':
+            guard.assert_held()
+            tsdb.record_words(new_data.get('danmaku_words',[]),ts)
+            tsdb.refresh_observe_tiers()
+        guard.assert_held()
+        if result is not None:
+            get_collection_repository().publish_generation(new_data,result,guard=guard,
+                mode=load_collection_policy(os.environ).mode)
+        else:
+            persist_data({k:v for k,v in new_data.items() if not k.startswith('_')})
+        tsdb.finish_crawl_run(run_id,'success',dict(summary,mode='startup_no_obs' if trigger=='startup' else summary.get('mode','legacy'),
+                                                  videos_registered=len(all_videos),videos_recorded=records_written))
+        _crawl_status['last_finished_at']=int(time.time())
+    except Exception as error:
+        _crawl_status['last_error']=str(error)
+        if mode in ('shadow','official'):
+            from services.collection_contracts import PotentialResult
+            failed=dict(attempt_identity,finished_at=int(time.time()),outcome='error',error_code='pipeline_exception')
+            try:
+                guard.assert_held()
+                get_collection_repository().publish_generation({},PotentialResult(None,[],failed),guard=guard,mode=mode)
+            except Exception as publication_error:
+                logger.warning('Failed-attempt publication unavailable: %s',type(publication_error).__name__)
+        if run_id is not None:
+            try: tsdb.finish_crawl_run(run_id,'failed',{'error':type(error).__name__})
+            except Exception: pass
         raise
     finally:
-        _crawl_status['crawling'] = False
-        _crawl_lock.release()
+        if records_written:
+            try: _radar_observations_changed()
+            except Exception as error: logger.warning('Radar revision failed: %s',type(error).__name__)
+        _crawl_status['crawling']=False
+        guard.release()
+
+
+def _crawl_job_live(trigger='manual',*,guard):
+    from storage.cache import set_live_cache,invalidate_live_cache
+    try:
+        new_data=_collect_round()
+        merged={k:v for k,v in new_data.items() if not k.startswith('_')
+                and (v or k in ('potential_v2_snapshot','potential_v2_attempt'))}
+        guard.assert_held()
+        set_live_cache(merged)
+        _crawl_status['last_finished_at']=int(time.time())
+    except Exception as error:
+        _crawl_status['last_error']=str(error)
+        invalidate_live_cache()
+        raise
+    finally:
+        _crawl_status['crawling']=False
+        guard.release()
 
 
 def run_observe_job():
@@ -266,7 +247,8 @@ def run_observe_job():
     观测对象由 A4 分级策略给出（hot每小时/warm每天/cold停测），成本有恒定上界。
     """
     from collectors.bilibili import fetch_video_detail, fetch_online_count, _online_breaker_open, _online_pacing
-    if not _crawl_lock.acquire(blocking=False):
+    guard=try_acquire_lock('observe')
+    if guard is None:
         print('[观测] 全量抓取进行中，跳过本轮')
         return
     try:
@@ -274,8 +256,8 @@ def run_observe_job():
         # 方案A：榜单视频（鬼畜榜/热门视频）强制纳入观测，无论 A4 分级如何。
         # 榜单 bvid 在前、去重保序，避免用户可见视频的折线图因分级降级而停更。
         ranked = _get_rank_bvids()
-        if ranked:
-            targets = list(dict.fromkeys(ranked + targets))
+        from jobs.official_ranking_jobs import select_observation_targets
+        targets = select_observation_targets(ranked,targets,limit=load_collection_policy(os.environ).observe_limit)
         # Shared hot-tier coverage can contain fewer than 200 eligible ghost
         # videos. A stable reference quota prevents a permanently empty baseline.
         # Reference-only targets need complete stats, not extra online requests.
@@ -312,6 +294,7 @@ def run_observe_job():
                     _online_pacing()
                 else:
                     online_display = None
+                guard.assert_held()
                 tsdb.record_obs(bvid, ts, {
                     'views': stat.get('view'),
                     'likes': stat.get('like'),
@@ -329,19 +312,21 @@ def run_observe_job():
                         ('view', 'like', 'coin', 'favorite', 'share', 'reply', 'danmaku')) else 'legacy_unknown',
                 })
                 observed += 1
+            except CollectionLockLost:
+                raise
             except Exception as e:
                 print(f'  [观测] {bvid} 失败: {e}')
         if observed:
             _radar_observations_changed()
         retired = tsdb.refresh_observe_tiers()
         tsdb.finish_crawl_run(run_id, 'success', {
-            'targets': len(targets), 'observed': observed, 'retired_to_cold': retired,
+            'targets': len(targets), 'reference_only':len(reference_only), 'ordinary_targets':len(targets)-len(reference_only), 'observed': observed, 'retired_to_cold': retired,
         })
         print(f'[观测] 完成: {observed}/{len(targets)} 条，{retired} 视频退役cold')
     except Exception as e:
         print(f'[观测] 失败: {e}')
     finally:
-        _crawl_lock.release()
+        guard.release()
 
 
 # ─── 调度层包装函数（供 scheduler.py 调用）─────────────────────────

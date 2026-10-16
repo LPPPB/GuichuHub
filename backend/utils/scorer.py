@@ -9,9 +9,9 @@ from config import (
     MATERIAL_VIEWS_MIN, MATERIAL_AGE_DAYS,
 )
 
-def calc_trend_score(views, likes, coins, favorites, shares, comments, danmaku, pub_date_timestamp):
+def calc_trend_score(views, likes, coins, favorites, shares, comments, danmaku, pub_date_timestamp, *, now=None):
     import time
-    now = time.time()
+    now = time.time() if now is None else now
     hours_passed = max(1, (now - pub_date_timestamp) / 3600)
     
     views_per_hour = views / hours_passed

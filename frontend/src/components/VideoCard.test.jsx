@@ -20,6 +20,19 @@ const video = {
   },
 }
 
+it('uses explicit rank only in the ranking context', () => {
+  const row={...video,official_rank:7}
+  const {container}=render(<>
+    <VideoCard video={row} index={0} displayRank={7} formatNumber={String} />
+    <VideoCard video={row} index={0} formatNumber={String} />
+    <VideoCard video={row} formatNumber={String} />
+  </>)
+  const ranks=[...container.querySelectorAll('.kb-rank')]
+  expect(ranks.map(n=>n.textContent)).toEqual(['7','1'])
+  expect(ranks[0]).toHaveClass('kb-rank--n')
+  expect(ranks[1]).toHaveClass('kb-rank--1')
+})
+
 it('hides radar in a video card unless its ranking page enables it', () => {
   render(<VideoCard video={video} index={0} formatNumber={String} />)
 

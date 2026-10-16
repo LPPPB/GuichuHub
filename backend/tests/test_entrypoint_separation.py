@@ -80,6 +80,8 @@ def test_worker_entrypoint_initializes_services_once_then_waits(monkeypatch):
     class Runtime:
         state = object()
 
+    monkeypatch.setattr(worker_entrypoint,'refresh_official_if_due',lambda **_:calls.append('official-startup'))
+
     monkeypatch.setattr(
         worker_entrypoint,
         "configure_postgres_runtime",
@@ -157,6 +159,7 @@ def test_worker_entrypoint_initializes_services_once_then_waits(monkeypatch):
         "calendar",
         "analysis",
         "collector-handoff",
+        "official-startup",
         "crawl:startup",
         "wait",
     ]

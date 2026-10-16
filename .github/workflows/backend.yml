@@ -25,7 +25,11 @@ jobs:
           version: "0.11.32"
       - name: Run backend and PostgreSQL integration tests
         working-directory: backend
-        run: uv run --extra dev pytest -q --no-cov
+        # Manual upstream probes are opt-in scripts, never CI collection jobs.
+        run: >-
+          uv run --extra dev pytest -q --no-cov
+          --ignore=tests/test_kichu_rank.py --ignore=tests/test_ranking.py
+          --ignore=tests/test_date_fields.py --ignore=tests/test_popular_kichu.py
       - name: Validate Compose files
         run: |
           mkdir -p /tmp/kichu-secrets /tmp/kichu-postgres

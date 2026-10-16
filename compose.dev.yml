@@ -2,6 +2,7 @@ name: kichiku-v3-dev
 
 x-backend-environment: &backend-environment
   KICHU_ENV: development
+  COLLECTION_RULES_MODE: ${COLLECTION_RULES_MODE:-shadow}
   KICHU_COOKIE_PATH: /app/runtime/dev/private/bilibili_cookie.json
   KICHU_LOG_DIR: /app/runtime/dev/logs
 
