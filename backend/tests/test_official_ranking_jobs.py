@@ -133,3 +133,30 @@ def test_metadata_failure_leaves_previous_official_snapshot(postgres_runtime,mon
     data=postgres_runtime.state.load_dashboard()
     assert data['official_kichu_snapshot']==initial.snapshot
     assert data['official_kichu_attempt']['outcome']=='error'
+
+
+@pytest.mark.parametrize('stage',['processing','metadata'])
+def test_pipeline_exception_records_failed_attempt_without_changing_snapshot(postgres_runtime,monkeypatch,stage):
+    from jobs import crawl_jobs
+    from tests.test_collection_views import potential
+    from services.collection_contracts import PotentialResult
+    monkeypatch.setenv('COLLECTION_RULES_MODE','official')
+    saved={'potential_v2_snapshot':potential(NOW-100,[{'bvid':'saved'}]),
+           'potential_v2_attempt':{'started_at':NOW-100,'outcome':'success'},'last_updated':'prior-success'}
+    postgres_runtime.state.save_dashboard(saved,NOW-100)
+    def fail(*a,**kw): raise RuntimeError('test pipeline exception')
+    if stage=='processing': monkeypatch.setattr(crawl_jobs,'_collect_round',fail)
+    else:
+        result=PotentialResult(potential(NOW,[{'bvid':'new'}]),[],{'started_at':NOW,'finished_at':NOW,'outcome':'success'})
+        monkeypatch.setattr(crawl_jobs,'_collect_round',lambda:{'_potential_result':result,
+            '_all_videos':[{'bvid':'new','first_seen':NOW,'metrics_source':'estimated'}]})
+        monkeypatch.setattr(postgres_runtime.business,'register_video_metadata',fail)
+    guard=postgres_runtime.collection_lock.try_acquire(trigger='test')
+    with pytest.raises(RuntimeError,match='test pipeline exception'):
+        crawl_jobs._crawl_job_locked('scheduled',guard=guard)
+    data=postgres_runtime.state.load_dashboard()
+    assert data['potential_v2_snapshot']==saved['potential_v2_snapshot']
+    assert data['last_updated']=='prior-success'
+    assert data['potential_v2_attempt']['outcome']=='error'
+    assert data['potential_v2_attempt']['attempt_id']
+    assert guard._released

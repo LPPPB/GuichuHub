@@ -8,6 +8,7 @@
 
 import os
 import time
+from uuid import uuid4
 
 from storage.cache import get_data, persist_data
 from storage import db as tsdb
@@ -151,12 +152,19 @@ def _collect_round():
 def _crawl_job_locked(trigger,*,guard):
     records_written=0
     run_id=None
+    mode=None
+    attempt_identity=dict(attempt_id=uuid4().hex,started_at=int(time.time()),started_at_ns=time.time_ns())
     try:
         guard.assert_held()
+        mode=load_collection_policy(os.environ).mode
         run_id=tsdb.begin_crawl_run(trigger)
         new_data=_collect_round()
         all_videos=new_data.pop('_all_videos',[])
         result=new_data.pop('_potential_result',None)
+        if result is not None:
+            result.attempt.update(attempt_identity)
+            if result.snapshot is not None:
+                result.snapshot['meta'].update(attempt_identity)
         summary=new_data.pop('_collection_summary',{})
         ts=_crawl_status.get('started_at') or int(time.time())
         business=tsdb.get_business_repository()
@@ -194,6 +202,14 @@ def _crawl_job_locked(trigger,*,guard):
         _crawl_status['last_finished_at']=int(time.time())
     except Exception as error:
         _crawl_status['last_error']=str(error)
+        if mode in ('shadow','official'):
+            from services.collection_contracts import PotentialResult
+            failed=dict(attempt_identity,finished_at=int(time.time()),outcome='error',error_code='pipeline_exception')
+            try:
+                guard.assert_held()
+                get_collection_repository().publish_generation({},PotentialResult(None,[],failed),guard=guard,mode=mode)
+            except Exception as publication_error:
+                logger.warning('Failed-attempt publication unavailable: %s',type(publication_error).__name__)
         if run_id is not None:
             try: tsdb.finish_crawl_run(run_id,'failed',{'error':type(error).__name__})
             except Exception: pass

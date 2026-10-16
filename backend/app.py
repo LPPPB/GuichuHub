@@ -333,8 +333,12 @@ def route_songs():
 
 @app.route('/api/videos', methods=['GET'])
 def route_videos():
-    data = get_data()
-    return jsonify({'success': True, 'data': data.get('hot_videos', [])})
+    from services.collection_views import select_collection_views
+    from config import load_collection_policy
+    from storage.cache import get_live_cache
+    data=select_collection_views(get_data() or {},live=get_live_cache(),
+        mode=load_collection_policy(os.environ).mode,now=int(time.time()))
+    return jsonify({'success': True,'data':data['hot_videos'],'meta':data['potential_meta']})
 
 
 @app.route('/api/kichu-rank', methods=['GET'])

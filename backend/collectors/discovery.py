@@ -71,7 +71,7 @@ def discover_candidates(*, context, official_snapshot, pending, now):
                     break
                 search_rows.extend(rows('search_page',keyword,tid,order,page,endpoint='search',lane=lane))
                 remaining -= 1
-    rows('all_ranking',endpoint='ranking_v2',lane='popular')
+    ranking_rows=rows('all_ranking',endpoint='ranking_v2',lane='popular')
     newest = rows('newest',endpoint='newest',lane='newest')
     music_rows,funny_rows = [],[]
     for target,tid,words,cap in [
@@ -148,7 +148,7 @@ def discover_candidates(*, context, official_snapshot, pending, now):
             if value.get('tid') in tids and (age is None or 0<value.get('pub_date',0) and now-value['pub_date']<=age*86400):
                 unique[value['bvid']] = merge_video(unique.get(value['bvid']),value)
         return sorted(unique.values(),key=lambda v:-(v.get('views') or 0))[:limit]
-    derived = dict(kichu=legacy_sample(popular_rows+search_rows,KICHU_TIDS),
+    derived = dict(kichu=legacy_sample(popular_rows+search_rows+ranking_rows,KICHU_TIDS),
         music=legacy_sample(popular_rows[:150]+music_rows,MUSIC_TIDS,age=60),
         funny=legacy_sample(popular_rows[:150]+funny_rows,FUNNY_TIDS,age=60),
         popular=legacy_sample(popular_rows[:200],KICHU_TIDS,limit=50))

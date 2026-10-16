@@ -6,6 +6,20 @@ from services.collection_contracts import CollectionPolicy, video_from_api
 from tests.collection_samples import raw_video, NOW
 
 
+def test_legacy_sample_keeps_all_ranking_only_and_mixed_source_top30():
+    ranking=[raw_video(f'BV{i:010d}',tid=22,stat={**raw_video()['stat'],'view':100000-i}) for i in range(35)]
+    context,discovery,_=setup()
+    context.loaders['all_ranking']=lambda:ranking
+    only=discovery.discover_candidates(context=context,official_snapshot=None,pending=[],now=NOW)
+    assert [v['bvid'] for v in only.derived['kichu']]==[v['bvid'] for v in ranking[:30]]
+    popular=[raw_video('BVpopular00',tid=22,stat={**raw_video()['stat'],'view':200000})]
+    context,discovery,_=setup(popular)
+    context.loaders['all_ranking']=lambda:ranking+[popular[0]]
+    mixed=discovery.discover_candidates(context=context,official_snapshot=None,pending=[],now=NOW)
+    assert [v['bvid'] for v in mixed.derived['kichu']]==[popular[0]['bvid']]+[v['bvid'] for v in ranking[:29]]
+    assert context.summary()['logical']['discovery']<=60
+
+
 def modules():
     assert importlib.util.find_spec('collectors.collection_context'), 'round context missing'
     assert importlib.util.find_spec('collectors.discovery'), 'independent discovery missing'
