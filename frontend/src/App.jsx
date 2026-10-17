@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar'
 import MemeCard from './components/MemeCard'
 import SongCard from './components/SongCard'
 import VideoCard from './components/VideoCard'
+import DashboardRanking from './components/DashboardRanking'
 import DanmakuCloud from './components/DanmakuCloud'
 import CommentList from './components/CommentList'
 import FavoritesPanel from './components/FavoritesPanel'
@@ -290,16 +291,8 @@ export default function App() {
                 <div className="lg:col-span-8 space-y-10">
                   <Suspense fallback={<LazyFallback />}><BurstingVideos /></Suspense>
 
-                  <Section title="鬼畜区排行榜" icon={<Trophy size={20} className="text-haze-50" />}
-                           total={data.kichu_rank?.length} moreText="查看全部" more={() => setActiveTab('kichu-rank')}>
-                    <div className="space-y-3">
-                      {data.kichu_rank?.slice(0, 3).map((v, i) => (
-                        <VideoCard key={v.bvid || i} video={v} index={i} trendColor={trendColor} formatNumber={formatNumber}
-                                   onFavorite={() => handleAddFavorite('video', v)} isFavorited={isFav('video', v)} staggerDelay={d(i)} />
-                      ))}
-                      {data.kichu_rank?.length === 0 && <EmptyHint text="暂无鬼畜区排行数据" />}
-                    </div>
-                  </Section>
+                  <DashboardRanking videos={data.kichu_rank || []} formatNumber={formatNumber}
+                                    onViewAll={() => setActiveTab('kichu-rank')} />
 
                   <Section title="今日热梗 TOP" icon={<Flame size={20} className="text-neon-rose" />}
                            total={data.hot_memes?.length}>
