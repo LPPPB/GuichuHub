@@ -8,7 +8,7 @@ import { observationTime } from './RadarDetails'
 const ObsTrendChart = lazy(() => import('./ObsTrendChart'))
 const AiSummary = lazy(() => import('./AiSummary'))
 
-export default function VideoCard({ video, index, formatNumber, onFavorite, isFavorited, staggerDelay = 0, showRadar = false }) {
+export default function VideoCard({ video, index, formatNumber, onFavorite, isFavorited, staggerDelay = 0, showRadar = false, variant = 'full' }) {
   const [expanded, setExpanded] = useState(false)
   const [showAiSummary, setShowAiSum] = useState(false)
   const [showPortrait, setShowPortrait] = useState(false)
@@ -27,9 +27,21 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
   const hasRadar = showRadar && Boolean(video.radar)
   const observedOnline = video.online_observation
   const isV2 = video.radar?.algorithm_version === 'radar-v2'
+  const isDashboard = variant === 'dashboard'
+  const reasons = (
+    <div className="video-card-reasons">
+      {video.potential_score != null && <span className="kb-chip kb-chip--rose">潜力 <b>{video.potential_score}</b><span>· {video.potential_reason || '综合潜力'}</span></span>}
+      {video.material_score != null && <span className="kb-chip kb-chip--cyan">素材 <b>{video.material_score}</b><span>· {video.material_reason || '素材价值'}</span></span>}
+    </div>
+  )
+  const trendButton = (
+    <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls={`${panelId}-trend`} className="video-card-action video-card-action--primary">
+      {expanded ? <ChevronUp size={18} /> : <TrendingUp size={18} />}<span>{expanded ? '收起趋势' : '观测趋势'}</span>
+    </button>
+  )
 
   return (
-    <article className="kb-card kb-stagger kb-video-card video-card" style={{ animationDelay: `${staggerDelay}ms` }}>
+    <article className={`kb-card kb-stagger kb-video-card video-card${isDashboard ? ' video-card--dashboard' : ''}`} style={{ animationDelay: `${staggerDelay}ms` }}>
       <div className="inner">
         <div className={`video-card-layout ${hasRadar ? 'video-card-layout--radar' : ''}`}>
           <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="video-card-cover" aria-label={`在 B 站播放：${video.title}`}>
@@ -82,13 +94,12 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
           </div>
 
           {hasRadar && <div className="kb-video-radar-slot"><VideoRadar radar={video.radar} delay={staggerDelay} /></div>}
+          {isDashboard && reasons}
+          {isDashboard && <div className="video-card-inline-action">{trendButton}</div>}
         </div>
 
-        <div className="video-card-footer">
-          <div className="video-card-reasons">
-            {video.potential_score != null && <span className="kb-chip kb-chip--rose">潜力 <b>{video.potential_score}</b><span>· {video.potential_reason || '综合潜力'}</span></span>}
-            {video.material_score != null && <span className="kb-chip kb-chip--cyan">素材 <b>{video.material_score}</b><span>· {video.material_reason || '素材价值'}</span></span>}
-          </div>
+        {!isDashboard && <div className="video-card-footer">
+          {reasons}
           <div className="video-card-actions">
             {hasRadar && isV2 && <button type="button" className="video-card-action video-card-radar-toggle"
               onClick={() => setShowPortrait(value => !value)} aria-expanded={showPortrait} aria-controls={`${panelId}-portrait`}>
@@ -100,11 +111,9 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
             <button type="button" onClick={() => setShowAiSum(value => !value)} aria-expanded={showAiSummary} aria-controls={`${panelId}-summary`} className="video-card-action">
               <Sparkles size={17} /><span>AI 总结</span>
             </button>
-            <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls={`${panelId}-trend`} className="video-card-action video-card-action--primary">
-              {expanded ? <ChevronUp size={18} /> : <TrendingUp size={18} />}<span>{expanded ? '收起趋势' : '观测趋势'}</span>
-            </button>
+            {trendButton}
           </div>
-        </div>
+        </div>}
 
         {showPortrait && <div id={`${panelId}-portrait`} className="video-card-panel video-card-mobile-portrait">
           <div className="flex justify-center py-3"><VideoRadar radar={video.radar} /></div>
