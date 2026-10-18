@@ -26,7 +26,7 @@ function axisTooltip(axis, v2 = false) {
   return `${axis.label}：${(Number(axis.raw || 0) * 100).toFixed(2)}%`
 }
 
-export default function VideoRadar({ radar, delay = 0, className = '' }) {
+export default function VideoRadar({ radar, delay = 0, className = '', size = SIZE }) {
   const rootRef = useRef(null)
   const frameRef = useRef(null)
   const instanceId = useId().replace(/:/g, '')
@@ -131,8 +131,9 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
 
   return (
     <div ref={rootRef} className={`relative w-[164px] shrink-0 select-none ${v2 ? 'video-radar-v2' : 'h-[164px]'} ${className}`}
+      style={{ width: size, ...(v2 ? {} : { height: size }) }}
       onMouseLeave={() => setSelected(current => current?.pinned ? current : null)}>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="视频数据雷达图" aria-describedby={descriptionId} className="w-full h-[164px] overflow-visible">
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label="视频数据雷达图" aria-describedby={descriptionId} className="w-full h-[164px] overflow-visible" style={{ height: size }}>
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="rgb(var(--neon-rose))" stopOpacity="0.28" />
@@ -180,7 +181,7 @@ export default function VideoRadar({ radar, delay = 0, className = '' }) {
         })}
       </svg>
       {v2 && labels.map(({ axis, point: [x, y] }) => <button key={axis.id} type="button"
-        className="video-radar-hit" style={{ left: `${x / SIZE * 100}%`, top: `${y}px` }}
+        className="video-radar-hit" style={{ left: `${x / SIZE * 100}%`, top: `${y * size / SIZE}px` }}
         aria-label={`${axis.label}详情`} aria-expanded={selected?.id === axis.id}
         aria-controls={`${descriptionId}-detail`}
         onMouseEnter={() => setSelected(current => current?.pinned ? current : { id: axis.id, pinned: false })}
