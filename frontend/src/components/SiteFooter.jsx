@@ -5,7 +5,7 @@ import './SiteFooter.css'
 
 const footerTabIds = new Set(['dashboard', 'kichu-rank', 'memes', 'videos', 'meme-materials', 'up-trends'])
 
-export default function SiteFooter({ tabGroups, activeTab, onNavigate }) {
+export default function SiteFooter({ tabGroups, activeTab, onNavigate, renderYear }) {
   const navigation = tabGroups.flatMap((group) => group.tabs).filter((tab) => footerTabIds.has(tab.id))
 
   return (
@@ -65,7 +65,7 @@ export default function SiteFooter({ tabGroups, activeTab, onNavigate }) {
         </div>
 
         <div className="site-footer__bottom">
-          <p>© {new Date().getFullYear()} GuichuHub</p>
+          <p>© {renderYear ?? new Date().getFullYear()} GuichuHub</p>
           <div className="site-footer__filings">
             <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer"
                className="site-footer__link">

@@ -41,6 +41,8 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const [risingMeta, setRisingMeta] = useState(null)
   const maxHeat = Math.max(...(data.hot_memes || []).map((m) => Number(m.heat) || 0), 1)
   const [loading, setLoading] = useState(!initialData)
+  const hasPublicData = useRef(Boolean(initialData))
+  const [preferencesReady, setPreferencesReady] = useState(!initialData)
   const [favorites, setFavorites] = useState([])
   const [showFavorites, setShowFavorites] = useState(false)
   const [showLogin, setShowLogin] = useState(false)
@@ -59,7 +61,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const [liveExpired, setLiveExpired] = useState(false)
   const liveExpiryTimer = useRef(null)
   const [theme, setTheme] = useState(() => {
-    if (typeof window === 'undefined') return 'dark'
+    if (initialData || typeof window === 'undefined') return 'dark'
     const saved = localStorage.getItem('kb-theme')
     if (saved === 'light' || saved === 'dark') return saved
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
@@ -86,11 +88,19 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   }, [])
 
   useEffect(() => {
+    if (!initialData) return
+    const saved = localStorage.getItem('kb-theme')
+    setTheme(saved === 'light' || saved === 'dark' ? saved : window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+    setPreferencesReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!preferencesReady) return
     const root = document.documentElement
     if (theme === 'dark') root.classList.add('dark')
     else root.classList.remove('dark')
     localStorage.setItem('kb-theme', theme)
-  }, [theme])
+  }, [theme, preferencesReady])
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
 
   useEffect(() => {
@@ -148,10 +158,12 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   }, [])
 
   const loadData = async () => {
-    setLoading(true)
+    setLoading(!hasPublicData.current)
+    try {
     const res = await api.getDashboard()
     if (res.success && res.data) {
-      setData(res.data)
+      hasPublicData.current = true
+      setData(previous => ({...previous, ...res.data}))
       const newIsLive = res.data.is_live || false
       setIsLive(newIsLive); setLiveExpired(false)
       if (liveExpiryTimer.current) { clearTimeout(liveExpiryTimer.current); liveExpiryTimer.current = null }
@@ -159,7 +171,8 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
         liveExpiryTimer.current = setTimeout(() => { setLiveExpired(true); liveExpiryTimer.current = null }, 10 * 60 * 1000)
       }
     }
-    setLoading(false)
+    } catch { /* Retain the last successful public snapshot when offline. */ }
+    finally { setLoading(false) }
   }
   const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) setFavorites(res.data || []) }
   // 三态身份刷新：GET /auth/me → {admin, via, user}（口令超管 / B站管理员会话 / 访客）
@@ -655,7 +668,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
             )}
           </div>
         )}
-        <SiteFooter
+        <SiteFooter renderYear={renderYear}
           tabGroups={tabGroups}
           activeTab={activeTab}
           onNavigate={(tabId) => { setActiveTab(tabId); window.scrollTo({ top: 0, behavior: 'smooth' }) }}

@@ -20,7 +20,8 @@ function saveBlocked(list) {
 }
 
 export default function DanmakuCloud({ words = [], large = false }) {
-  const [blocked, setBlocked] = useState(loadBlocked)
+  const [blocked, setBlocked] = useState([])
+  useEffect(() => { setBlocked(loadBlocked()) }, [])
   const [showManager, setShowManager] = useState(false)
   const [hoveredWord, setHoveredWord] = useState(null)
   const [hoveredRect, setHoveredRect] = useState(null)  // 词相对 viewport 的位置，用于在 viewport 层级渲染悬浮窗（不受 scale 影响）
