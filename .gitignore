@@ -11,6 +11,7 @@ backend/.venv/
 backend/venv/
 frontend/node_modules/
 frontend/dist/
+frontend/dist-server/
 backend/.uv-cache/
 __pycache__/
 .pytest_cache/

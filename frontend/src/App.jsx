@@ -32,15 +32,15 @@ const EMPTY_DATA = {
   comments_gold: [], last_updated: null,
 }
 
-export default function App() {
-  const {activeTab, navigate: setActiveTab} = usePublicNavigation()
-  const [data, setData] = useState(EMPTY_DATA)
+export default function App({initialTab, initialData, initialAux, renderYear} = {}) {
+  const {activeTab, navigate: setActiveTab} = usePublicNavigation(initialTab)
+  const [data, setData] = useState(() => ({...EMPTY_DATA, ...initialData}))
   const [interactionQuality, setInteractionQuality] = useState([])
   const [tagHeat, setTagHeat] = useState([])
   const [risingWords, setRisingWords] = useState([])
   const [risingMeta, setRisingMeta] = useState(null)
   const maxHeat = Math.max(...(data.hot_memes || []).map((m) => Number(m.heat) || 0), 1)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialData)
   const [favorites, setFavorites] = useState([])
   const [showFavorites, setShowFavorites] = useState(false)
   const [showLogin, setShowLogin] = useState(false)
