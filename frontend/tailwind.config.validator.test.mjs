@@ -1046,19 +1046,7 @@ describe('[Section Icon] 去掉圆角矩形底+Trophy 改为白色', () => {
     ).toBe(true)
   })
 
-  it('2. 鬼畜区排行榜 Section 的 Trophy 图标颜色必须为白色（text-white / text-haze-50），禁止 text-neon-amber 橙金', () => {
-    const re = /<Section title="鬼畜区排行榜"[\s\S]{0,800}/
-    const block = appJsx.match(re)
-    expect(block, 'App.jsx 必须包含"鬼畜区排行榜" Section').not.toBe(null)
-    const trophyLine = block[0].match(/<Trophy[^>]*className="([^"]*)"[^>]*>/)
-    expect(trophyLine, '鬼畜区排行榜 Section 必须用 Trophy 图标').not.toBe(null)
-    const cls = trophyLine[1]
-    const hasWhite = /text-white|text-haze-50/.test(cls)
-    expect(
-      hasWhite,
-      `鬼畜区排行榜的 Trophy 必须白色（text-white 或 text-haze-50），当前: ${cls}`,
-    ).toBe(true)
-  })
+  // DashboardRanking 图标的实际主题颜色由 verify-dashboard-ranking.mjs 校验。
 })
 
 // ═══════════════════════════════════════════════════════════════════

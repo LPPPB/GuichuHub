@@ -63,7 +63,7 @@ try {
     assert.equal(await page.locator('.site-sidebar').isVisible(), width >= 1024)
     assert.equal(await page.getByRole('button', { name: '打开导航菜单' }).isVisible(), width < 1024)
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
-    const header = await page.locator('header').boundingBox() || { y: 0, height: 0 }
+    const header = await page.locator('.site-header').boundingBox() || { y: 0, height: 0 }
     const main = await page.locator('main').boundingBox()
     assert.ok(main.y >= header.y + header.height - 1, 'Header must not cover content')
     if (width >= 1024) {
@@ -160,7 +160,7 @@ try {
       await page.getByRole('heading', { name: '正在爆发', exact: true }).waitFor()
     }
     await page.evaluate(() => window.scrollTo(0, 650))
-    if (width < 1024) assert.ok(Math.abs((await page.locator('header').boundingBox()).y) < 1, 'Narrow-screen brand must remain visible while scrolling')
+    if (width < 1024) assert.ok(Math.abs((await page.locator('.site-header').boundingBox()).y) < 1, 'Narrow-screen brand must remain visible while scrolling')
     if (width >= 1024) {
       assert.ok(Math.abs((await page.locator('.site-sidebar').boundingBox()).y - header.height - 16) < 2)
       await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '热梗', exact: true }).click()
