@@ -246,21 +246,30 @@ def _with_radar_metrics(videos):
     ]
 
 
+def _with_video_observations(videos):
+    from services.radar_service import RadarService
+    from storage.repositories.radar import get_radar_repository
+    return RadarService(get_radar_repository()).decorate(videos or [], int(time.time()))
+
+
 def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
     """组装 /api/dashboard 响应体（弹幕热词过滤在数据变化时只执行一次）"""
     from services.radar_service import RadarService
     from storage.repositories.radar import get_radar_repository
     now = int(time.time()) if now is None else now
     fields = ('kichu_rank', 'hot_videos', 'material_candidates')
-    all_rows = [v for field in fields for v in (data.get(field) or []) if isinstance(v, dict)]
+    all_rows = [v for field in fields for v in (data.get(field) or [])]
     decorated = RadarService(get_radar_repository()).decorate(all_rows, now)
-    metrics = {v.get('bvid'): v for v in decorated if v.get('bvid')}
+    # Keep each section's own scores/metadata, even when a bvid occurs in several lists.
+    sections = {}
+    offset = 0
+    for field in fields:
+        count = len(data.get(field) or [])
+        sections[field] = decorated[offset:offset+count]
+        offset += count
     def rows(field, v2=False):
-        source = data.get(field) or []
-        source = source if v2 else _with_radar_metrics(source)
-        return [{**v, 'online_observation': metrics.get(v.get('bvid'), {}).get('online_observation'),
-                 **({'radar': metrics.get(v.get('bvid'), {}).get('radar')} if v2 else {})}
-                if isinstance(v, dict) else v for v in source]
+        source = sections[field]
+        return source if v2 else _with_radar_metrics(source)
     return {
         'kichu_rank': rows('kichu_rank', True),
         'hot_memes': data.get('hot_memes', []),
@@ -325,16 +334,13 @@ def route_songs():
 @app.route('/api/videos', methods=['GET'])
 def route_videos():
     data = get_data()
-    return jsonify({'success': True, 'data': data.get('hot_videos', [])})
+    return jsonify({'success': True, 'data': _with_video_observations(data.get('hot_videos'))})
 
 
 @app.route('/api/kichu-rank', methods=['GET'])
 def route_kichu_rank():
     data = get_data()
-    from services.radar_service import RadarService
-    from storage.repositories.radar import get_radar_repository
-    return jsonify({'success': True, 'data': RadarService(get_radar_repository()).decorate(
-        data.get('kichu_rank') or [], int(time.time()))})
+    return jsonify({'success': True, 'data': _with_video_observations(data.get('kichu_rank'))})
 
 
 @app.route('/api/meme-materials', methods=['GET'])
@@ -346,7 +352,8 @@ def route_meme_materials():
 @app.route('/api/material-candidates', methods=['GET'])
 def route_material_candidates():
     data = get_data()
-    return jsonify({'success': True, 'data': data.get('material_candidates', [])})
+    return jsonify({'success': True, 'data': _with_radar_metrics(
+        _with_video_observations(data.get('material_candidates')))})
 
 
 @app.route('/api/danmaku', methods=['GET'])
@@ -496,6 +503,9 @@ def route_status():
     # 数据来源：实时缓存存在且未过期 = live，否则 = scheduled
     from storage.cache import get_live_cache
     data_source = 'live' if get_live_cache() else 'scheduled'
+    from storage.repositories.radar import get_radar_repository
+    repository = get_radar_repository()
+    observation_revision = repository.revision() if repository else (0, None)
     # 同接熔断器状态（L3）：fails/是否打开/冷却倒计时/半开态/状态趋势，便于运维排查风控
     try:
         from collectors.bilibili import (_ONLINE_BREAKER, _online_breaker_open,
@@ -521,6 +531,7 @@ def route_status():
             'last_updated': data.get('last_updated'),
             'bili_logged_in': bili_logged_in,      # B站登录态（过期时前端提示重新扫码）
             'data_source': data_source,             # 数据来源：live(实时)/scheduled(定时)
+            'observation_revision': observation_revision,
             'online_breaker': ob,                   # 同接熔断器状态（null=不可用）
         }
     })

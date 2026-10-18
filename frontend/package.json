@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:layout": "npm run build && node scripts/verify-ranking-layout.mjs"
+    "test:layout": "npm run build && node scripts/verify-ranking-layout.mjs",
+    "test:observations": "npm run build && node scripts/verify-observation-consistency.mjs"
   },
   "dependencies": {
     "echarts": "^6.1.0",

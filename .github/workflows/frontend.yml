@@ -45,6 +45,8 @@ jobs:
         run: node scripts/verify-navigation-layout.mjs
       - name: Verify dashboard ranking layout and complete ranking navigation
         run: node scripts/verify-dashboard-ranking.mjs
+      - name: Verify observed counts and automatic curve refresh
+        run: node scripts/verify-observation-consistency.mjs
 
   development-bootstrap:
     runs-on: windows-2025
