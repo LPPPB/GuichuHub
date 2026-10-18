@@ -1,3 +1,4 @@
+import PublicLink from '../routing/PublicLink'
 import { Trophy } from 'lucide-react'
 import VideoCard from './VideoCard'
 import './DashboardRanking.css'
@@ -12,7 +13,7 @@ export default function DashboardRanking({ videos = [], formatNumber, onViewAll 
             <h2 id="dashboard-ranking-title">鬼畜区排行榜</h2>
             <span className="dashboard-ranking-label">Top 5</span>
           </div>
-          <button type="button" onClick={onViewAll} className="dashboard-ranking-more">查看全部 →</button>
+          <PublicLink tabId="kichu-rank" onNavigate={onViewAll} className="dashboard-ranking-more">查看全部 →</PublicLink>
         </header>
         {videos.length ? (
           <ol className="dashboard-ranking-list">

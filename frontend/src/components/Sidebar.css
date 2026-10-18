@@ -100,15 +100,15 @@ html.dark .site-sidebar__collapse:hover { background: rgba(var(--neon-violet), .
   .site-menu-button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 8px; margin-left: auto; border-radius: 8px; font-size: 12px; color: rgb(var(--haze-50)); }
   .site-menu-button:hover { background: rgba(var(--haze-400), .09); }
   .site-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); border-top: 1px solid rgba(var(--haze-400), .1); }
-  .site-shortcuts button { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 44px; white-space: nowrap; font-size: 12px; color: rgb(var(--haze-300)); }
-  .site-shortcuts button:hover { color: rgb(var(--bili-dark)); }
-  .site-shortcuts button[aria-current="page"] { color: rgb(var(--bili-dark)); font-weight: 600; }
+  .site-shortcuts a { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 44px; white-space: nowrap; font-size: 12px; color: rgb(var(--haze-300)); }
+  .site-shortcuts a:hover { color: rgb(var(--bili-dark)); }
+  .site-shortcuts a[aria-current="page"] { color: rgb(var(--bili-dark)); font-weight: 600; }
 }
 @media (max-width: 600px) {
   .site-brand__description, .site-live { display: none; }
 }
 @media (max-width: 359px) {
-  .site-shortcuts button { gap: 4px; font-size: 11px; }
+  .site-shortcuts a { gap: 4px; font-size: 11px; }
   .site-shortcuts svg { width: 13px; height: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {

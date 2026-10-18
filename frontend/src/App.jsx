@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { usePublicNavigation } from './routing/usePublicNavigation'
+import PublicLink from './routing/PublicLink'
 import { api, verifyAdminSilent } from './utils/api'
 import Sidebar from './components/Sidebar'
 import MemeCard from './components/MemeCard'
@@ -31,7 +33,7 @@ const EMPTY_DATA = {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard')
+  const {activeTab, navigate: setActiveTab} = usePublicNavigation()
   const [data, setData] = useState(EMPTY_DATA)
   const [interactionQuality, setInteractionQuality] = useState([])
   const [tagHeat, setTagHeat] = useState([])
@@ -261,6 +263,7 @@ export default function App() {
       />
 
       <main className="flex-1 min-w-0 relative z-10 flex flex-col">
+        {activeTab === 'not-found' && <div className="p-8"><h1>页面不存在</h1><PublicLink tabId="dashboard" onNavigate={setActiveTab}>返回首页</PublicLink></div>}
         {activeTab === 'dashboard' && (
           <div className="sr-only">
             <h1>GuichuHub · B站鬼畜创作灵感看板</h1>
@@ -312,7 +315,7 @@ export default function App() {
                   </Section>
 
                   <Section title="鬼畜潜力视频" icon={<Zap size={20} className="text-primary-500" />}
-                           moreText="查看全部" more={() => setActiveTab('videos')}
+                           moreText="查看全部" more={() => setActiveTab('videos')} moreTab="videos"
                            desc="已发布的鬼畜作品中具有爆发潜力的视频，综合批内热度（转发/评论/弹幕密度 × 播放）与互动质量率，乘以新鲜度与同接补正计算潜力指数。">
                     <div className="space-y-3">
                       {data.hot_videos?.slice(0, 4).map((v, i) => (
@@ -351,7 +354,7 @@ export default function App() {
                   </Section>
 
                   <Section title="素材发掘" icon={<Search size={20} className="text-neon-cyan" />}
-                           moreText="查看全部" more={() => setActiveTab('materials')}
+                           moreText="查看全部" more={() => setActiveTab('materials')} moreTab="materials"
                            desc="从音乐区/搞笑区挖掘有潜力被二创成鬼畜的热门素材，按素材热度 × 传播性 × 新鲜度评分，原素材越火二创受众越大。">
                     <div className="space-y-3">
                       {data.material_candidates?.slice(0, 4).map((v, i) => (
@@ -671,7 +674,7 @@ export default function App() {
   )
 }
 
-function Section({ title, icon, subtitle, desc, note, total, more, moreText, children }) {
+function Section({ title, icon, subtitle, desc, note, total, more, moreTab, moreText, children }) {
   return (
     <section>
       <div className="flex items-baseline justify-between gap-3 mb-4 md:mb-5">
@@ -691,9 +694,9 @@ function Section({ title, icon, subtitle, desc, note, total, more, moreText, chi
           )}
         </div>
         {more && (
-          <button onClick={more} className="kb-chip text-primary-600 bg-primary-50 border border-primary-200 hover:bg-primary-100 transition shrink-0 cursor-pointer">
+          <PublicLink tabId={moreTab} onNavigate={more} className="kb-chip text-primary-600 bg-primary-50 border border-primary-200 hover:bg-primary-100 transition shrink-0 cursor-pointer">
             {moreText || '查看更多'} →
-          </button>
+          </PublicLink>
         )}
       </div>
       {children}

@@ -1,3 +1,4 @@
+import PublicLink from '../routing/PublicLink'
 import { useMemo, useState } from 'react'
 import { RefreshCw, Star, User, LogOut, Clock, Sun, Moon, ChevronDown, Code2, ShieldCheck } from 'lucide-react'
 
@@ -19,7 +20,7 @@ export default function SidebarContent({
 
   const BrandHeader = () => (
     <div className={`flex min-h-10 items-center ${collapsed ? 'justify-center px-0' : 'gap-3 px-1'}`}>
-      <button type="button" aria-label="品牌标志" className="relative shrink-0 w-10 h-10 rounded-2xl
+      <PublicLink tabId="dashboard" onNavigate={onTabChange} aria-label="品牌标志" className="relative shrink-0 w-10 h-10 rounded-2xl
                       bg-gradient-to-br from-bili-default via-neon-violet to-neon-cyan
                       shadow-glow-pink animate-glow-breath
                       flex items-center justify-center" onClick={onLogoClick}>
@@ -28,7 +29,7 @@ export default function SidebarContent({
           <span className="w-[3px] h-[100%] rounded-full bg-white" />
           <span className="w-[3px] h-[75%] rounded-full bg-white/95" />
         </div>
-      </button>
+      </PublicLink>
       {!collapsed && (
         <div className="w-[156px] shrink-0 overflow-hidden whitespace-nowrap">
           <p className="whitespace-nowrap text-[0.98rem] font-bold text-haze-50 leading-tight tracking-tight">
@@ -76,9 +77,9 @@ export default function SidebarContent({
       const Icon = shortcut.icon
       const isActive = activeTab === shortcut.id
       return (
-        <button
+        <PublicLink
           title={`${group.label} · ${shortcut.label}`} aria-label={shortcut.label} aria-current={isActive ? "page" : undefined}
-          onClick={() => { onTabChange(shortcut.id) }}
+          tabId={shortcut.id} onNavigate={onTabChange}
           className={
             'group relative w-full flex items-center justify-center py-2.5 rounded-xl transition-all duration-200 ' +
             (isActive
@@ -90,16 +91,16 @@ export default function SidebarContent({
                              bg-gradient-to-b from-bili-default to-bili-dark" />
           )}
           <Icon aria-hidden="true" size={18} className={isActive ? 'text-bili-default' : 'text-haze-400 group-hover:text-haze-100'} />
-        </button>
+        </PublicLink>
       )
     }
     // 单 tab 的组：父级直接做 tab 按钮，不做展开折叠
     if (onlyChild) {
       const isActive = activeTab === singleTab.id
       return (
-        <button
+        <PublicLink
           aria-current={isActive ? "page" : undefined}
-          onClick={() => onTabChange(singleTab.id)}
+          tabId={singleTab.id} onNavigate={onTabChange}
           className={
             'group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ' +
             (isActive
@@ -114,7 +115,7 @@ export default function SidebarContent({
             className={'shrink-0 transition-colors ' +
               (isActive ? 'text-bili-default' : 'text-haze-400 group-hover:text-haze-100')} />
           <span className="truncate">{group.label}</span>
-        </button>
+        </PublicLink>
       )
     }
     // 多 tab 组：父级是可展开的归类标题；点击父级标题只展开/折叠，点击子级才切换 tab
@@ -148,10 +149,10 @@ export default function SidebarContent({
             {group.tabs.map(tab => {
               const isActive = activeTab === tab.id
               return (
-                <button
+                <PublicLink
                   key={tab.id}
                   aria-current={isActive ? "page" : undefined}
-                  onClick={() => { onTabChange(tab.id) }}
+                  tabId={tab.id} onNavigate={onTabChange}
                   className={
                     'relative w-full flex items-center gap-2.5 pl-6 pr-3 py-2 rounded-[10px] text-[0.82rem] font-medium transition-all duration-200 ' +
                     (isActive
@@ -167,7 +168,7 @@ export default function SidebarContent({
                     (isActive ? 'text-bili-default' : 'text-haze-400 group-hover:text-haze-100')
                   } />
                   <span className="truncate">{tab.label}</span>
-                </button>
+                </PublicLink>
               )
             })}
           </div>
