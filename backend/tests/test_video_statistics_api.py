@@ -61,6 +61,8 @@ def test_card_counts_match_latest_curve_point_without_rewriting_ranking(monkeypa
         assert [v['bvid'] for v in rows] == ['BV0', 'BVunknown']
         assert {k: rows[0][k] for k in COUNTS} == {k: point[k] for k in COUNTS}
         assert rows[0]['observed_at'] == NOW
+        if field == 'hot_videos' or endpoint == '/api/videos':
+            assert rows[0]['radar']['algorithm_version'] == 'radar-v2'
         assert rows[0]['potential_score'] == (80 if field == 'hot_videos' or endpoint == '/api/videos' else 77.3)
         assert rows[1]['views'] == 10
         assert data == before

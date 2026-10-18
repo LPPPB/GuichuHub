@@ -274,7 +274,7 @@ def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
         'kichu_rank': rows('kichu_rank', True),
         'hot_memes': data.get('hot_memes', []),
         'hot_songs': data.get('hot_songs', []),
-        'hot_videos': rows('hot_videos'),
+        'hot_videos': rows('hot_videos', True),
         'material_candidates': rows('material_candidates'),
         'meme_materials': data.get('meme_materials', []),
         'danmaku_words': filter_danmaku_words(data.get('danmaku_words', [])),

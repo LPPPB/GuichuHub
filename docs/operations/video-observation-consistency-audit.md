@@ -33,3 +33,7 @@ Failing regressions were observed before the fixes: six API routes retained stal
 Baseline: backend 675 passed; frontend 175 passed. Fix verification: backend `pytest -q --no-cov` 693 passed; frontend `npm test -- --maxWorkers=2` 187 passed after rebasing onto remote main `e99c019` (179 passed before that rebase); full production/SEO build passed. The backend tree is byte-for-byte unchanged by the rebase. Existing ranking layout checks passed at 1920/1280/900/390/320px. Browser verification uses built assets and synthetic responses at 1440px and 390px, with real cards and ECharts; it never accesses production.
 
 Independent read-only review found no remaining important regression; its independent API suite passed 18 cases. Production deployment and production visual QA are outside this local fix. Main-checkout edits, production data, credentials and ranking rules are preserved.
+
+## Authorized deployment audit
+
+The subsequent deployment request authorized production rollout. A fresh read-only check found the production repository detached at `95aab792`, with an uncommitted API patch enabling radar-v2 for potential videos and an uncommitted mobile-action CSS patch. The running frontend image identifies source `e99c019`, which already includes the mobile layout change. The release preserves radar-v2 for potential videos explicitly, with a regression assertion; the original dirty checkout is left untouched. Only API and frontend require replacement; no migration or Worker restart is required.
