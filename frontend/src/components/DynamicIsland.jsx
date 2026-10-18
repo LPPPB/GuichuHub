@@ -53,6 +53,8 @@ export function IslandAnchor({ id, className = '', children }) {
 // ── 浮层 ──────────────────────────────────────────────────────────────
 // 与锚点共享 layoutId：从锚点位置弹性展开到屏幕中央，毛玻璃遮罩淡入
 export function IslandOverlay({ id, className = '', children }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
   const { openId, closeIsland } = useIsland()
   const isOpen = openId === id
 
@@ -66,6 +68,7 @@ export function IslandOverlay({ id, className = '', children }) {
 
   // Portal 到 document.body：浮层的 fixed 定位脱离页面动画容器的 transform 包含块，
   // 始终相对视口居中（framer-motion 共享布局动画不受 Portal 影响，仍正常做 FLIP 过渡）
+  if (!mounted) return null
   return createPortal(
     <AnimatePresence>
       {isOpen && (

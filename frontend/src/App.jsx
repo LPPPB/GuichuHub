@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { usePublicNavigation } from './routing/usePublicNavigation'
 import PublicLink from './routing/PublicLink'
+import PublicSnapshotTime from './publicPages/PublicSnapshotTime'
 import { api, verifyAdminSilent } from './utils/api'
 import Sidebar from './components/Sidebar'
 import MemeCard from './components/MemeCard'
@@ -290,6 +291,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
 
         {activeTab !== 'dev' && (
           <div className="w-full max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-10 space-y-10 animate-stagger-in">
+            <PublicSnapshotTime bootstrap={initialAux} tab={activeTab} />
             {breakerTrend.length > 0 && (
               <div className="kb-card overflow-hidden">
                 <div className="inner px-2 pt-1">
@@ -612,6 +614,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
             {/* ═══════════ 弹幕 & 评论 ═══════════ */}
             {!loading && activeTab === 'danmaku' && (
               <div className="space-y-10 max-w-6xl">
+                <PageHeader title="弹幕 & 评论" icon={<MessageCircle size={22} className="text-neon-emerald" />} />
                 <Section title="弹幕热词升温榜" icon={<TrendingUp size={20} className="text-neon-rose" />}
                          subtitle={`最近 ${risingMeta?.recent_batch_count || 2} 批 vs 此前 ${risingMeta?.base_batch_count || 6} 批`}
                          desc="按每批每万词出现率计算，降低抓取量和缺失批次对升温倍率的干扰。">
@@ -664,7 +667,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
 
             {/* ═══════════ UP主动态 ═══════════ */}
             {!loading && activeTab === 'up-trends' && (
-              <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} /></Suspense>
+              <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} initialPublicAnalysis={initialAux?.sections?.['up-trends']?.data?.up_analysis} /></Suspense>
             )}
           </div>
         )}

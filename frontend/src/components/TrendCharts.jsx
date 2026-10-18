@@ -179,6 +179,8 @@ function ChartCard({ icon: Icon, iconColor, title, children, note, fullWidth, ex
 // 卡片1：发布日历热力图（含周发布量/周播放量频率折线）
 // ════════════════════════════════════════════════════════════════════
 export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarUpdated }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
   const tooltipRef = useRef(null)
   const [calendarDetail, setCalendarDetail] = useState(null)
   const [heatmapMode, setHeatmapMode] = useState('count') // 'count' | 'views'
@@ -845,7 +847,7 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
 
       {/* Portal 到 body：避免页面入场动画的 transform 改写 fixed 后代的包含块，
           否则滚动到日历后，clientX/clientY 会被再次叠加文档滚动偏移，Tooltip 跑到视口外。 */}
-      {createPortal(
+      {mounted && createPortal(
         <div
           ref={tooltipRef}
           className="fixed z-50 pointer-events-none rounded-lg whitespace-nowrap"
