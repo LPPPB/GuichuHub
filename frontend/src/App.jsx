@@ -261,6 +261,12 @@ export default function App() {
       />
 
       <main className="flex-1 min-w-0 relative z-10 flex flex-col">
+        {activeTab === 'dashboard' && (
+          <div className="sr-only">
+            <h1>GuichuHub · B站鬼畜创作灵感看板</h1>
+            <p>发现鬼畜区排行榜、热梗、热门 BGM、潜力视频与 UP 主动态，寻找二创灵感。</p>
+          </div>
+        )}
         {activeTab === 'dev' && isAdmin && (
           <Suspense fallback={null}><DevConsole /></Suspense>
         )}

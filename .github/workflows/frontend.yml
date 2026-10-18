@@ -33,6 +33,8 @@ jobs:
         run: npm test -- --maxWorkers=2
       - name: Build production frontend
         run: npm run build
+      - name: Validate crawlable HTML and generated sitemap
+        run: node scripts/verify-seo.mjs
       - name: Install layout browser
         run: npx playwright-core install --with-deps chromium
       - name: Verify responsive layout and radar interactions

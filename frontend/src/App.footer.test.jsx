@@ -43,9 +43,12 @@ it('shows the four requested partner destinations as safe external links', () =>
 it('navigates to an existing dashboard tab without inventing a route', async () => {
   const user = userEvent.setup()
   render(<App />)
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('GuichuHub')
   const footer = within(screen.getByRole('contentinfo'))
   await user.click(footer.getByRole('button', { name: '热梗' }))
   expect(await screen.findByRole('heading', { name: '热梗库' })).toBeInTheDocument()
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
 it('moves focus from the navigation drawer into the login panel', async () => {
