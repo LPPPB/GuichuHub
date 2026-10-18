@@ -2,6 +2,7 @@ import { build } from 'vite'
 import react from '@vitejs/plugin-react'
 import { readFile, writeFile, readdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { PUBLIC_ROUTES } from '../src/routing/publicRoutes.js'
 
 await build({configFile:false, plugins:[react()], build:{
   ssr:'src/publicPages/ssr-entry.jsx', outDir:'dist-server', emptyOutDir:true,
@@ -21,4 +22,8 @@ await hashTree('dist-server')
 const buildId = digest.digest('hex')
 await writeFile('dist/build-id.txt', buildId)
 await writeFile('dist-server/build-id.txt', buildId)
+await writeFile('dist-server/public-routes.inc', PUBLIC_ROUTES.map(route=>
+  `location = ${route.path} { proxy_pass http://public-pages:8081; proxy_set_header Host $host; }` +
+  (route.path==='/'?'':`\nlocation = ${route.path}/ { return 308 ${route.path}$is_args$args; }`)
+).join('\n')+'\n')
 console.log(`Public page build ${buildId.slice(0,12)}`)

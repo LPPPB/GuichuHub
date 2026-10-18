@@ -83,12 +83,40 @@ services:
   frontend:
     build:
       context: ./frontend
+      target: frontend
       args:
         KICHU_NPM_REGISTRY: ${KICHU_NPM_REGISTRY:-https://registry.npmjs.org/}
     logging: *default-logging
     networks:
       - core
     restart: unless-stopped
+
+    depends_on:
+      public-pages:
+        condition: service_healthy
+
+  public-pages:
+    build:
+      context: ./frontend
+      target: public-pages
+      args:
+        KICHU_NPM_REGISTRY: ${KICHU_NPM_REGISTRY:-https://registry.npmjs.org/}
+    environment:
+      PUBLIC_PAGES_CACHE_DIR: /cache
+    read_only: true
+    tmpfs: [/tmp]
+    init: true
+    networks: [core]
+    volumes:
+      - public_pages_cache:/cache
+    depends_on: [api]
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8081/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
 
   api:
     build: *backend-build
@@ -200,5 +228,6 @@ secrets:
     file: ${KICHU_HOST_BACKUP_DATABASE_URL_FILE}
 
 volumes:
+  public_pages_cache:
   caddy_config:
   caddy_data:

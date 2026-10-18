@@ -1,5 +1,11 @@
 {$KICHU_DOMAIN} {
     encode zstd gzip
+    handle /internal/* {
+        respond 404
+    }
+    handle /__public-pages/* {
+        respond 404
+    }
 
     handle /api/* {
         reverse_proxy api:5000
