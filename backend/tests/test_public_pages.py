@@ -26,6 +26,9 @@ def test_global_clock_and_private_fields_do_not_change_content_version():
     data.update(last_updated='2026-10-19 12:00:00', token='private-new')
     second = build_public_sections(data, None)
     assert first['sections']['memes'] == second['sections']['memes']
+    assert first['sections']['memes']['source_updated_at'] is None
+    data['hot_memes'][0]['heat'] = 10
+    assert first['sections']['memes']['content_version'] != build_public_sections(data, None)['sections']['memes']['content_version']
 
 def test_up_timeline_is_bounded_and_projects_only_public_statistics():
     up = {'created_at': 1792300000, 'analysis': {'timeline': [
@@ -33,9 +36,6 @@ def test_up_timeline_is_bounded_and_projects_only_public_statistics():
     rows = build_public_sections({}, up)['sections']['up-trends']['data']['up_analysis']['analysis']['timeline']
     assert len(rows) == 60
     assert rows[0] == {'date': '2026-10-18', 'count': 0, 'views': 30}
-    assert first['sections']['memes']['source_updated_at'] is None
-    data['hot_memes'][0]['heat'] = 10
-    assert first['sections']['memes']['content_version'] != build_public_sections(data, None)['sections']['memes']['content_version']
 
 def test_ambiguous_empty_and_malformed_sections_are_unavailable():
     for value in [[], None, 'broken', [{'title': 'no bvid'}]]:
