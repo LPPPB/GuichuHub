@@ -43,6 +43,8 @@ jobs:
           LAYOUT_COLOR_SCHEME=dark node scripts/verify-ranking-layout.mjs
       - name: Verify brand navigation across breakpoints and themes
         run: node scripts/verify-navigation-layout.mjs
+      - name: Verify dashboard ranking layout and complete ranking navigation
+        run: node scripts/verify-dashboard-ranking.mjs
 
   development-bootstrap:
     runs-on: windows-2025

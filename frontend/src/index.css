@@ -250,14 +250,15 @@ html.dark {
   .video-card-action--primary:hover { background: rgba(var(--bili-default),0.16); }
   .video-card a:focus-visible, .video-card button:focus-visible { outline: 2px solid rgb(var(--bili-default)); outline-offset: 3px; }
   .video-card-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(var(--haze-400),0.14); }
-  @container video-card (max-width: 300px) {
-    .video-card-actions { flex-wrap: wrap; }
-    .video-card-action { flex: 1; }
-    .video-card-action--primary { flex-basis: 100%; order: -1; }
-  }
   @container video-card (max-width: 559px) {
-    .video-card-actions:has(.video-card-radar-toggle) { flex-wrap: wrap; }
-    .video-card-actions:has(.video-card-radar-toggle) > .video-card-action { flex: 1 1 calc(50% - 6px); order: 0; }
+    .video-card-footer { margin-top: 10px; padding-top: 8px; gap: 8px; }
+    .video-card-actions { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4px; }
+    .video-card-action { min-width: 0; min-height: 36px; gap: 4px; padding: 0 4px; border-radius: 8px; font-size: 11px; }
+    .video-card-action svg { width: 14px; height: 14px; }
+  }
+  @container video-card (max-width: 300px) {
+    .video-card-action { gap: 3px; padding: 0 2px; font-size: 10px; }
+    .video-card-action svg { width: 12px; height: 12px; }
   }
   @container video-card (min-width: 560px) {
     .video-card-layout { grid-template-columns: 188px minmax(0, 1fr); grid-template-areas: "cover heading" "cover meta" "cover description" "cover metrics"; gap: 8px 20px; }

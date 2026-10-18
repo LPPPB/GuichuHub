@@ -56,6 +56,13 @@ try {
         ).map(animation => animation.finished.catch(() => {})))
       })
       assert.equal(await summary.getByRole('listitem').count(), 5)
+      const headingColors = await summary.locator('.dashboard-ranking-heading').evaluate(el => ({
+        icon: getComputedStyle(el.querySelector('svg')).color,
+        title: getComputedStyle(el.querySelector('h2')).color,
+        theme: `rgb(${getComputedStyle(el).getPropertyValue('--haze-50').trim().split(/[,\s]+/).join(', ')})`,
+      }))
+      assert.equal(headingColors.icon, headingColors.theme)
+      assert.equal(headingColors.icon, headingColors.title)
       assert.equal(await summary.getByRole('button', { name: '观测趋势', exact: true }).count(), 5)
       assert.equal(await summary.getByRole('button', { name: '收藏', exact: true }).count(), 0)
       assert.equal(await summary.getByRole('button', { name: 'AI 总结' }).count(), 0)
