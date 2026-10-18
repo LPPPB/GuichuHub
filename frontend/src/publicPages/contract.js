@@ -1,4 +1,4 @@
-import { routeForTab } from '../routing/publicRoutes'
+import { routeForTab } from '../routing/publicRoutes.js'
 
 export const MAX_BOOTSTRAP_BYTES = 2 * 1024 * 1024
 const plain = value => value && typeof value === 'object' && !Array.isArray(value)
