@@ -1,0 +1,58 @@
+
+> kichu-inspiration-dashboard@0.1.0 test
+> vitest run --run src/publicPages/allPages.test.jsx src/routing/fallback.test.jsx --maxWorkers=4
+
+19:54:33 [vite] warning: `esbuild` option was specified by "vite:react-babel" plugin. This option is deprecated, please use `oxc` instead.
+19:54:33 [vite] warning: `optimizeDeps.esbuildOptions` option was specified by "vite:react-babel" plugin. This option is deprecated, please use `optimizeDeps.rolldownOptions` instead.
+Both esbuild and oxc options were set. oxc options will be used and esbuild options will be ignored. The following esbuild options were set: `{ jsx: 'automatic', jsxImportSource: undefined }`
+
+ RUN  v4.1.10 F:/作业工程库/GuichuHub开发工作区/guichuhub-public-html/frontend
+
+ ❯ src/routing/fallback.test.jsx (1 test | 1 failed) 79ms
+   × keeps native navigation when the target public snapshot has not been loaded 77ms
+ ❯ src/publicPages/allPages.test.jsx (10 tests | 1 failed) 654ms
+   × cached UP text and calendar year stay deterministic after minutes and across years 69ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/publicPages/allPages.test.jsx > cached UP text and calendar year stay deterministic after minutes and across years
+AssertionError: expected 'GuichuHub发现鬼畜热点，追踪创作趋势。菜单鬼畜榜潜力视频UP 主动…' to be 'GuichuHub发现鬼畜热点，追踪创作趋势。菜单鬼畜榜潜力视频UP 主动…' // Object.is equality
+
+Expected: "GuichuHub发现鬼畜热点，追踪创作趋势。菜单鬼畜榜潜力视频UP 主动态GuichuHub个人技术小站 · 鬼畜看板加载中…仪表盘内容趋势鬼畜榜热梗潜力视频创作资源梗素材库热歌 BGM素材发掘互动洞察弹幕 & 评论UP 主动态切换到日间模式我的收藏B 站账号登录CREATOR PULSE · 近 7 天全量观测UP主动态1 位 UP 主正在形成最近 7 天的创作脉搏共收录 1 部视频 · 累计播放 1000分析面板UP主列表申请观测当前观测名单数据在线更新于 1分钟前观测 1 位 UP 主1人追踪UP主 放大详情1个近期视频总数 放大详情1000近7天总播放 放大详情0近7天平均播放 放大详情 播放量排行榜公开作者样本1000播放量排行变化暂无排行数据 热门视频 TOP 101公开投稿样本1000播放未知 高增速视频 TOP 10最近分析间隔 · 按每小时新增播放播放量增速最快的视频——新作发布即猛涨是选题风向标，增速条越长代表近期涨得越猛暂无增速数据（需至少 2 个分析批次） 近期发布趋势最近60天10-182发布日历热力图‹2026›视频数播放量正在加载 2026 年数据…一三五日1月2月3月4月5月6月7月8月9月10月11月12月少多(0 视频/天)视频数为当天发布的数量2026年 日发布量趋势 · 近90天最高 1 个/日近30天近90天近半年全年2026-07-2102026-07-2202026-07-2302026-07-2402026-07-2502026-07-2602026-07-2702026-07-2802026-07-2902026-07-3002026-07-3102026-08-0102026-08-0202026-08-0302026-08-0402026-08-0502026-08-0602026-08-0702026-08-0802026-08-090 发布习惯近180天 · 按北京时间各小时发布量（蓝柱）与平均播放（橙线）——发布多≠效果好，结合平均播放判断最佳发稿时段暂无发布习惯数据 视频标题热词50%真实公开热词 内容类型分布📌鬼畜调教3鬼畜视频占比需要至少2次分析才能展示趋势需要至少2次分析才能展示趋势活跃UP主变化需要至少2次分析才能展示趋势需要至少2次分析才能展示趋势 UP主活跃度排行按近7天发布数量排序，体现创作积极性暂无数据 涨粉榜近7天 · 最新批次 vs 窗口起点批次粉丝增长最快的UP主——涨粉与活跃/播放未必同步，是内容策略的独立信号暂无涨粉数据（需至少 2 个观测批次）GuichuHub发现鬼畜热点，追踪创作趋势。探索内容总览鬼畜榜热梗潜力视频梗素材库UP 主动态友情链接Hajimi Web哈基米文化基米天堂哈基哈米© 2026 GuichuHub苏ICP备2026075438号-1豫公网安备41010502008078号"
+Received: "GuichuHub发现鬼畜热点，追踪创作趋势。菜单鬼畜榜潜力视频UP 主动态GuichuHub个人技术小站 · 鬼畜看板加载中…仪表盘内容趋势鬼畜榜热梗潜力视频创作资源梗素材库热歌 BGM素材发掘互动洞察弹幕 & 评论UP 主动态切换到日间模式我的收藏B 站账号登录CREATOR PULSE · 近 7 天全量观测UP主动态1 位 UP 主正在形成最近 7 天的创作脉搏共收录 1 部视频 · 累计播放 1000分析面板UP主列表申请观测当前观测名单数据在线更新于 3分钟前观测 1 位 UP 主1人追踪UP主 放大详情1个近期视频总数 放大详情1000近7天总播放 放大详情0近7天平均播放 放大详情 播放量排行榜公开作者样本1000播放量排行变化暂无排行数据 热门视频 TOP 101公开投稿样本1000播放未知 高增速视频 TOP 10最近分析间隔 · 按每小时新增播放播放量增速最快的视频——新作发布即猛涨是选题风向标，增速条越长代表近期涨得越猛暂无增速数据（需至少 2 个分析批次） 近期发布趋势最近60天10-182发布日历热力图‹2026›视频数播放量正在加载 2026 年数据…一三五日1月2月3月4月5月6月7月8月9月10月11月12月少多(0 视频/天)视频数为当天发布的数量2026年 日发布量趋势 · 近90天最高 1 个/日近30天近90天近半年全年2026-07-2102026-07-2202026-07-2302026-07-2402026-07-2502026-07-2602026-07-2702026-07-2802026-07-2902026-07-3002026-07-3102026-08-0102026-08-0202026-08-0302026-08-0402026-08-0502026-08-0602026-08-0702026-08-0802026-08-090 发布习惯近180天 · 按北京时间各小时发布量（蓝柱）与平均播放（橙线）——发布多≠效果好，结合平均播放判断最佳发稿时段暂无发布习惯数据 视频标题热词50%真实公开热词 内容类型分布📌鬼畜调教3鬼畜视频占比需要至少2次分析才能展示趋势需要至少2次分析才能展示趋势活跃UP主变化需要至少2次分析才能展示趋势需要至少2次分析才能展示趋势 UP主活跃度排行按近7天发布数量排序，体现创作积极性暂无数据 涨粉榜近7天 · 最新批次 vs 窗口起点批次粉丝增长最快的UP主——涨粉与活跃/播放未必同步，是内容策略的独立信号暂无涨粉数据（需至少 2 个观测批次）GuichuHub发现鬼畜热点，追踪创作趋势。探索内容总览鬼畜榜热梗潜力视频梗素材库UP 主动态友情链接Hajimi Web哈基米文化基米天堂哈基哈米© 2026 GuichuHub苏ICP备2026075438号-1豫公网安备41010502008078号"
+
+ ❯ src/publicPages/allPages.test.jsx:45:126
+     43|     const first=new JSDOM(await renderPublicPage({route,bootstrap,temp…
+     44|     vi.setSystemTime(new Date(1792300180*1000))
+     45|     expect(new JSDOM(await renderPublicPage({route,bootstrap,template}…
+       |                                                                                                                              ^
+     46|     vi.setSystemTime(new Date('2027-01-01T00:05:00Z'))
+     47|     expect(new JSDOM(await renderPublicPage({route,bootstrap,template}…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/routing/fallback.test.jsx > keeps native navigation when the target public snapshot has not been loaded
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/routing/fallback.test.jsx:12:34
+     10|   const event=new MouseEvent('click',{bubbles:true,cancelable:true})
+     11|   screen.getByRole('link').dispatchEvent(event)
+     12|   expect(event.defaultPrevented).toBe(false)
+       |                                  ^
+     13|   expect(navigate).not.toHaveBeenCalled()
+     14| })
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 9 passed (11)
+   Start at  19:54:34
+   Duration  2.53s (transform 538ms, setup 284ms, import 1.61s, tests 733ms, environment 615ms)
+

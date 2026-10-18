@@ -23,7 +23,7 @@ const buildId = digest.digest('hex')
 await writeFile('dist/build-id.txt', buildId)
 await writeFile('dist-server/build-id.txt', buildId)
 await writeFile('dist-server/public-routes.inc', PUBLIC_ROUTES.map(route=>
-  `location = ${route.path} { proxy_pass http://public-pages:8081; proxy_set_header Host $host; }` +
+  `location = ${route.path} { proxy_pass http://public-pages:8081; proxy_set_header Host $host; proxy_set_header X-Public-Pages-Build ${buildId}; }` +
   (route.path==='/'?'':`\nlocation = ${route.path}/ { return 308 ${route.path}$is_args$args; }`)
 ).join('\n')+'\n')
 console.log(`Public page build ${buildId.slice(0,12)}`)

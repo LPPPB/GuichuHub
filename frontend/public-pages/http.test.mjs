@@ -40,3 +40,11 @@ test('unpublished pages return retryable non-indexable 503',async t=>{
   assert.equal(response.headers.get('retry-after'),'60')
   assert.equal(response.headers.get('x-robots-tag'),'noindex')
 })
+
+test('a running publisher refuses pages requested by a different client build',async t=>{
+  const base=await server(t)
+  assert.equal((await fetch(base+'/memes',{headers:{'X-Public-Pages-Build':'build-test'}})).status,200)
+  const incompatible=await fetch(base+'/memes',{headers:{'X-Public-Pages-Build':'previous-build'}})
+  assert.equal(incompatible.status,503)
+  assert.equal(incompatible.headers.get('x-robots-tag'),'noindex')
+})

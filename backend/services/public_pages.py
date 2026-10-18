@@ -46,6 +46,8 @@ def _video(value):
     row['description'] = _text(value.get('description'), 4000)
     for key in ('views', 'likes', 'shares', 'coins', 'favorites', 'danmaku', 'comments', 'potential_score', 'material_score', 'trend_score', 'online_count', 'duration', 'pub_date', 'up_mid'):
         row[key] = _number(value.get(key))
+    # Persisted observations are historical by the time cached HTML is served.
+    row['online_circuit_skipped'] = row['online_count'] is not None
     return row
 
 
@@ -131,21 +133,27 @@ def _up_analysis(value):
             'analysis': {'summary': summary, 'hot_videos': _rows(analysis.get('hot_videos'), _video),
                          'play_ranking': _rows(analysis.get('play_ranking'), _up),
                          'creator_ranking': _rows(analysis.get('creator_ranking'), _up),
-                         'keyword_cloud': _rows(analysis.get('keyword_cloud'), _word),
+                         'keyword_cloud': _rows(analysis.get('keyword_cloud'), _up_keyword),
                          'content_types': _rows(analysis.get('content_types'), _content_type),
                          'timeline': _rows(analysis.get('timeline'), _timeline, 60)}}
 
 
 def _timeline(value):
-    if not isinstance(value, dict) or not isinstance(value.get('date'), str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value['date']):
+    if not isinstance(value, dict) or not isinstance(value.get('date'), str) or not re.fullmatch(r'(?:\d{4}-)?\d{2}-\d{2}', value['date']):
         return None
     return {'date': value['date'], 'count': _number(value.get('count')), 'views': _number(value.get('views'))}
 
 
 def _content_type(value):
-    if not isinstance(value, dict) or not _text(value.get('name'), 500):
+    if not isinstance(value, dict) or not _text(value.get('type'), 500):
         return None
-    return {'name': _text(value['name'], 500), 'count': _number(value.get('count'))}
+    return {'type': _text(value['type'], 500), 'count': _number(value.get('count'))}
+
+
+def _up_keyword(value):
+    if not isinstance(value, dict) or not _text(value.get('text'), 500):
+        return None
+    return {'text': _text(value['text'], 500), 'value': _number(value.get('value'))}
 
 
 def _unavailable():

@@ -15,6 +15,8 @@ export function createPublicPageHandler({publisher,buildId}) {
     const resolved=resolvePublicPath(path)
     if(resolved.kind==='redirect')return send(308,'',{Location:resolved.location+query})
     if(resolved.kind!=='page')return send(404,'<h1>页面不存在</h1>',{'X-Robots-Tag':'noindex'})
+    if(request.headers['x-public-pages-build'] && request.headers['x-public-pages-build']!==buildId)
+      return send(503,'<h1>页面版本正在切换，请稍后重试</h1>',{'Retry-After':'60','X-Robots-Tag':'noindex'})
     const page=publisher.snapshot().get(path)
     if(!page)return send(503,'<h1>公开数据暂不可用</h1>',{'Retry-After':'60','X-Robots-Tag':'noindex'})
     const conditions=(request.headers['if-none-match'] || '').split(',').map(v=>v.trim().replace(/^W\//,''))

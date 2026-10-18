@@ -55,7 +55,7 @@ export default function EChart({ option, height = 200, fill = false, className =
     ? { flex: '1 1 0%', minHeight: 0, width: '100%', height: '100%' }
     : { width: '100%', height }
   return (
-    <div ref={wrapRef} style={wrapStyle}>
+    <div ref={wrapRef} style={mounted ? wrapStyle : {width:'100%',height:'auto',minHeight:fill ? 0 : height}}>
       {!mounted ? <PublicChartSummary items={(Array.isArray(option.series) ? option.series : [option.series]).flatMap(series => {
         if (!series || !Array.isArray(series.data)) return []
         const x = Array.isArray(option.xAxis) ? option.xAxis[0] : option.xAxis

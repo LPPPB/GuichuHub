@@ -16,6 +16,15 @@ for(const route of PUBLIC_ROUTES) {
   assert.equal(doc.querySelectorAll('a[href="/rankings/kichu"]').length>0,true)
   const bootstrap=JSON.parse(doc.querySelector('#public-page-bootstrap').textContent)
   assert.equal(bootstrap.tab_id,route.tabId)
+  if(route.tabId==='kichu-rank') {
+    assert.match(doc.querySelector('#root').textContent,/最近观测 99人/)
+    assert.ok(!doc.querySelector('#root').textContent.includes('99人正在看'))
+  }
+  if(route.tabId==='up-trends') {
+    assert.match(doc.querySelector('#root').textContent,/合成公开.*热词/)
+    assert.ok(doc.querySelector('#root').textContent.includes('鬼畜调教'))
+    assert.ok(doc.querySelector('#root').textContent.includes('10-20'))
+  }
   assert.equal(await (await fetch(base+route.path,{method:'HEAD'})).text(),'')
   assert.equal((await fetch(base+route.path,{headers:{'If-None-Match':response.headers.get('etag')}})).status,304)
   for(const script of doc.querySelectorAll('script[src]'))assert.equal((await fetch(new URL(script.src,base))).status,200)

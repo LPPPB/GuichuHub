@@ -9,7 +9,7 @@
     },
     "kichu-rank": {
       "status": "ready",
-      "content_version": "244017dee57959df77919144ef0b59dbe7a9c8ab8c46ea68c0053cb9949a198f",
+      "content_version": "00b67134ac9babc7a727c70d4c894e2ead27e729125f00769343d7be13043e0a",
       "source_updated_at": null,
       "data": {
         "kichu_rank": [
@@ -34,17 +34,18 @@
             "potential_score": null,
             "material_score": null,
             "trend_score": null,
-            "online_count": null,
+            "online_count": 99,
             "duration": null,
             "pub_date": 1792300000,
-            "up_mid": null
+            "up_mid": null,
+            "online_circuit_skipped": true
           }
         ]
       }
     },
     "memes": {
       "status": "ready",
-      "content_version": "a41390843922d29dab5f724ad953c8dbd9d46da40423caf0ce3b6f24acb04da7",
+      "content_version": "3023afdb2c7d445ddf1a0b7b1a82c3f620e912d108addaa366c485a084f1da6c",
       "source_updated_at": null,
       "data": {
         "hot_memes": [
@@ -77,7 +78,8 @@
                 "online_count": null,
                 "duration": null,
                 "pub_date": 1792300000,
-                "up_mid": null
+                "up_mid": null,
+                "online_circuit_skipped": false
               }
             ]
           }
@@ -86,7 +88,7 @@
     },
     "videos": {
       "status": "ready",
-      "content_version": "2cdf959f4079e788c36fc22239a8397da1b36ef9c055b42d0078acd1ede26b31",
+      "content_version": "0bab0e23ed43da198f4a8082c6f9e4905b062eae7ad67490560a17b1f025440e",
       "source_updated_at": null,
       "data": {
         "hot_videos": [
@@ -114,14 +116,15 @@
             "online_count": null,
             "duration": null,
             "pub_date": 1792300000,
-            "up_mid": null
+            "up_mid": null,
+            "online_circuit_skipped": false
           }
         ]
       }
     },
     "meme-materials": {
       "status": "ready",
-      "content_version": "e699173ab8b46d03394b06e3a3d47e3f16a2441cbcdf102c57221a2bf690b621",
+      "content_version": "ae9743ffff869de385daa3d991f3c4fa821ce70706b89725f26506228556673f",
       "source_updated_at": null,
       "data": {
         "meme_materials": [
@@ -156,7 +159,8 @@
                 "online_count": null,
                 "duration": null,
                 "pub_date": 1792300000,
-                "up_mid": null
+                "up_mid": null,
+                "online_circuit_skipped": false
               }
             ]
           }
@@ -165,7 +169,7 @@
     },
     "songs": {
       "status": "ready",
-      "content_version": "fa7654a6956619551c2e7a3993d11fd38d9c948a7bceeccc3b6943ab765abb49",
+      "content_version": "80f4f1453115a0ca9069490553ab334fc2dd15e7dee98e2175ac1254c66e6262",
       "source_updated_at": null,
       "data": {
         "hot_songs": [
@@ -194,6 +198,7 @@
             "duration": null,
             "pub_date": 1792300000,
             "up_mid": null,
+            "online_circuit_skipped": false,
             "name": "合成公开曲目",
             "plays": 10000,
             "heat": null
@@ -203,7 +208,7 @@
     },
     "materials": {
       "status": "ready",
-      "content_version": "ca94da460ee7db02e304ba06abe8246d4a01a43e7b91ac27f7d7fbf964241e32",
+      "content_version": "8abb1abcf677d6acb91bc5b5c94e817a72eaba4e955cb3e5404f789670f48892",
       "source_updated_at": null,
       "data": {
         "material_candidates": [
@@ -231,7 +236,8 @@
             "online_count": null,
             "duration": null,
             "pub_date": 1792300000,
-            "up_mid": null
+            "up_mid": null,
+            "online_circuit_skipped": false
           }
         ]
       }
@@ -265,7 +271,7 @@
     },
     "up-trends": {
       "status": "ready",
-      "content_version": "011dbc8799ac9fe10d728a92f094448e1aca6b47dc91b2d49c9c46f48d1d64a7",
+      "content_version": "787897fdf6e196de38b8367020d4ee2a6ba00e34028a75b1870c437a695ef132",
       "source_updated_at": 1792300000,
       "data": {
         "up_analysis": {
@@ -326,7 +332,8 @@
                 "online_count": null,
                 "duration": null,
                 "pub_date": 1792300000,
-                "up_mid": null
+                "up_mid": null,
+                "online_circuit_skipped": false
               }
             ],
             "play_ranking": [
@@ -347,12 +354,117 @@
               }
             ],
             "creator_ranking": [],
-            "keyword_cloud": [],
-            "content_types": [],
+            "keyword_cloud": [
+              {
+                "text": "合成公开热词",
+                "value": 42
+              }
+            ],
+            "content_types": [
+              {
+                "type": "鬼畜调教",
+                "count": 3
+              }
+            ],
             "timeline": [
               {
-                "date": "2026-10-18",
+                "date": "10-01",
                 "count": 1,
+                "views": 10000
+              },
+              {
+                "date": "10-02",
+                "count": 2,
+                "views": 10000
+              },
+              {
+                "date": "10-03",
+                "count": 3,
+                "views": 10000
+              },
+              {
+                "date": "10-04",
+                "count": 4,
+                "views": 10000
+              },
+              {
+                "date": "10-05",
+                "count": 5,
+                "views": 10000
+              },
+              {
+                "date": "10-06",
+                "count": 6,
+                "views": 10000
+              },
+              {
+                "date": "10-07",
+                "count": 7,
+                "views": 10000
+              },
+              {
+                "date": "10-08",
+                "count": 8,
+                "views": 10000
+              },
+              {
+                "date": "10-09",
+                "count": 9,
+                "views": 10000
+              },
+              {
+                "date": "10-10",
+                "count": 10,
+                "views": 10000
+              },
+              {
+                "date": "10-11",
+                "count": 11,
+                "views": 10000
+              },
+              {
+                "date": "10-12",
+                "count": 12,
+                "views": 10000
+              },
+              {
+                "date": "10-13",
+                "count": 13,
+                "views": 10000
+              },
+              {
+                "date": "10-14",
+                "count": 14,
+                "views": 10000
+              },
+              {
+                "date": "10-15",
+                "count": 15,
+                "views": 10000
+              },
+              {
+                "date": "10-16",
+                "count": 16,
+                "views": 10000
+              },
+              {
+                "date": "10-17",
+                "count": 17,
+                "views": 10000
+              },
+              {
+                "date": "10-18",
+                "count": 18,
+                "views": 10000
+              },
+              {
+                "date": "10-19",
+                "count": 19,
+                "views": 10000
+              },
+              {
+                "date": "10-20",
+                "count": 20,
                 "views": 10000
               }
             ]

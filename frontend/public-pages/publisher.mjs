@@ -14,7 +14,6 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
   }
   async function restore() {
     if (restored) return
-    restored=true
     const saved=await cache.load()
     const candidates=new Map()
     for (const [path,page] of saved) {
@@ -23,16 +22,20 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
       Object.assign(confirmed,page.bootstrap.confirmed_at)
       if (page.bootstrap.build_id===buildId && tag(page.html)===page.etag) candidates.set(path,page)
     }
+    // Already committed matching documents need no new write to remain usable.
+    pages=new Map(candidates)
+    let rebuilt=false
     // Rebuild old documents using their compatible public data, never old assets.
     for (const route of PUBLIC_ROUTES) {
       if (!candidates.has(route.path) && (route.tabId==='dashboard'?Object.keys(sections).length:sections[route.tabId])) {
-        try { candidates.set(route.path,await render(route,sections,confirmed)) } catch { /* No valid page yet. */ }
+        try { candidates.set(route.path,await render(route,sections,confirmed));rebuilt=true } catch { /* No valid page yet. */ }
       }
     }
-    if (candidates.size) {
+    if (rebuilt) {
       await cache.commitBatch(candidates)
       pages=candidates
     }
+    restored=true
   }
   async function run() {
     const result={changedPaths:[],retainedPaths:[],failures:[]}

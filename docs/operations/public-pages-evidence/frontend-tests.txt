@@ -1,0 +1,22 @@
+
+> kichu-inspiration-dashboard@0.1.0 test
+> vitest run --maxWorkers=4
+
+20:01:50 [vite] warning: `esbuild` option was specified by "vite:react-babel" plugin. This option is deprecated, please use `oxc` instead.
+20:01:50 [vite] warning: `optimizeDeps.esbuildOptions` option was specified by "vite:react-babel" plugin. This option is deprecated, please use `optimizeDeps.rolldownOptions` instead.
+Both esbuild and oxc options were set. oxc options will be used and esbuild options will be ignored. The following esbuild options were set: `{ jsx: 'automatic', jsxImportSource: undefined }`
+
+ RUN  v4.1.10 F:/作业工程库/GuichuHub开发工作区/guichuhub-public-html/frontend
+
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+
+ Test Files  26 passed (26)
+      Tests  218 passed (218)
+   Start at  20:01:50
+   Duration  10.89s (transform 1.36s, setup 2.28s, import 9.84s, tests 12.80s, environment 12.84s)
+

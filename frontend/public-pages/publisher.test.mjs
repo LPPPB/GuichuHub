@@ -85,3 +85,25 @@ test('a new build regenerates old cached content before exposing documents',asyn
   assert.equal(publisher.snapshot().get('/rankings/kichu').html,'new assets build2')
   assert.equal(publisher.snapshot().get('/rankings/kichu').bootstrap.confirmed_at['kichu-rank'],1000)
 })
+
+test('restart serves already committed same-build documents without any disk writes',async()=>{
+  const h=harness();await h.publisher.refresh();const saved=h.publisher.snapshot()
+  let writes=0
+  const publisher=createPublisher({buildId:'build1',fetchSections:async()=>{throw Error('offline')},
+    renderPage:async()=>{throw Error('must not rerender')},cache:{load:async()=>saved,commitBatch:async()=>{writes++;throw Error('ENOSPC')}},
+  })
+  await publisher.refresh()
+  assert.deepEqual(publisher.snapshot(),saved)
+  assert.equal(writes,0)
+})
+
+test('new-build reconstruction retries when the first durable commit fails',async()=>{
+  const h=harness();await h.publisher.refresh();const saved=h.publisher.snapshot()
+  let fail=true
+  const publisher=createPublisher({buildId:'build2',fetchSections:async()=>{throw Error('offline')},
+    renderPage:async()=>'<html>new build</html>',cache:{load:async()=>saved,commitBatch:async()=>{if(fail)throw Error('ENOSPC')}},
+  })
+  await publisher.refresh();assert.equal(publisher.snapshot().size,0)
+  fail=false;await publisher.refresh()
+  assert.equal(publisher.snapshot().size,2)
+})

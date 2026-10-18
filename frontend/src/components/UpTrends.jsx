@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useState, useEffect, useCallback, useMemo, useRef, Component } from 'react'
 import { api } from '../utils/api'
+import { formatVideoPublishTime } from '../utils/videoCardMeta'
 import {
   Users, Video, TrendingUp, RefreshCw, ExternalLink, Eye,
   Flame, BarChart3, Cloud, Trophy, Calendar, Sparkles, Settings,
@@ -84,7 +85,9 @@ function badgeColor(name) {
   return TAG_PALETTE[h % TAG_PALETTE.length]
 }
 
-function UpTrendsInner({ formatNumber, isAdmin, initialPublicAnalysis }) {
+function UpTrendsInner({ formatNumber, isAdmin, initialPublicAnalysis, initialRenderYear }) {
+  const [relativeDates, setRelativeDates] = useState(!initialPublicAnalysis)
+  useEffect(() => { setRelativeDates(true) }, [])
   const [phase, setPhase] = useState(initialPublicAnalysis ? 'ready' : 'checking') // checking | setup | loading | ready
   const [data, setData] = useState(initialPublicAnalysis || null)           // current analysis result
   const [history, setHistory] = useState([])        // historical batches for charts
@@ -327,13 +330,15 @@ function UpTrendsInner({ formatNumber, isAdmin, initialPublicAnalysis }) {
   // ─── Helpers ───
   const formatDate = (timestamp) => {
     if (!timestamp) return '未知'
+    const absolute = formatVideoPublishTime(timestamp)?.text || '未知'
+    if (!relativeDates) return absolute
     const d = new Date(timestamp * 1000)
     const now = new Date()
     const diff = (now - d) / 1000
     if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
     if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
     if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}天前`
-    return d.toLocaleDateString('zh-CN')
+    return absolute
   }
 
   // ─── Format ETA ───
@@ -1200,6 +1205,8 @@ function UpTrendsInner({ formatNumber, isAdmin, initialPublicAnalysis }) {
               )}
             </div>
             <PublishCalendarCard
+              initialTimestamp={initialPublicAnalysis?.created_at}
+              initialYear={initialRenderYear}
               batches={history}
               isAdmin={isAdmin}
               onCalendarUpdated={loadCalendarTimeline}

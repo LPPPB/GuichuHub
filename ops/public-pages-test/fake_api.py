@@ -50,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == '/api/up-trends/analysis':
             return self.send_json({'success': True, 'data': public['sections']['up-trends']['data'].get('up_analysis')})
         if path == '/api/up-trends/check':
-            return self.send_json({'success': True, 'data': {'has_list': True, 'has_analysis': True, 'analyzing': False}})
+            return self.send_json({'success': True, 'has_list': True, 'has_analysis': True, 'analyzing': False})
         if path == '/api/auth/me':
             return self.send_json({'success': True, 'data': {'admin': False, 'user': None}})
         if path == '/api/status':

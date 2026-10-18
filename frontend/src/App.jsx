@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { usePublicNavigation } from './routing/usePublicNavigation'
-import PublicLink from './routing/PublicLink'
+import PublicLink, { PublicNavigationAvailability } from './routing/PublicLink'
 import PublicSnapshotTime from './publicPages/PublicSnapshotTime'
 import { api, verifyAdminSilent } from './utils/api'
 import Sidebar from './components/Sidebar'
@@ -32,9 +32,16 @@ const EMPTY_DATA = {
   material_candidates: [], meme_materials: [], danmaku_words: [],
   comments_gold: [], last_updated: null,
 }
+const PUBLIC_FIELDS = {'kichu-rank':'kichu_rank',memes:'hot_memes',videos:'hot_videos',songs:'hot_songs',
+  'meme-materials':'meme_materials',materials:'material_candidates',danmaku:'danmaku_words'}
 
 export default function App({initialTab, initialData, initialAux, renderYear} = {}) {
-  const {activeTab, navigate: setActiveTab} = usePublicNavigation(initialTab)
+  const availableTabs = useRef(new Set(initialData
+    ? [initialTab, ...Object.entries(PUBLIC_FIELDS).filter(([,field])=>Array.isArray(initialData[field])).map(([tab])=>tab),
+       ...(initialAux?.sections?.['up-trends'] ? ['up-trends'] : [])]
+    : ['dashboard','up-trends',...Object.keys(PUBLIC_FIELDS)]))
+  const isPublicTabAvailable = tab => availableTabs.current.has(tab)
+  const {activeTab, navigate: setActiveTab} = usePublicNavigation(initialTab, isPublicTabAvailable)
   const [data, setData] = useState(() => ({...EMPTY_DATA, ...initialData}))
   const [interactionQuality, setInteractionQuality] = useState([])
   const [tagHeat, setTagHeat] = useState([])
@@ -163,6 +170,8 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
     try {
     const res = await api.getDashboard()
     if (res.success && res.data) {
+      for (const [tab,field] of Object.entries(PUBLIC_FIELDS)) if (Array.isArray(res.data[field])) availableTabs.current.add(tab)
+      if (Object.values(PUBLIC_FIELDS).every(field=>Array.isArray(res.data[field]))) availableTabs.current.add('dashboard')
       hasPublicData.current = true
       setData(previous => ({...previous, ...res.data}))
       const newIsLive = res.data.is_live || false
@@ -263,6 +272,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const d = (idx, step = 45) => idx * step
 
   return (
+    <PublicNavigationAvailability.Provider value={isPublicTabAvailable}>
     <div className="app-shell">
       <Sidebar
         tabGroups={tabGroups} devTab={devTab}
@@ -667,7 +677,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
 
             {/* ═══════════ UP主动态 ═══════════ */}
             {!loading && activeTab === 'up-trends' && (
-              <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} initialPublicAnalysis={initialAux?.sections?.['up-trends']?.data?.up_analysis} /></Suspense>
+                <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} initialPublicAnalysis={initialAux?.sections?.['up-trends']?.data?.up_analysis} initialRenderYear={renderYear} /></Suspense>
             )}
           </div>
         )}
@@ -687,6 +697,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       )}
       <MiniPlayer />
     </div>
+    </PublicNavigationAvailability.Provider>
   )
 }
 

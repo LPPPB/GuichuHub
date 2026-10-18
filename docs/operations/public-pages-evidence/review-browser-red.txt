@@ -1,0 +1,15 @@
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: UP browser enhancement must fetch analysis
+    at file:///F:/%E4%BD%9C%E4%B8%9A%E5%B7%A5%E7%A8%8B%E5%BA%93/GuichuHub%E5%BC%80%E5%8F%91%E5%B7%A5%E4%BD%9C%E5%8C%BA/guichuhub-public-html/frontend/scripts/verify-public-pages-browser.mjs:29:14 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.18.0

@@ -37,6 +37,22 @@ def test_up_timeline_is_bounded_and_projects_only_public_statistics():
     assert len(rows) == 60
     assert rows[0] == {'date': '2026-10-18', 'count': 0, 'views': 30}
 
+def test_real_up_producer_shapes_survive_public_projection():
+    up = {'created_at': 1792300000, 'analysis': {
+        'keyword_cloud': [{'text': '真实公开热词', 'value': 42, 'token': 'private-token'}],
+        'content_types': [{'type': '鬼畜调教', 'count': 3, 'token': 'private-token'}],
+        'timeline': [{'date': '10-18', 'count': 2, 'views': 300, 'token': 'private-token'}]}}
+    analysis = build_public_sections({}, up)['sections']['up-trends']['data']['up_analysis']['analysis']
+    assert analysis['keyword_cloud'] == [{'text': '真实公开热词', 'value': 42}]
+    assert analysis['content_types'] == [{'type': '鬼畜调教', 'count': 3}]
+    assert analysis['timeline'] == [{'date': '10-18', 'count': 2, 'views': 300}]
+
+def test_persisted_online_observation_is_never_published_as_current_live_count():
+    row = dict(VIDEO, online_count=99, online_count_raw=None, online_circuit_skipped=True)
+    result = build_public_sections({'kichu_rank': [row]}, None)['sections']['kichu-rank']['data']['kichu_rank'][0]
+    assert result['online_count'] == 99
+    assert result['online_circuit_skipped'] is True
+
 def test_ambiguous_empty_and_malformed_sections_are_unavailable():
     for value in [[], None, 'broken', [{'title': 'no bvid'}]]:
         out = build_public_sections({'kichu_rank': value}, None)

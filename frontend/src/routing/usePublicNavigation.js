@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { resolvePublicPath, routeForTab } from './publicRoutes'
 
 function currentTab() {
@@ -6,11 +6,14 @@ function currentTab() {
   const result = resolvePublicPath(window.location.pathname)
   return result.route?.tabId || (result.kind === 'redirect' ? resolvePublicPath(result.location).route.tabId : 'not-found')
 }
-export function usePublicNavigation(initialTab) {
+export function usePublicNavigation(initialTab, isAvailable=()=>true) {
+  const availability = useRef(isAvailable)
+  availability.current = isAvailable
   const [activeTab, setActiveTab] = useState(() => initialTab || currentTab())
   const navigate = useCallback(tabId => {
     const route = routeForTab(tabId)
     if (!route && tabId !== 'dev') return
+    if (route && !availability.current(tabId)) { window.location.assign(route.path); return }
     if (route && window.location.pathname !== route.path) window.history.pushState({}, '', route.path)
     setActiveTab(tabId)
   }, [])
@@ -29,7 +32,11 @@ export function usePublicNavigation(initialTab) {
   useEffect(() => {
     const result = resolvePublicPath(window.location.pathname)
     if (result.kind === 'redirect') window.history.replaceState({}, '', result.location + window.location.search)
-    const onPop = () => setActiveTab(currentTab())
+    const onPop = () => {
+      const tab = currentTab()
+      if (routeForTab(tab) && !availability.current(tab)) { window.location.reload(); return }
+      setActiveTab(tab)
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
