@@ -15,6 +15,18 @@ export function usePublicNavigation(initialTab) {
     setActiveTab(tabId)
   }, [])
   useEffect(() => {
+    const route = routeForTab(activeTab)
+    if (!route) return
+    document.title = route.tabId === 'dashboard' ? route.title : `${route.title} · GuichuHub`
+    let canonical = document.querySelector('link[rel="canonical"]')
+    if (!canonical) {
+      canonical = document.createElement('link')
+      canonical.rel = 'canonical'
+      document.head.append(canonical)
+    }
+    canonical.href = `https://guichuhub.cn${route.path}`
+  }, [activeTab])
+  useEffect(() => {
     const result = resolvePublicPath(window.location.pathname)
     if (result.kind === 'redirect') window.history.replaceState({}, '', result.location + window.location.search)
     const onPop = () => setActiveTab(currentTab())

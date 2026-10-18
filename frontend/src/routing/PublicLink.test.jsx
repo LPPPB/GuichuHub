@@ -16,6 +16,8 @@ it('opens a deep link, navigates and restores the historical page', () => {
   expect(screen.getByRole('link')).toHaveAttribute('href', '/memes')
   fireEvent.click(screen.getByRole('link'))
   expect(window.location.pathname).toBe('/memes')
+  expect(document.title).toBe('热梗 · GuichuHub')
+  expect(document.querySelector('link[rel="canonical"]').href).toBe('https://guichuhub.cn/memes')
   expect(screen.getByText('memes')).toBeVisible()
   act(() => { window.history.replaceState({}, '', '/rankings/kichu'); window.dispatchEvent(new PopStateEvent('popstate')) })
   expect(screen.getByText('kichu-rank')).toBeVisible()

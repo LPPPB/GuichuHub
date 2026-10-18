@@ -1,0 +1,364 @@
+{
+  "schema_version": 1,
+  "sections": {
+    "dashboard": {
+      "status": "unavailable",
+      "content_version": null,
+      "source_updated_at": null,
+      "data": {}
+    },
+    "kichu-rank": {
+      "status": "ready",
+      "content_version": "244017dee57959df77919144ef0b59dbe7a9c8ab8c46ea68c0053cb9949a198f",
+      "source_updated_at": null,
+      "data": {
+        "kichu_rank": [
+          {
+            "bvid": "BV1HYp16oE8v",
+            "title": "合成公开投稿",
+            "cover": null,
+            "author": "合成公开作者",
+            "tname": null,
+            "trend_label": null,
+            "potential_reason": null,
+            "material_reason": null,
+            "up_name": null,
+            "description": null,
+            "views": 10000,
+            "likes": null,
+            "shares": null,
+            "coins": null,
+            "favorites": null,
+            "danmaku": null,
+            "comments": null,
+            "potential_score": null,
+            "material_score": null,
+            "trend_score": null,
+            "online_count": null,
+            "duration": null,
+            "pub_date": 1792300000,
+            "up_mid": null
+          }
+        ]
+      }
+    },
+    "memes": {
+      "status": "ready",
+      "content_version": "a41390843922d29dab5f724ad953c8dbd9d46da40423caf0ce3b6f24acb04da7",
+      "source_updated_at": null,
+      "data": {
+        "hot_memes": [
+          {
+            "keyword": "合成公开热梗",
+            "heat": 10,
+            "trend_label": null,
+            "related_videos": [
+              {
+                "bvid": "BV1HYp16oE8v",
+                "title": "合成公开投稿",
+                "cover": null,
+                "author": "合成公开作者",
+                "tname": null,
+                "trend_label": null,
+                "potential_reason": null,
+                "material_reason": null,
+                "up_name": null,
+                "description": null,
+                "views": 10000,
+                "likes": null,
+                "shares": null,
+                "coins": null,
+                "favorites": null,
+                "danmaku": null,
+                "comments": null,
+                "potential_score": null,
+                "material_score": null,
+                "trend_score": null,
+                "online_count": null,
+                "duration": null,
+                "pub_date": 1792300000,
+                "up_mid": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "videos": {
+      "status": "ready",
+      "content_version": "2cdf959f4079e788c36fc22239a8397da1b36ef9c055b42d0078acd1ede26b31",
+      "source_updated_at": null,
+      "data": {
+        "hot_videos": [
+          {
+            "bvid": "BV1HYp16oE8v",
+            "title": "合成公开投稿",
+            "cover": null,
+            "author": "合成公开作者",
+            "tname": null,
+            "trend_label": null,
+            "potential_reason": null,
+            "material_reason": null,
+            "up_name": null,
+            "description": null,
+            "views": 10000,
+            "likes": null,
+            "shares": null,
+            "coins": null,
+            "favorites": null,
+            "danmaku": null,
+            "comments": null,
+            "potential_score": null,
+            "material_score": null,
+            "trend_score": null,
+            "online_count": null,
+            "duration": null,
+            "pub_date": 1792300000,
+            "up_mid": null
+          }
+        ]
+      }
+    },
+    "meme-materials": {
+      "status": "ready",
+      "content_version": "e699173ab8b46d03394b06e3a3d47e3f16a2441cbcdf102c57221a2bf690b621",
+      "source_updated_at": null,
+      "data": {
+        "meme_materials": [
+          {
+            "name": "合成公开素材",
+            "description": "合成公开介绍",
+            "aliases": [],
+            "video_count": null,
+            "total_views": null,
+            "related_videos": [
+              {
+                "bvid": "BV1HYp16oE8v",
+                "title": "合成公开投稿",
+                "cover": null,
+                "author": "合成公开作者",
+                "tname": null,
+                "trend_label": null,
+                "potential_reason": null,
+                "material_reason": null,
+                "up_name": null,
+                "description": null,
+                "views": 10000,
+                "likes": null,
+                "shares": null,
+                "coins": null,
+                "favorites": null,
+                "danmaku": null,
+                "comments": null,
+                "potential_score": null,
+                "material_score": null,
+                "trend_score": null,
+                "online_count": null,
+                "duration": null,
+                "pub_date": 1792300000,
+                "up_mid": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "songs": {
+      "status": "ready",
+      "content_version": "fa7654a6956619551c2e7a3993d11fd38d9c948a7bceeccc3b6943ab765abb49",
+      "source_updated_at": null,
+      "data": {
+        "hot_songs": [
+          {
+            "bvid": "BV1HYp16oE8v",
+            "title": "合成公开曲目",
+            "cover": null,
+            "author": "合成公开作者",
+            "tname": null,
+            "trend_label": null,
+            "potential_reason": null,
+            "material_reason": null,
+            "up_name": null,
+            "description": null,
+            "views": 10000,
+            "likes": null,
+            "shares": null,
+            "coins": null,
+            "favorites": null,
+            "danmaku": null,
+            "comments": null,
+            "potential_score": null,
+            "material_score": null,
+            "trend_score": null,
+            "online_count": null,
+            "duration": null,
+            "pub_date": 1792300000,
+            "up_mid": null,
+            "name": "合成公开曲目",
+            "plays": 10000,
+            "heat": null
+          }
+        ]
+      }
+    },
+    "materials": {
+      "status": "ready",
+      "content_version": "ca94da460ee7db02e304ba06abe8246d4a01a43e7b91ac27f7d7fbf964241e32",
+      "source_updated_at": null,
+      "data": {
+        "material_candidates": [
+          {
+            "bvid": "BV1HYp16oE8v",
+            "title": "合成公开投稿",
+            "cover": null,
+            "author": "合成公开作者",
+            "tname": null,
+            "trend_label": null,
+            "potential_reason": null,
+            "material_reason": "合成公开推荐理由",
+            "up_name": null,
+            "description": null,
+            "views": 10000,
+            "likes": null,
+            "shares": null,
+            "coins": null,
+            "favorites": null,
+            "danmaku": null,
+            "comments": null,
+            "potential_score": null,
+            "material_score": null,
+            "trend_score": null,
+            "online_count": null,
+            "duration": null,
+            "pub_date": 1792300000,
+            "up_mid": null
+          }
+        ]
+      }
+    },
+    "danmaku": {
+      "status": "ready",
+      "content_version": "cd473dbbbe290285b391a2bc33e5ac99097f9495d8fce212bae884b8b6332a49",
+      "source_updated_at": null,
+      "data": {
+        "danmaku_words": [
+          {
+            "word": "合成公开热词",
+            "count": 10,
+            "weight": null
+          }
+        ],
+        "comments_gold": [
+          {
+            "content": "合成公开评论",
+            "author": "合成公开观众",
+            "source_video": "合成公开投稿",
+            "source_bvid": "BV1HYp16oE8v",
+            "source_cover": null,
+            "author_avatar": null,
+            "likes": null,
+            "replies": null,
+            "author_level": null
+          }
+        ]
+      }
+    },
+    "up-trends": {
+      "status": "ready",
+      "content_version": "011dbc8799ac9fe10d728a92f094448e1aca6b47dc91b2d49c9c46f48d1d64a7",
+      "source_updated_at": 1792300000,
+      "data": {
+        "up_analysis": {
+          "created_at": 1792300000,
+          "tracked_up_count": 1,
+          "up_details": [
+            {
+              "name": "合成公开作者",
+              "face": null,
+              "sign": null,
+              "latest_videos": [],
+              "mid": 123,
+              "total_recent_views": null,
+              "avg_views": null,
+              "video_count": null,
+              "recent_video_count": null,
+              "follower_count": null,
+              "following_count": null,
+              "kichu_video_count": null,
+              "latest_pub_date": null
+            }
+          ],
+          "analysis": {
+            "summary": {
+              "total_ups": 1,
+              "total_views": null,
+              "total_videos": null,
+              "avg_views_per_video": null,
+              "kichu_up_count": null,
+              "kichu_video_count": null,
+              "active_up_count": null,
+              "pool_total_views": 10000,
+              "pool_total_videos": 1,
+              "pool_avg_views_per_video": null
+            },
+            "hot_videos": [
+              {
+                "bvid": "BV1HYp16oE8v",
+                "title": "合成公开投稿",
+                "cover": null,
+                "author": "合成公开作者",
+                "tname": null,
+                "trend_label": null,
+                "potential_reason": null,
+                "material_reason": null,
+                "up_name": null,
+                "description": null,
+                "views": 10000,
+                "likes": null,
+                "shares": null,
+                "coins": null,
+                "favorites": null,
+                "danmaku": null,
+                "comments": null,
+                "potential_score": null,
+                "material_score": null,
+                "trend_score": null,
+                "online_count": null,
+                "duration": null,
+                "pub_date": 1792300000,
+                "up_mid": null
+              }
+            ],
+            "play_ranking": [
+              {
+                "name": "合成公开作者",
+                "face": null,
+                "sign": null,
+                "latest_videos": [],
+                "mid": 123,
+                "total_recent_views": 10000,
+                "avg_views": null,
+                "video_count": null,
+                "recent_video_count": null,
+                "follower_count": null,
+                "following_count": null,
+                "kichu_video_count": null,
+                "latest_pub_date": null
+              }
+            ],
+            "creator_ranking": [],
+            "keyword_cloud": [],
+            "content_types": [],
+            "timeline": [
+              {
+                "date": "2026-10-18",
+                "count": 1,
+                "views": 10000
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

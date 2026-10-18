@@ -1,0 +1,35 @@
+name: guichuhub-public-pages-test
+services:
+  api:
+    image: python:3.12-alpine
+    command: [python, /fixtures/fake_api.py]
+    volumes:
+      - ./ops/public-pages-test:/fixtures:ro
+    networks: [test]
+  public-pages:
+    build:
+      context: ./frontend
+      target: public-pages
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - public_pages_test_cache:/cache
+    depends_on: [api]
+    networks: [test]
+  frontend:
+    build:
+      context: ./frontend
+      target: frontend
+    depends_on: [public-pages]
+    networks: [test]
+  ingress:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./ops/public-pages-test/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports: ["127.0.0.1:18184:8080"]
+    depends_on: [frontend, api]
+    networks: [test]
+networks:
+  test:
+volumes:
+  public_pages_test_cache:
