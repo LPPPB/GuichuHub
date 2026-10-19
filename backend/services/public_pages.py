@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import re
+import time
 from urllib.parse import urlsplit
 
 TABS = ('dashboard', 'kichu-rank', 'memes', 'videos', 'meme-materials', 'songs', 'materials', 'danmaku', 'up-trends')
@@ -44,7 +45,7 @@ def _video(value):
     for key in ('author', 'tname', 'trend_label', 'potential_reason', 'material_reason', 'up_name'):
         row[key] = _text(value.get(key))
     row['description'] = _text(value.get('description'), 4000)
-    for key in ('views', 'likes', 'shares', 'coins', 'favorites', 'danmaku', 'comments', 'potential_score', 'material_score', 'trend_score', 'online_count', 'duration', 'pub_date', 'up_mid'):
+    for key in ('views', 'likes', 'shares', 'coins', 'favorites', 'danmaku', 'comments', 'potential_score', 'material_score', 'trend_score', 'online_count', 'duration', 'pub_date', 'up_mid', 'observed_at'):
         row[key] = _number(value.get(key))
     # Persisted observations are historical by the time cached HTML is served.
     row['online_circuit_skipped'] = row['online_count'] is not None
@@ -188,6 +189,25 @@ def build_public_sections(dashboard: dict, up_analysis: dict | None) -> dict:
     return result
 
 
+def _with_public_observed_statistics(dashboard):
+    """Share the API's persisted-count semantics without LIVE or radar exports."""
+    from services.video_statistics import with_observed_statistics
+    from storage.repositories.radar import get_radar_repository
+    source = dict(dashboard) if isinstance(dashboard, dict) else {}
+    fields = ('kichu_rank', 'hot_videos', 'material_candidates')
+    rows = [row for field in fields for row in (source.get(field) or [])[:200] if isinstance(row, dict)]
+    ids = list(dict.fromkeys(row['bvid'] for row in rows if isinstance(row.get('bvid'), str) and _BVID.fullmatch(row['bvid'])))
+    if not ids:
+        return source
+    now = int(time.time())
+    contexts = get_radar_repository().video_contexts(ids, now)
+    for field in fields:
+        if isinstance(source.get(field), list):
+            source[field] = [with_observed_statistics(row, contexts.get(row.get('bvid'), {}).get('latest'), now)
+                             if isinstance(row, dict) else row for row in source[field][:200]]
+    return source
+
+
 def load_public_pages() -> dict:
     from storage.cache import get_data
     from storage.up_trends_reader import load_analysis
@@ -195,6 +215,13 @@ def load_public_pages() -> dict:
         dashboard = get_data()
     except Exception:
         dashboard = None
+    try:
+        dashboard = _with_public_observed_statistics(dashboard)
+    except Exception:
+        # A temporary observation read failure must not publish older counts over
+        # an already successful public document. Other sources remain independent.
+        dashboard = {**(dashboard if isinstance(dashboard, dict) else {}),
+                     'kichu_rank': None, 'hot_videos': None, 'material_candidates': None}
     try:
         up_analysis = load_analysis()
     except Exception:

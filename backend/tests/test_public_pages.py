@@ -82,10 +82,43 @@ def test_rejects_oversized_export_instead_of_returning_truncated_json():
 def test_loader_isolates_source_failures_and_never_reads_live(monkeypatch):
     import storage.cache
     import storage.up_trends_reader
+    monkeypatch.setattr('services.public_pages._with_public_observed_statistics', lambda value: value, raising=False)
     monkeypatch.setattr(storage.cache, 'get_data', source)
     monkeypatch.setattr(storage.cache, 'get_live_cache', lambda: (_ for _ in ()).throw(AssertionError('LIVE accessed')))
     monkeypatch.setattr(storage.up_trends_reader, 'load_analysis', lambda: (_ for _ in ()).throw(RuntimeError('UP offline')))
     assert load_public_pages()['sections']['kichu-rank']['status'] == 'ready'
+
+
+def test_loader_uses_latest_persisted_statistics_without_changing_rank_scores(monkeypatch):
+    from types import SimpleNamespace
+    import storage.cache
+    import storage.up_trends_reader
+    import storage.repositories.radar
+    from utils.radar_v2 import COUNTS
+    data = source()
+    original = deepcopy(data)
+    latest = {key: 1 for key in COUNTS}
+    latest.update(views=260000, observed_at=1792300000, metrics_source='bilibili_stat')
+    monkeypatch.setattr(storage.cache, 'get_data', lambda: data)
+    monkeypatch.setattr(storage.up_trends_reader, 'load_analysis', lambda: None)
+    monkeypatch.setattr(storage.repositories.radar, 'get_radar_repository', lambda: SimpleNamespace(
+        video_contexts=lambda ids, now: {VIDEO['bvid']: {'latest': latest}}))
+    row = load_public_pages()['sections']['kichu-rank']['data']['kichu_rank'][0]
+    assert row['views'] == 260000
+    assert row['observed_at'] == 1792300000
+    assert data == original
+
+
+def test_statistics_read_failure_retains_video_sources_and_keeps_other_sections(monkeypatch):
+    import storage.cache
+    import storage.up_trends_reader
+    import storage.repositories.radar
+    monkeypatch.setattr(storage.cache, 'get_data', source)
+    monkeypatch.setattr(storage.up_trends_reader, 'load_analysis', lambda: None)
+    monkeypatch.setattr(storage.repositories.radar, 'get_radar_repository', lambda: (_ for _ in ()).throw(RuntimeError('offline')))
+    result = load_public_pages()['sections']
+    assert result['kichu-rank']['status'] == 'unavailable'
+    assert result['memes']['status'] == 'ready'
 
 def test_exports_other_sections_and_up_analysis_with_independent_version():
     data = source()

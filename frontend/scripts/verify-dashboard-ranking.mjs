@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { chromium } from 'playwright-core'
+import { resolvePublicPath } from '../src/routing/publicRoutes.js'
 
 // Exercise the built app against synthetic data without accessing a backend.
 const root = resolve('dist')
@@ -41,7 +42,7 @@ try {
         }
         if (url.pathname === '/cover.svg') return route.fulfill({ contentType: 'image/svg+xml', body:
           '<svg xmlns="http://www.w3.org/2000/svg" width="176" height="100"><rect width="176" height="100" fill="#ecc4c5"/><circle cx="65" cy="48" r="28" fill="#50729b"/><path d="M115 30L145 50L115 70Z" fill="#fff"/></svg>' })
-        const path = resolve(root, url.pathname === '/' ? 'index.html' : `.${url.pathname}`)
+        const path = resolve(root, resolvePublicPath(url.pathname).kind === 'page' ? 'index.html' : `.${url.pathname}`)
         assert.ok(path.startsWith(root + sep))
         return route.fulfill({ body: await readFile(path), contentType: path.endsWith('.js') ?
           'application/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html' })
@@ -95,7 +96,7 @@ try {
       await card.getByRole('button', { name: '观测趋势', exact: true }).click()
       await card.getByText(/数据积累中/).waitFor()
       await card.getByRole('button', { name: '收起趋势', exact: true }).click()
-      const more = summary.getByRole('button', { name: '查看全部 →' })
+      const more = summary.getByRole('link', { name: '查看全部 →' })
       assert.ok((await more.boundingBox()).height >= 44)
       await more.focus()
       if (output) {
