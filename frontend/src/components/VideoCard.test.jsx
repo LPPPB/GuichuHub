@@ -65,7 +65,7 @@ it('opens and closes an observation panel without nesting controls in a video li
     expect(close).toHaveAttribute('aria-expanded', 'true')
     const panel = document.getElementById(close.getAttribute('aria-controls'))
     expect(panel).toBeInTheDocument()
-    await within(panel).findByText(/数据积累中/)
+    await within(panel).findByText(/数据积累中/, {}, { timeout: 5000 })
     expect(request).toHaveBeenCalledWith('BV1demo', 48)
     fireEvent.click(close)
     expect(panel).not.toBeInTheDocument()

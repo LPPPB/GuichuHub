@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:layout": "npm run build && node scripts/verify-ranking-layout.mjs",
+    "test:radar-demo": "npm run build && node scripts/verify-radar-demo.mjs",
     "test:observations": "npm run build && node scripts/verify-observation-consistency.mjs"
   },
   "dependencies": {
