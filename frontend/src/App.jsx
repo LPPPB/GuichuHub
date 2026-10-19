@@ -51,6 +51,8 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [crawling, setCrawling] = useState(false)
   const crawlingRef = useRef(false)
+  const dashboardRevisionRef = useRef(null)
+  const dashboardRequestRef = useRef(0)
   const [breakerTrend, setBreakerTrend] = useState([])
   const [breakerThreshold, setBreakerThreshold] = useState(3)
   const [isLive, setIsLive] = useState(false)
@@ -102,7 +104,11 @@ export default function App() {
         if (stopped) return
         if (res.success && res.data) {
           const isCrawling = !!res.data.crawling
-          if (crawlingRef.current && !isCrawling) loadData()
+          const revision = JSON.stringify([res.data.last_updated, res.data.data_source,
+            res.data.observation_revision, Math.floor(Date.now() / 60000)])
+          const changed = dashboardRevisionRef.current != null && dashboardRevisionRef.current !== revision
+          dashboardRevisionRef.current = revision
+          if ((crawlingRef.current && !isCrawling) || changed) loadData({ background: true })
           crawlingRef.current = isCrawling
           setCrawling(isCrawling)
           if (res.data.online_breaker?.trend)     setBreakerTrend(res.data.online_breaker.trend)
@@ -145,9 +151,11 @@ export default function App() {
     }
   }, [])
 
-  const loadData = async () => {
-    setLoading(true)
+  const loadData = async ({ background = false } = {}) => {
+    const requestId = ++dashboardRequestRef.current
+    if (!background) setLoading(true)
     const res = await api.getDashboard()
+    if (requestId !== dashboardRequestRef.current) return
     if (res.success && res.data) {
       setData(res.data)
       const newIsLive = res.data.is_live || false
