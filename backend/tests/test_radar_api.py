@@ -22,7 +22,7 @@ def test_decorate_does_not_mutate_cached_video_or_scores(postgres_runtime):
     before = deepcopy(video)
     result = RadarService(repo).decorate([video], NOW)
     assert video == before
-    assert result[0]['views'] == 999
+    assert result[0]['views'] == 20000
     assert result[0]['potential_score'] == 88
     assert result[0]['radar']['axes'][0]['raw'] == 20000
     assert result[0]['online_observation']['count'] == 0
@@ -45,10 +45,13 @@ def test_observation_revision_refreshes_dashboard_within_same_time_bucket(client
     clock[0] += 1
     second = client.get('/api/dashboard').json['data']['kichu_rank'][0]
     assert first['radar']['axes'][0]['raw'] == 20000
+    assert first['views'] == 20000
     assert second['radar']['axes'][0]['raw'] == 22222
+    assert second['views'] == 22222
     assert second['online_observation']['count'] == 1
     assert second['potential_score'] == 88
     assert 'radar' not in data['kichu_rank'][0]
+    assert client.get('/api/status').json['data']['observation_revision'] == list(repo.revision())
     clock[0] = NOW+5460
     expired = client.get('/api/dashboard').json['data']['kichu_rank'][0]
     assert expired['online_observation']['status'] == 'stale'

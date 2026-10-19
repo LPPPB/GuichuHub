@@ -17,6 +17,7 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
   const videoUrl = video.url || `https://www.bilibili.com/video/${video.bvid}`
   const avatar = video.author_avatar || ''
   const published = formatVideoPublishTime(video.pub_date)
+  const statisticsTime = formatVideoPublishTime(video.observed_at)
   const historical = Boolean(video.online_circuit_skipped || video.online_count_raw === null)
   const hasOnline = video.online_count != null && Number.isFinite(Number(video.online_count)) && Number(video.online_count) >= 0
   const online = video.online_display || (hasOnline ? formatNumber(video.online_count) : '')
@@ -84,6 +85,8 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
             <div className="video-card-secondary-metrics">
               <span><Subtitles size={14} />弹幕 <b>{video.danmaku == null ? '—' : formatNumber(video.danmaku)}</b></span>
               <span><MessageSquare size={14} />评论 <b>{video.comments == null ? '—' : formatNumber(video.comments)}</b></span>
+              {statisticsTime && <span>数据观测 <time aria-label="统计观测时间" dateTime={statisticsTime.iso}
+                title="统计观测时间（北京时间）">{statisticsTime.text}</time></span>}
               {observedOnline ? <span className={observedOnline.status === 'available' ? 'video-card-online' : ''}>
                 <Users size={14} />{observedOnline.status === 'unavailable' ? '在看暂缺' :
                   `${observedOnline.status === 'stale' ? '历史在看' : '在看观测'} ${observedOnline.display}人`}
@@ -119,7 +122,7 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
           <div className="flex justify-center py-3"><VideoRadar radar={video.radar} /></div>
         </div>}
         {expanded && <div id={`${panelId}-trend`} className="video-card-panel">
-          <Suspense fallback={<p className="text-xs text-haze-400 py-6">加载趋势图表…</p>}><ObsTrendChart bvid={video.bvid} /></Suspense>
+          <Suspense fallback={<p className="text-xs text-haze-400 py-6">加载趋势图表…</p>}><ObsTrendChart bvid={video.bvid} observedAt={video.observed_at} /></Suspense>
         </div>}
         {showAiSummary && <div id={`${panelId}-summary`} className="video-card-panel">
           <Suspense fallback={<p className="text-xs text-haze-400 py-6">AI 总结加载中…</p>}><AiSummary bvid={video.bvid} /></Suspense>

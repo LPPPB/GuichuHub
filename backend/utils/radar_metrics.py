@@ -55,6 +55,10 @@ def build_radar_metrics(video):
 
     所有可用维度为 0~100；同接在采集熔断或缺失时保持 None，不能伪装成低分。
     """
+    observation = video.get('online_observation')
+    if observation:
+        video = {**video, 'online_count': observation.get('count'),
+                 'online_circuit_skipped': observation.get('status') == 'stale'}
     views = int(_number(video.get('views')))
     engagement_rate = _rate(video, {
         'likes': 1.0, 'coins': 2.0, 'favorites': 1.5, 'shares': 5.0,
