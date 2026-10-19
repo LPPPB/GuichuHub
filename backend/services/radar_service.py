@@ -1,4 +1,5 @@
 from utils.radar_v2 import build_video_radar, build_online_observation
+from services.video_statistics import with_observed_statistics
 
 
 class RadarService:
@@ -15,6 +16,7 @@ class RadarService:
                 result.append(video)
                 continue
             context = contexts.get(video.get('bvid'), {})
-            result.append({**video, 'radar': build_video_radar(context, baseline, now),
+            result.append({**with_observed_statistics(video, context.get('latest'), now),
+                           'radar': build_video_radar(context, baseline, now),
                            'online_observation': build_online_observation(context, now)})
         return result

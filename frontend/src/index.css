@@ -233,6 +233,10 @@ html.dark {
   .video-radar-hit { position: absolute; transform: translate(-50%, -50%); width: 44px; height: 32px; border-radius: 6px; background: transparent; }
   .video-radar-hit:focus-visible { outline: 2px solid rgb(var(--bili-default)); }
   .video-radar-detail { position: absolute; right: 0; top: 100%; z-index: 30; width: 280px; padding: 12px; border: 1px solid rgb(var(--void-600)); border-radius: 10px; background: rgb(var(--void-900)); color: rgb(var(--haze-300)); box-shadow: var(--shadow-card); font-size: 11px; line-height: 1.7; }
+  .radar-demo-preview { background: rgb(var(--void-900)); border-color: rgb(var(--void-600)); }
+  html.dark .radar-demo-preview { --haze-100: 226, 232, 240; --haze-300: 203, 213, 225; --haze-400: 156, 163, 175; --haze-500: 148, 163, 184; }
+  .radar-demo-chart .video-radar-detail { position: relative; inset: auto; width: 100%; margin-top: 12px; }
+  .radar-demo-slider:focus-visible { outline: 2px solid rgb(var(--bili-default)); outline-offset: 2px; border-radius: 4px; }
   .video-card:has(.video-radar-detail) { z-index: 20; }
   .video-card-mobile-portrait .video-radar-detail { position: static; width: 100%; margin-top: 10px; }
   @media (pointer: coarse) { .video-radar-hit { height: 44px; } }

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import EChart from './EChart'
 import { api } from '../utils/api'
 
@@ -6,7 +6,7 @@ import { api } from '../utils/api'
 const METRICS = {
   views: { label: '播放量', color: '#3b82f6', yAxis: 0, connectNulls: true },
   online_count: { label: '同接', color: '#f97316', yAxis: 1, connectNulls: false },  // NULL 断点
-  interaction_rate: { label: '互动率', color: '#10b981', yAxis: 1, connectNulls: true, dashed: true },
+  interaction_rate: { label: '互动率', color: '#10b981', yAxis: 1, connectNulls: false, dashed: true },
 }
 
 function formatNum(v) {
@@ -28,27 +28,34 @@ function formatOnline(value, precision) {
 // 支持两种数据来源：
 //  - 常规：传入 bvid，挂载后从 /api/videos/<bvid>/obs-trend 拉取
 //  - 演示/测试：传入 points（观测点数组），直接渲染、跳过 API 拉取
-export default function ObsTrendChart({ bvid, points: demoPoints }) {
+export default function ObsTrendChart({ bvid, observedAt, points: demoPoints }) {
   const [points, setPoints] = useState(demoPoints ?? null)  // null=未加载, []=空
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [active, setActive] = useState(['views'])  // 默认播放量，可叠加
-  const loadedRef = useRef(false)  // 避免重复加载
 
   // 按需加载：VideoCard 展开时才渲染本组件，挂载即请求（注入演示数据时跳过）
   useEffect(() => {
-    if (demoPoints) return
-    if (loadedRef.current) return
-    loadedRef.current = true
+    if (demoPoints) {
+      setPoints(demoPoints)
+      setError(null)
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setPoints(null)
+    setError(null)
     setLoading(true)
     api.getVideoObsTrend(bvid, 48)
       .then(res => {
+        if (cancelled) return
         if (res.success && res.data) setPoints(res.data.points || [])
         else setError(res.message || '加载失败')
       })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [bvid, demoPoints])
+      .catch(e => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [bvid, observedAt, demoPoints])
 
   const toggle = (key) => {
     setActive(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
@@ -63,8 +70,10 @@ export default function ObsTrendChart({ bvid, points: demoPoints }) {
       else if (key === 'online_count') val = p.online_count
       else if (key === 'interaction_rate') {
         // 互动率 = (赞+币+藏+转) / 播放 × 100
-        const inter = (p.likes || 0) + (p.coins || 0) + (p.favorites || 0) + (p.shares || 0)
-        val = (p.views && inter) ? +((inter / p.views) * 100).toFixed(2) : null
+        const counts = [p.views, p.likes, p.coins, p.favorites, p.shares]
+        const complete = counts.every(v => v != null && v !== '' && typeof v !== 'boolean' && Number.isFinite(Number(v)) && Number(v) >= 0)
+        const inter = complete ? counts.slice(1).reduce((sum, v) => sum + Number(v), 0) : null
+        val = complete && Number(p.views) > 0 ? +(inter / Number(p.views) * 100).toFixed(2) : null
       }
       // 同接近似点（"1000+"/"1.1万"，B站按千/万取整）：空心圆标记，与精确点（实心）区分
       if (key === 'online_count' && val != null && p.online_precision && p.online_precision !== 'exact') {

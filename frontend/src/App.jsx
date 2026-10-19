@@ -63,6 +63,8 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const [isAdmin, setIsAdmin] = useState(false)
   const [crawling, setCrawling] = useState(false)
   const crawlingRef = useRef(false)
+  const dashboardRevisionRef = useRef(null)
+  const dashboardRequestRef = useRef(0)
   const [breakerTrend, setBreakerTrend] = useState([])
   const [breakerThreshold, setBreakerThreshold] = useState(3)
   const [isLive, setIsLive] = useState(false)
@@ -122,7 +124,11 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
         if (stopped) return
         if (res.success && res.data) {
           const isCrawling = !!res.data.crawling
-          if (crawlingRef.current && !isCrawling) loadData()
+          const revision = JSON.stringify([res.data.last_updated, res.data.data_source,
+            res.data.observation_revision, Math.floor(Date.now() / 60000)])
+          const changed = dashboardRevisionRef.current != null && dashboardRevisionRef.current !== revision
+          dashboardRevisionRef.current = revision
+          if ((crawlingRef.current && !isCrawling) || changed) loadData({ background: true })
           crawlingRef.current = isCrawling
           setCrawling(isCrawling)
           if (res.data.online_breaker?.trend)     setBreakerTrend(res.data.online_breaker.trend)
@@ -165,10 +171,12 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
     }
   }, [])
 
-  const loadData = async () => {
-    setLoading(!hasPublicData.current)
+  const loadData = async ({ background = false } = {}) => {
+    const requestId = ++dashboardRequestRef.current
+    if (!background) setLoading(!hasPublicData.current)
     try {
     const res = await api.getDashboard()
+    if (requestId !== dashboardRequestRef.current) return
     if (res.success && res.data) {
       for (const [tab,field] of Object.entries(PUBLIC_FIELDS)) if (Array.isArray(res.data[field])) availableTabs.current.add(tab)
       if (Object.values(PUBLIC_FIELDS).every(field=>Array.isArray(res.data[field]))) availableTabs.current.add('dashboard')
@@ -182,7 +190,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       }
     }
     } catch { /* Retain the last successful public snapshot when offline. */ }
-    finally { setLoading(false) }
+    finally { if (requestId === dashboardRequestRef.current) setLoading(false) }
   }
   const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) setFavorites(res.data || []) }
   // 三态身份刷新：GET /auth/me → {admin, via, user}（口令超管 / B站管理员会话 / 访客）
