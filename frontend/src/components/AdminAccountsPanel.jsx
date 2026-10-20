@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../utils/api'
-import BilibiliLogin from './BilibiliLogin'
 import {
-  ShieldCheck, Trash2, Plus, RefreshCw, LogIn, LogOut, User, Info, UserCog, Camera,
+  ShieldCheck, Trash2, Plus, RefreshCw, LogOut, User, Info, UserCog, Camera,
 } from 'lucide-react'
 
 // 开发者后台 · 管理员管理：
@@ -29,7 +28,6 @@ export default function AdminAccountsPanel() {
   // 采集账号（管理员专属接口；非管理员/未登录时为 null）
   const [collectUser, setCollectUser] = useState(null)
   const [collectChecked, setCollectChecked] = useState(false)
-  const [showCollectLogin, setShowCollectLogin] = useState(false)
 
   const flash = (msg, type = 'ok') => {
     setNotice(msg)
@@ -82,11 +80,6 @@ export default function AdminAccountsPanel() {
     else flash(res.message || '移除失败', 'err')
   }
 
-  const handleCollectLoginSuccess = async () => {
-    await loadCollect()
-    flash('采集账号已登录，爬虫将使用新凭证')
-  }
-
   const handleCollectLogout = async () => {
     const res = await api.collectLogout()
     if (res.success) { setCollectUser(null); flash('采集账号已退出') }
@@ -128,7 +121,7 @@ export default function AdminAccountsPanel() {
         </div>
         <p className="text-xs text-slate-500 -mt-2 mb-4 flex items-start gap-1.5">
           <Info size={13} className="shrink-0 mt-0.5" />
-          名单内B站账号扫码登录即视为管理员（审核申请 / 刷新数据 / 词表配置）；至少保留一名，防止自锁。
+          B站扫码登录已下线；当前请使用管理员写口令。已有名单保留，后续接入官方授权。
         </p>
 
         {/* 添加表单 */}
@@ -248,21 +241,12 @@ export default function AdminAccountsPanel() {
         ) : (
           <div className="flex items-center gap-3 py-2">
             <p className="flex-1 text-sm text-slate-400">未登录（爬虫将以游客模式采集，412 风控风险较高）</p>
-            <button onClick={() => setShowCollectLogin(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-semibold text-white
-                               bg-primary-500 hover:bg-primary-600 rounded-xl transition-colors">
-              <LogIn size={14} />扫码登录
-            </button>
+            <span className="text-xs text-slate-400">扫码登录已下线</span>
           </div>
         )}
       </section>
 
-      {/* 采集登录弹窗（mode=collect：凭证写服务器爬虫 Cookie 文件） */}
-      {showCollectLogin && (
-        <BilibiliLogin mode="collect"
-                       onClose={() => setShowCollectLogin(false)}
-                       onLoginSuccess={handleCollectLoginSuccess} />
-      )}
+
     </div>
   )
 }

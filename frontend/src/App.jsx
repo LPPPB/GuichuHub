@@ -12,7 +12,6 @@ import DanmakuCloud from './components/DanmakuCloud'
 import CommentList from './components/CommentList'
 import FavoritesPanel from './components/FavoritesPanel'
 import MiniPlayer from './components/MiniPlayer'
-import BilibiliLogin from './components/BilibiliLogin'
 import OnlineBreakerChart from './components/OnlineBreakerChart'
 import SiteFooter from './components/SiteFooter'
 import { Flame, Music, Video, MessageCircle, Star, TrendingUp, Trophy, Zap, Sparkles, Users, Search, Tag, Code2, LayoutDashboard, LineChart, Layers, ScanSearch, ChevronRight, AlertTriangle } from 'lucide-react'
@@ -53,7 +52,6 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const [preferencesReady, setPreferencesReady] = useState(!initialData)
   const [favorites, setFavorites] = useState([])
   const [showFavorites, setShowFavorites] = useState(false)
-  const [showLogin, setShowLogin] = useState(false)
   // 顶部轻提示（如「需要管理员权限」）；3 秒自动消失
   const [notice, setNotice] = useState('')
   const noticeTimerRef = useRef(null)
@@ -213,8 +211,6 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       })
     }
   }
-  // 身份登录成功（会话已写入 HttpOnly Cookie）：刷新身份与收藏归属后进入UP主动态
-  const handleLoginSuccess = async () => { await refreshIdentity(); await loadFavorites(); setActiveTab('up-trends') }
   // 退出B站身份（api.logout 清除服务器会话与 HttpOnly Cookie）；口令超管身份不受影响，重判即可
   const handleLogout = async () => { await api.logout(); await refreshIdentity(); setActiveTab('dashboard') }
   const handleRefresh = async () => { const res = await api.refresh(); if (res.success || res.crawling) { crawlingRef.current = true; setCrawling(true) } }
@@ -226,8 +222,8 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       await loadFavorites()
     }
   }
-  // 收藏需登录 B站账号（归属 mid，跨设备持久）；未登录触发统一登录弹窗
-  const requireLogin = () => { if (!biliUser) { setShowLogin(true); return true } return false }
+  // 收藏记录保留；扫码身份登录下线期间不发起收藏写请求。
+  const requireLogin = () => { flashNotice('B站登录已下线，收藏功能暂不可用'); return true }
   const handleAddFavorite = async (type, item) => { if (requireLogin()) return; await api.addFavorite(type, item); await loadFavorites() }
   const handleRemoveFavorite = async (id) => { if (requireLogin()) return; await api.removeFavorite(id); await loadFavorites() }
   // 顶部轻提示：3 秒自动消失（无权限/操作反馈）
@@ -299,14 +295,15 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
         activeTab={activeTab} onTabChange={setActiveTab}
         onRefresh={handleRefresh} loading={loading} crawling={crawling}
         lastUpdated={data.last_updated} isLive={isLive} liveExpired={liveExpired}
-        onToggleFavorites={() => { if (!biliUser) { setShowLogin(true); return } setShowFavorites(v => !v) }} favoritesCount={favorites.length}
-        onOpenLogin={() => setShowLogin(true)} biliUser={biliUser} onLogout={handleLogout}
+        onToggleFavorites={() => { if (!biliUser) { flashNotice('B站登录已下线，收藏功能暂不可用'); return } setShowFavorites(v => !v) }} favoritesCount={favorites.length}
+        onOpenLogin={() => flashNotice('B站登录已下线，后续将接入官方授权')} biliUser={biliUser} onLogout={handleLogout}
         isAdmin={isAdmin} onAdminLogin={handleAdminLogin}
         onDevBlocked={() => flashNotice('需要管理员权限')}
         theme={theme} onToggleTheme={toggleTheme}
       />
 
       <main className="flex-1 min-w-0 relative z-10 flex flex-col">
+        {notice && <div role="status" className="sticky top-4 z-30 mx-auto mt-4 rounded-xl border border-white/10 bg-void-900 px-4 py-3 text-sm text-haze-50">{notice}</div>}
         {activeTab === 'not-found' && <div className="p-8"><h1>页面不存在</h1><PublicLink tabId="dashboard" onNavigate={setActiveTab}>返回首页</PublicLink></div>}
         {activeTab === 'dashboard' && (
           <div className="sr-only">
@@ -711,9 +708,6 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       {showFavorites && (
         <FavoritesPanel favorites={favorites} onClose={() => setShowFavorites(false)}
                         onRemove={handleRemoveFavorite} formatNumber={formatNumber} onRefresh={loadFavorites} />
-      )}
-      {showLogin && (
-        <BilibiliLogin onClose={() => setShowLogin(false)} onLoginSuccess={handleLoginSuccess} />
       )}
       <MiniPlayer />
     </div>

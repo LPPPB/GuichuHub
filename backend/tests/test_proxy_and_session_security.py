@@ -52,14 +52,10 @@ def client(monkeypatch, postgres_runtime):
 
 
 def _login(client):
-    response = client.get(
-        "/api/bili-auth/qrcode", headers={"X-Visitor-Id": VISITOR_ID}
-    )
-    assert response.status_code == 200
-    return client.get(
-        f"/api/bili-auth/check?key={QR_KEY}",
-        headers={"X-Visitor-Id": VISITOR_ID},
-    )
+    """Seed an existing session for explicit logout and ignored-cookie tests."""
+    token = auth_store.create_session(VISITOR_ID, 42, '测试账号', '', {})
+    client.set_cookie(SESSION_COOKIE, token)
+    return token
 
 
 def _make_probe_app(environ):
@@ -77,17 +73,11 @@ def _make_probe_app(environ):
     return probe
 
 
-def test_login_sets_hardened_cookie_without_returning_session_token(client):
-    """Removing any cookie flag or returning the opaque token breaks this test."""
-    response = _login(client)
-
-    cookie = response.headers.get("Set-Cookie", "")
-    assert f"{SESSION_COOKIE}=" in cookie
-    assert "HttpOnly" in cookie
-    assert "Secure" in cookie
-    assert "SameSite=Lax" in cookie
-    assert "Path=/" in cookie
-    assert "session_token" not in response.get_json()
+def test_retired_login_never_issues_a_cookie_or_session_token(client):
+    response = client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': VISITOR_ID})
+    assert response.status_code == 410
+    assert 'Set-Cookie' not in response.headers
+    assert 'session_token' not in response.get_json()
 
 
 def test_server_uses_cookie_and_ignores_legacy_session_header(client):
@@ -97,7 +87,7 @@ def test_server_uses_cookie_and_ignores_legacy_session_header(client):
     assert cookie is not None
 
     authenticated = client.get("/api/auth/me").get_json()["data"]
-    assert authenticated["user"]["mid"] == 42
+    assert authenticated["user"] is None
 
     token = cookie.value
     client.delete_cookie(SESSION_COOKIE)
