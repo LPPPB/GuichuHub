@@ -1,0 +1,24 @@
+✔ recovers only the committed generation after restart and ignores partial files (15.2549ms)
+✔ failed pointer rename preserves previous committed generation (13.1664ms)
+✔ rejects path traversal and corrupt manifest (10.3103ms)
+✔ nine exact pages, HEAD, conditional and query requests share cached documents (81.4593ms)
+✔ canonical redirects, unknown paths and unsupported methods have honest status (35.647ms)
+✔ unpublished pages return retryable non-indexable 503 (5.0724ms)
+✔ a running publisher refuses pages requested by a different client build (4.065ms)
+✔ publishes changed content and leaves timestamps and ETag unchanged for equal versions (2.7957ms)
+✔ keeps failed source and home summary while independently updating another source (1.0418ms)
+✔ failed candidate render or disk commit never replaces a successful batch (0.6229ms)
+✔ coalesces overlapping refreshes and retains successful data after fetch failure (2.3902ms)
+✔ publishes an explicit empty result and refreshes UP independently (0.4953ms)
+✔ a fetch timeout aborts and returns without replacing the committed page (16.8616ms)
+✔ a new build regenerates old cached content before exposing documents (0.5642ms)
+✔ restart serves already committed same-build documents without any disk writes (0.4558ms)
+✔ new-build reconstruction retries when the first durable commit fails (0.41ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 257.5811

@@ -1,4 +1,7 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense, startTransition } from 'react'
+import { usePublicNavigation } from './routing/usePublicNavigation'
+import PublicLink, { PublicNavigationAvailability } from './routing/PublicLink'
+import PublicSnapshotTime from './publicPages/PublicSnapshotTime'
 import { api, verifyAdminSilent } from './utils/api'
 import Sidebar from './components/Sidebar'
 import MemeCard from './components/MemeCard'
@@ -29,16 +32,25 @@ const EMPTY_DATA = {
   material_candidates: [], meme_materials: [], danmaku_words: [],
   comments_gold: [], last_updated: null,
 }
+const PUBLIC_FIELDS = {'kichu-rank':'kichu_rank',memes:'hot_memes',videos:'hot_videos',songs:'hot_songs',
+  'meme-materials':'meme_materials',materials:'material_candidates',danmaku:'danmaku_words'}
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard')
-  const [data, setData] = useState(EMPTY_DATA)
+export default function App({initialTab, initialData, initialAux, renderYear} = {}) {
+  const availableTabs = useRef(new Set(initialData
+    ? [initialTab, ...Object.entries(PUBLIC_FIELDS).filter(([,field])=>Array.isArray(initialData[field])).map(([tab])=>tab),
+       ...(initialAux?.sections?.['up-trends'] ? ['up-trends'] : [])]
+    : ['dashboard','up-trends',...Object.keys(PUBLIC_FIELDS)]))
+  const isPublicTabAvailable = tab => availableTabs.current.has(tab)
+  const {activeTab, navigate: setActiveTab} = usePublicNavigation(initialTab, isPublicTabAvailable)
+  const [data, setData] = useState(() => ({...EMPTY_DATA, ...initialData}))
   const [interactionQuality, setInteractionQuality] = useState([])
   const [tagHeat, setTagHeat] = useState([])
   const [risingWords, setRisingWords] = useState([])
   const [risingMeta, setRisingMeta] = useState(null)
   const maxHeat = Math.max(...(data.hot_memes || []).map((m) => Number(m.heat) || 0), 1)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialData)
+  const hasPublicData = useRef(Boolean(initialData))
+  const [preferencesReady, setPreferencesReady] = useState(!initialData)
   const [favorites, setFavorites] = useState([])
   const [showFavorites, setShowFavorites] = useState(false)
   const [showLogin, setShowLogin] = useState(false)
@@ -59,7 +71,7 @@ export default function App() {
   const [liveExpired, setLiveExpired] = useState(false)
   const liveExpiryTimer = useRef(null)
   const [theme, setTheme] = useState(() => {
-    if (typeof window === 'undefined') return 'dark'
+    if (initialData || typeof window === 'undefined') return 'dark'
     const saved = localStorage.getItem('kb-theme')
     if (saved === 'light' || saved === 'dark') return saved
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
@@ -86,11 +98,23 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!initialData) return
+    const saved = localStorage.getItem('kb-theme')
+    // Startup effects can finish before public lazy chunks hydrate. Keep the
+    // server content in place until those boundaries can accept the update.
+    startTransition(() => {
+      setTheme(saved === 'light' || saved === 'dark' ? saved : window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      setPreferencesReady(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!preferencesReady) return
     const root = document.documentElement
     if (theme === 'dark') root.classList.add('dark')
     else root.classList.remove('dark')
     localStorage.setItem('kb-theme', theme)
-  }, [theme])
+  }, [theme, preferencesReady])
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
 
   useEffect(() => {
@@ -110,9 +134,11 @@ export default function App() {
           dashboardRevisionRef.current = revision
           if ((crawlingRef.current && !isCrawling) || changed) loadData({ background: true })
           crawlingRef.current = isCrawling
-          setCrawling(isCrawling)
-          if (res.data.online_breaker?.trend)     setBreakerTrend(res.data.online_breaker.trend)
-          if (res.data.online_breaker?.threshold != null) setBreakerThreshold(res.data.online_breaker.threshold)
+          startTransition(() => {
+            setCrawling(isCrawling)
+            if (res.data.online_breaker?.trend) setBreakerTrend(res.data.online_breaker.trend)
+            if (res.data.online_breaker?.threshold != null) setBreakerThreshold(res.data.online_breaker.threshold)
+          })
         }
       } finally { inFlight = false }
       if (!stopped && !document.hidden) timer = setTimeout(poll, delay())
@@ -128,17 +154,19 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
-    api.getInteractionQuality(20).then(res => { if (!cancelled && res.success) setInteractionQuality(res.data || []) }).catch(() => {})
+    api.getInteractionQuality(20).then(res => { if (!cancelled && res.success) startTransition(() => setInteractionQuality(res.data || [])) }).catch(() => {})
     return () => { cancelled = true }
   }, [data.last_updated, isLive])
 
   useEffect(() => {
     let cancelled = false
-    api.getTagHeat(40).then(res => { if (!cancelled && res.success) setTagHeat(res.data || []) }).catch(() => {})
+    api.getTagHeat(40).then(res => { if (!cancelled && res.success) startTransition(() => setTagHeat(res.data || [])) }).catch(() => {})
     api.getRisingWords(2, 6, 30).then(res => {
       if (!cancelled && res.success) {
-        setRisingWords(res.data || [])
-        setRisingMeta(res.meta || null)
+        startTransition(() => {
+          setRisingWords(res.data || [])
+          setRisingMeta(res.meta || null)
+        })
       }
     }).catch(() => {})
     return () => { cancelled = true }
@@ -153,27 +181,36 @@ export default function App() {
 
   const loadData = async ({ background = false } = {}) => {
     const requestId = ++dashboardRequestRef.current
-    if (!background) setLoading(true)
+    if (!background) setLoading(!hasPublicData.current)
+    try {
     const res = await api.getDashboard()
     if (requestId !== dashboardRequestRef.current) return
     if (res.success && res.data) {
-      setData(res.data)
+      for (const [tab,field] of Object.entries(PUBLIC_FIELDS)) if (Array.isArray(res.data[field])) availableTabs.current.add(tab)
+      if (Object.values(PUBLIC_FIELDS).every(field=>Array.isArray(res.data[field]))) availableTabs.current.add('dashboard')
+      hasPublicData.current = true
       const newIsLive = res.data.is_live || false
-      setIsLive(newIsLive); setLiveExpired(false)
+      startTransition(() => {
+        setData(previous => ({...previous, ...res.data}))
+        setIsLive(newIsLive); setLiveExpired(false)
+      })
       if (liveExpiryTimer.current) { clearTimeout(liveExpiryTimer.current); liveExpiryTimer.current = null }
       if (newIsLive) {
         liveExpiryTimer.current = setTimeout(() => { setLiveExpired(true); liveExpiryTimer.current = null }, 10 * 60 * 1000)
       }
     }
-    setLoading(false)
+    } catch { /* Retain the last successful public snapshot when offline. */ }
+    finally { if (requestId === dashboardRequestRef.current) startTransition(() => setLoading(false)) }
   }
-  const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) setFavorites(res.data || []) }
+  const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) startTransition(() => setFavorites(res.data || [])) }
   // 三态身份刷新：GET /auth/me → {admin, via, user}（口令超管 / B站管理员会话 / 访客）
   const refreshIdentity = async () => {
     const res = await api.getAuthMe()
     if (res.success && res.data) {
-      setIsAdmin(!!res.data.admin)
-      setBiliUser(res.data.user || null)
+      startTransition(() => {
+        setIsAdmin(!!res.data.admin)
+        setBiliUser(res.data.user || null)
+      })
     }
   }
   // 身份登录成功（会话已写入 HttpOnly Cookie）：刷新身份与收藏归属后进入UP主动态
@@ -255,6 +292,7 @@ export default function App() {
   const d = (idx, step = 45) => idx * step
 
   return (
+    <PublicNavigationAvailability.Provider value={isPublicTabAvailable}>
     <div className="app-shell">
       <Sidebar
         tabGroups={tabGroups} devTab={devTab}
@@ -269,6 +307,7 @@ export default function App() {
       />
 
       <main className="flex-1 min-w-0 relative z-10 flex flex-col">
+        {activeTab === 'not-found' && <div className="p-8"><h1>页面不存在</h1><PublicLink tabId="dashboard" onNavigate={setActiveTab}>返回首页</PublicLink></div>}
         {activeTab === 'dashboard' && (
           <div className="sr-only">
             <h1>GuichuHub · B站鬼畜创作灵感看板</h1>
@@ -282,6 +321,7 @@ export default function App() {
 
         {activeTab !== 'dev' && (
           <div className="w-full max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-10 space-y-10 animate-stagger-in">
+            <PublicSnapshotTime bootstrap={initialAux} tab={activeTab} />
             {breakerTrend.length > 0 && (
               <div className="kb-card overflow-hidden">
                 <div className="inner px-2 pt-1">
@@ -320,7 +360,7 @@ export default function App() {
                   </Section>
 
                   <Section title="鬼畜潜力视频" icon={<Zap size={20} className="text-primary-500" />}
-                           moreText="查看全部" more={() => setActiveTab('videos')}
+                           moreText="查看全部" more={() => setActiveTab('videos')} moreTab="videos"
                            desc="已发布的鬼畜作品中具有爆发潜力的视频，综合批内热度（转发/评论/弹幕密度 × 播放）与互动质量率，乘以新鲜度与同接补正计算潜力指数。">
                     <div className="space-y-3">
                       {data.hot_videos?.slice(0, 4).map((v, i) => (
@@ -359,7 +399,7 @@ export default function App() {
                   </Section>
 
                   <Section title="素材发掘" icon={<Search size={20} className="text-neon-cyan" />}
-                           moreText="查看全部" more={() => setActiveTab('materials')}
+                           moreText="查看全部" more={() => setActiveTab('materials')} moreTab="materials"
                            desc="从音乐区/搞笑区挖掘有潜力被二创成鬼畜的热门素材，按素材热度 × 传播性 × 新鲜度评分，原素材越火二创受众越大。">
                     <div className="space-y-3">
                       {data.material_candidates?.slice(0, 4).map((v, i) => (
@@ -604,6 +644,7 @@ export default function App() {
             {/* ═══════════ 弹幕 & 评论 ═══════════ */}
             {!loading && activeTab === 'danmaku' && (
               <div className="space-y-10 max-w-6xl">
+                <PageHeader title="弹幕 & 评论" icon={<MessageCircle size={22} className="text-neon-emerald" />} />
                 <Section title="弹幕热词升温榜" icon={<TrendingUp size={20} className="text-neon-rose" />}
                          subtitle={`最近 ${risingMeta?.recent_batch_count || 2} 批 vs 此前 ${risingMeta?.base_batch_count || 6} 批`}
                          desc="按每批每万词出现率计算，降低抓取量和缺失批次对升温倍率的干扰。">
@@ -656,11 +697,11 @@ export default function App() {
 
             {/* ═══════════ UP主动态 ═══════════ */}
             {!loading && activeTab === 'up-trends' && (
-              <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} /></Suspense>
+                <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} initialPublicAnalysis={initialAux?.sections?.['up-trends']?.data?.up_analysis} initialRenderYear={renderYear} /></Suspense>
             )}
           </div>
         )}
-        <SiteFooter
+        <SiteFooter renderYear={renderYear}
           tabGroups={tabGroups}
           activeTab={activeTab}
           onNavigate={(tabId) => { setActiveTab(tabId); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
@@ -676,10 +717,11 @@ export default function App() {
       )}
       <MiniPlayer />
     </div>
+    </PublicNavigationAvailability.Provider>
   )
 }
 
-function Section({ title, icon, subtitle, desc, note, total, more, moreText, children }) {
+function Section({ title, icon, subtitle, desc, note, total, more, moreTab, moreText, children }) {
   return (
     <section>
       <div className="flex items-baseline justify-between gap-3 mb-4 md:mb-5">
@@ -699,9 +741,9 @@ function Section({ title, icon, subtitle, desc, note, total, more, moreText, chi
           )}
         </div>
         {more && (
-          <button onClick={more} className="kb-chip text-primary-600 bg-primary-50 border border-primary-200 hover:bg-primary-100 transition shrink-0 cursor-pointer">
+          <PublicLink tabId={moreTab} onNavigate={more} className="kb-chip text-primary-600 bg-primary-50 border border-primary-200 hover:bg-primary-100 transition shrink-0 cursor-pointer">
             {moreText || '查看更多'} →
-          </button>
+          </PublicLink>
         )}
       </div>
       {children}

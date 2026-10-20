@@ -1,8 +1,9 @@
+import PublicLink from '../routing/PublicLink'
 import { useState } from 'react'
 import { ChevronRight, Clock, Code2, LogOut, Moon, RefreshCw, ShieldCheck, Star, Sun, User, X } from 'lucide-react'
 
 export default function MobileDrawerContent({
-  tabGroups = [], devTab, activeTab, onTabChange, onClose, onLogoClick,
+  tabGroups = [], devTab, activeTab, onTabChange, onClose, onLogoClick, onBrandNavigate,
   theme, onToggleTheme, onToggleFavorites, favoritesCount,
   biliUser, isAdmin, onOpenLogin, onLogout, onDevBlocked,
   onRefresh, loading, crawling, lastUpdated,
@@ -11,9 +12,9 @@ export default function MobileDrawerContent({
   const themeLabel = theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'
   return <>
     <div className="mobile-drawer-header">
-      <button type="button" className="mobile-drawer-brand" aria-label="品牌标志" onClick={onLogoClick}>
+      <PublicLink tabId="dashboard" onNavigate={onBrandNavigate || onTabChange} className="mobile-drawer-brand" aria-label="品牌标志" onClick={onLogoClick}>
         <img src="/favicon.svg" width="30" height="30" alt="" /><span>GuichuHub</span>
-      </button>
+      </PublicLink>
       <button type="button" className="mobile-drawer-icon" aria-label={themeLabel} title={themeLabel} onClick={onToggleTheme}>
         {theme === 'dark' ? <Sun size={19} aria-hidden="true" /> : <Moon size={19} aria-hidden="true" />}
       </button>
@@ -25,10 +26,10 @@ export default function MobileDrawerContent({
         return <section key={group.id} className={home ? 'mobile-drawer-home' : 'mobile-drawer-group'}
           aria-label={group.label}>
           {!home && <h2>{group.label}</h2>}
-          {group.tabs.map(tab => <button type="button" className="mobile-drawer-item" key={tab.id}
-            aria-current={activeTab === tab.id ? 'page' : undefined} onClick={() => onTabChange(tab.id)}>
+          {group.tabs.map(tab => <PublicLink tabId={tab.id} onNavigate={onTabChange} className="mobile-drawer-item" key={tab.id}
+            aria-current={activeTab === tab.id ? 'page' : undefined}>
             <tab.icon size={18} aria-hidden="true" /><span>{tab.label}</span>
-          </button>)}
+          </PublicLink>)}
         </section>
       })}
       <div className="mobile-drawer-tools">

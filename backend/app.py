@@ -285,6 +285,16 @@ def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
     }
 
 
+@app.route('/internal/public-pages', methods=['GET'])
+def route_public_pages():
+    from services.public_pages import load_public_pages
+    try:
+        return jsonify(load_public_pages())
+    except Exception:
+        app.logger.error('Public page export unavailable')
+        return jsonify({'success': False}), 503
+
+
 @app.route('/api/dashboard', methods=['GET'])
 def route_dashboard():
     """看板数据：优先返回实时缓存（手动抓取，未过期），否则返回定时数据（数据库）。

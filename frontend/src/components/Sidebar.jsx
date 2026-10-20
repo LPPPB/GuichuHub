@@ -1,3 +1,4 @@
+import PublicLink from '../routing/PublicLink'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
@@ -71,14 +72,13 @@ export default function Sidebar(props) {
     clickTimer.current = setTimeout(() => { clicks.current = 0 }, 1500)
     if (clicks.current >= 5) { clicks.current = 0; onAdminLogin?.() }
   }
-  const brandClick = () => { navigate('dashboard'); registerBrandClick() }
   return <>
     <header className="site-header" ref={headerRef}>
       <div className="site-brandbar">
-        <button type="button" className="site-brand" aria-label="GuichuHub 首页" onClick={brandClick}>
+        <PublicLink tabId="dashboard" onNavigate={navigate} className="site-brand" aria-label="GuichuHub 首页" onClick={registerBrandClick}>
           <img src="/favicon.svg" width="36" height="36" alt="" />
           <span className="site-brand__name">GuichuHub</span>
-        </button>
+        </PublicLink>
         <p className="site-brand__description">发现鬼畜热点，追踪创作趋势。</p>
         {isLive && <span className={`site-live ${liveExpired ? 'is-expired' : ''}`}><i />{liveExpired ? '数据已过期' : 'LIVE'}</span>}
         <button type="button" className="site-menu-button" ref={menuRef} onClick={() => setMobileOpen(true)}
@@ -87,9 +87,9 @@ export default function Sidebar(props) {
         </button>
       </div>
       <nav className="site-shortcuts" aria-label="快捷导航">
-        {quickTabs.map(tab => <button type="button" key={tab.id} aria-current={activeTab === tab.id ? 'page' : undefined} onClick={() => navigate(tab.id)}>
+        {quickTabs.map(tab => <PublicLink tabId={tab.id} onNavigate={navigate} key={tab.id} aria-current={activeTab === tab.id ? 'page' : undefined}>
           <tab.icon size={15} aria-hidden="true" /><span>{tab.label}</span>
-        </button>)}
+        </PublicLink>)}
       </nav>
     </header>
     <aside className={`site-sidebar${collapsed ? ' site-sidebar--collapsed' : ''}`} aria-label="桌面侧边栏">
@@ -103,7 +103,7 @@ export default function Sidebar(props) {
     {mobileOpen && createPortal(<div className="site-drawer-layer">
       <button type="button" className="site-drawer-backdrop" tabIndex={-1} aria-label="关闭导航遮罩" onClick={() => setMobileOpen(false)} />
       <div className="site-drawer" id="site-navigation-drawer" ref={drawerRef} role="dialog" aria-modal="true" aria-label="站点导航">
-        <MobileDrawerContent {...actions} tabGroups={tabGroups} onTabChange={navigate} onLogoClick={registerBrandClick} onClose={() => setMobileOpen(false)} />
+        <MobileDrawerContent {...actions} tabGroups={tabGroups} onTabChange={navigate} onBrandNavigate={navigate} onLogoClick={registerBrandClick} onClose={() => setMobileOpen(false)} />
       </div>
     </div>, document.body)}
   </>

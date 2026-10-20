@@ -31,12 +31,16 @@ jobs:
         run: npm ci
       - name: Run frontend tests
         run: npm test -- --maxWorkers=2
+      - name: Verify public page cache, publishing and HTTP behavior
+        run: node --test public-pages/*.test.mjs
       - name: Build production frontend
         run: npm run build
       - name: Validate crawlable HTML and generated sitemap
         run: node scripts/verify-seo.mjs
       - name: Install layout browser
         run: npx playwright-core install --with-deps chromium
+      - name: Verify public hydration with delayed chunks and fast startup updates
+        run: node scripts/verify-public-hydration.mjs
       - name: Verify responsive layout and radar interactions
         run: |
           LAYOUT_COLOR_SCHEME=light node scripts/verify-ranking-layout.mjs

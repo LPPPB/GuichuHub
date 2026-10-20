@@ -1,0 +1,74 @@
+[
+  {
+    "path": "/",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/rankings/kichu",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/memes",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/rankings/potential",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/meme-materials",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/bgm",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/materials",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/insights/discussion",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/up-trends",
+    "javaScriptEnabled": false
+  },
+  {
+    "path": "/",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/rankings/kichu",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/memes",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/rankings/potential",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/meme-materials",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/bgm",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/materials",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/insights/discussion",
+    "javaScriptEnabled": true
+  },
+  {
+    "path": "/up-trends",
+    "javaScriptEnabled": true
+  }
+]

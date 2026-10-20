@@ -1,0 +1,1 @@
+Read-only committed cache + offline source restored all 9 pages without writes

@@ -178,7 +178,14 @@ function ChartCard({ icon: Icon, iconColor, title, children, note, fullWidth, ex
 // ════════════════════════════════════════════════════════════════════
 // 卡片1：发布日历热力图（含周发布量/周播放量频率折线）
 // ════════════════════════════════════════════════════════════════════
-export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarUpdated }) {
+export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarUpdated, initialTimestamp, initialYear }) {
+  const [renderNow, setRenderNow] = useState(() => {
+    if (!initialTimestamp) return new Date()
+    const date = new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(initialTimestamp * 1000))
+    return new Date(`${date}T12:00:00`)
+  })
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true); setRenderNow(new Date()) }, [])
   const tooltipRef = useRef(null)
   const [calendarDetail, setCalendarDetail] = useState(null)
   const [heatmapMode, setHeatmapMode] = useState('count') // 'count' | 'views'
@@ -271,9 +278,9 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
 
   // ── Calendar year ──────────────────────────────────────────────────
   const latest = batches.filter(s => s.analysis?.summary && s.analysis.summary.total_ups > 0).slice(-1)[0]
-  const defaultYear = latest?.created_at
+  const defaultYear = initialYear || (latest?.created_at
     ? new Date(latest.created_at * 1000).getFullYear()
-    : new Date().getFullYear()
+    : renderNow.getFullYear())
   const [selectedYear, setSelectedYear] = useState(defaultYear)
 
   // ── Fetch calendar data from dedicated API (granular, full-year) ─
@@ -345,8 +352,8 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
       dateEntries.push({ dateStr, fullDate, ...val })
     })
 
-    return { dateEntries, refDate: new Date() }
-  }, [calendarMap])
+    return { dateEntries, refDate: renderNow }
+  }, [calendarMap, renderNow])
 
   // Build calendar grid: full year (Jan 1 - Dec 31)
   const calendarGrid = useMemo(() => {
@@ -598,7 +605,7 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
               </span>
               <button
                 onClick={() => setSelectedYear(y => y + 1)}
-                disabled={selectedYear >= new Date().getFullYear()}
+                disabled={selectedYear >= (!mounted && initialYear ? initialYear : renderNow.getFullYear())}
                 className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 ›
@@ -835,6 +842,7 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
 
             {/* ── 发布频率折线图 ── */}
             <FrequencyLineChart
+                now={renderNow}
               weeks={calendarGrid.weeks}
               heatmapMode={heatmapMode}
               selectedYear={selectedYear}
@@ -845,7 +853,7 @@ export function PublishCalendarCard({ batches = [], isAdmin = false, onCalendarU
 
       {/* Portal 到 body：避免页面入场动画的 transform 改写 fixed 后代的包含块，
           否则滚动到日历后，clientX/clientY 会被再次叠加文档滚动偏移，Tooltip 跑到视口外。 */}
-      {createPortal(
+      {mounted && createPortal(
         <div
           ref={tooltipRef}
           className="fixed z-50 pointer-events-none rounded-lg whitespace-nowrap"
@@ -1295,11 +1303,11 @@ export function buildFrequencySeries(weeks, selectedYear, rangeKey, now = new Da
 }
 
 // ── 发布频率折线图组件（短区间按日、长区间按周，平滑曲线 + tooltip + 渐变面积）──
-function FrequencyLineChart({ weeks, heatmapMode, selectedYear, formatNumber }) {
+function FrequencyLineChart({ weeks, heatmapMode, selectedYear, formatNumber, now }) {
   const [rangeKey, setRangeKey] = useState('90d')
   const { data, granularity, rangeLabel } = useMemo(
-    () => buildFrequencySeries(weeks, selectedYear, rangeKey),
-    [weeks, selectedYear, rangeKey],
+    () => buildFrequencySeries(weeks, selectedYear, rangeKey, now),
+    [weeks, selectedYear, rangeKey, now],
   )
 
   if (data.length === 0) return null

@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useState, useEffect, useCallback, useMemo, useRef, Component } from 'react'
 import { api } from '../utils/api'
+import { formatVideoPublishTime } from '../utils/videoCardMeta'
 import {
   Users, Video, TrendingUp, RefreshCw, ExternalLink, Eye,
   Flame, BarChart3, Cloud, Trophy, Calendar, Sparkles, Settings,
@@ -84,9 +85,11 @@ function badgeColor(name) {
   return TAG_PALETTE[h % TAG_PALETTE.length]
 }
 
-function UpTrendsInner({ formatNumber, isAdmin }) {
-  const [phase, setPhase] = useState('checking') // checking | setup | loading | ready
-  const [data, setData] = useState(null)           // current analysis result
+function UpTrendsInner({ formatNumber, isAdmin, initialPublicAnalysis, initialRenderYear }) {
+  const [relativeDates, setRelativeDates] = useState(!initialPublicAnalysis)
+  useEffect(() => { setRelativeDates(true) }, [])
+  const [phase, setPhase] = useState(initialPublicAnalysis ? 'ready' : 'checking') // checking | setup | loading | ready
+  const [data, setData] = useState(initialPublicAnalysis || null)           // current analysis result
   const [history, setHistory] = useState([])        // historical batches for charts
   const [error, setError] = useState(null)
   const [warning, setWarning] = useState(null)
@@ -258,22 +261,22 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
     clearTimeout(pollTimer.current)
     const generation = ++pollGeneration.current
     const current = () => mounted.current && pollGeneration.current === generation
-    setPhase('checking')
+    if (!initialPublicAnalysis) setPhase('checking')
     setError(null)
     try {
       const check = await api.upTrendsCheck()
       if (!current()) return
       if (check.success === false) throw new Error(check.message || '配置检查失败')
       if (!check.has_list) {
-        setPhase('setup')
+        setPhase(initialPublicAnalysis ? 'ready' : 'setup')
         return
       }
       activeTask.current = check.active_task_id || null
-      setPhase('loading')
+      if (!initialPublicAnalysis) setPhase('loading')
       const analysisRes = await api.upTrendsAnalysis()
       if (!current()) return
       if (analysisRes.success && analysisRes.data) setData(analysisRes.data)
-      else setData(null)
+      else if (!initialPublicAnalysis) setData(null)
       setPhase('ready')
       try {
         const histRes = await api.upTrendsHistory()
@@ -286,7 +289,7 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
       setPhase('ready')
       if (activeTask.current) pollProgress(activeTask.current)
     }
-  }, [pollProgress])
+  }, [pollProgress, initialPublicAnalysis])
 
   useEffect(() => { initCheck() }, [initCheck])
 
@@ -327,13 +330,15 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
   // ─── Helpers ───
   const formatDate = (timestamp) => {
     if (!timestamp) return '未知'
+    const absolute = formatVideoPublishTime(timestamp)?.text || '未知'
+    if (!relativeDates) return absolute
     const d = new Date(timestamp * 1000)
     const now = new Date()
     const diff = (now - d) / 1000
     if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
     if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
     if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}天前`
-    return d.toLocaleDateString('zh-CN')
+    return absolute
   }
 
   // ─── Format ETA ───
@@ -917,10 +922,10 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
               <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.12)]" />
               {narrative.eyebrow}
             </p>
-            <h2 id="up-trends-title" className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 md:text-[28px]">
+            <h1 id="up-trends-title" className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 md:text-[28px]">
               <Users className="text-primary-500" size={27} />
               <span>UP主动态</span>
-            </h2>
+            </h1>
             <p className="mt-4 text-lg font-semibold leading-snug text-slate-800 md:text-xl">{narrative.headline}</p>
             <p className="mt-1.5 text-sm text-slate-500">{narrative.detail}</p>
           </div>
@@ -1200,6 +1205,8 @@ function UpTrendsInner({ formatNumber, isAdmin }) {
               )}
             </div>
             <PublishCalendarCard
+              initialTimestamp={initialPublicAnalysis?.created_at}
+              initialYear={initialRenderYear}
               batches={history}
               isAdmin={isAdmin}
               onCalendarUpdated={loadCalendarTimeline}

@@ -55,7 +55,7 @@ it('preserves the card information, moves reasons and trend into the body, and o
   expect(await within(firstCard).findByText(/数据积累中/)).toBeVisible()
   await user.click(body.getByRole('button', { name: '收起趋势' }))
   expect(within(firstCard).queryByText(/数据积累中/)).not.toBeInTheDocument()
-  await user.click(summary.getByRole('button', { name: '查看全部 →' }))
+  await user.click(summary.getByRole('link', { name: '查看全部 →' }))
   expect(await screen.findByRole('heading', { level: 1, name: '鬼畜区排行榜' })).toBeVisible()
   expect(screen.getByRole('link', { name: '摘要测试视频 7' })).toBeVisible()
   expect(screen.getAllByRole('button', { name: '观测趋势' })).toHaveLength(7)

@@ -1,13 +1,16 @@
 // ECharts 薄包装组件：统一容器/渲染配置，各图表组件只需传 option。
 // 用法：<EChart option={option} height={200} />
 // 模块注册统一在 lib/echarts.js 完成（本文件副作用导入保证注册先于渲染）。
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import PublicChartSummary from '../publicPages/PublicChartSummary'
 import ReactECharts from 'echarts-for-react'
 import '../lib/echarts'
 
 export default function EChart({ option, height = 200, fill = false, className = '', onEvents }) {
   const chartRef = useRef(null)
   const wrapRef = useRef(null)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   // 容器尺寸变化时自动 resize：echarts-for-react 只监听 window resize，
   // 无法感知父容器宽高动画（如 StatCard Size Morph 展开），否则图表会停留在
@@ -52,8 +55,17 @@ export default function EChart({ option, height = 200, fill = false, className =
     ? { flex: '1 1 0%', minHeight: 0, width: '100%', height: '100%' }
     : { width: '100%', height }
   return (
-    <div ref={wrapRef} style={wrapStyle}>
-      <ReactECharts
+    <div ref={wrapRef} style={mounted ? wrapStyle : {width:'100%',height:'auto',minHeight:fill ? 0 : height}}>
+      {!mounted ? <PublicChartSummary items={(Array.isArray(option.series) ? option.series : [option.series]).flatMap(series => {
+        if (!series || !Array.isArray(series.data)) return []
+        const x = Array.isArray(option.xAxis) ? option.xAxis[0] : option.xAxis
+        const y = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis
+        const labels = y?.type === 'category' ? y.data : x?.data
+        return series.data.slice(0, 20).map((point,index) => ({
+          label: String(point?.name ?? labels?.[index] ?? series.name ?? index + 1),
+          value: typeof point === 'number' || typeof point === 'string' ? point : typeof point?.value === 'number' ? point.value : null,
+        }))
+      })} /> : <ReactECharts
         ref={chartRef}
         option={option}
         style={{ height: '100%', width: '100%' }}
@@ -64,7 +76,7 @@ export default function EChart({ option, height = 200, fill = false, className =
         notMerge
         onEvents={onEvents}
         className={className}
-      />
+      />}
     </div>
   )
 }

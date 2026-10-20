@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { chromium } from 'playwright-core'
+import { resolvePublicPath } from '../src/routing/publicRoutes.js'
 
 // Run after npm run build. Uses only packaged assets and synthetic API responses;
 // no local server, production requests, credentials, or runtime data are involved.
@@ -43,7 +44,7 @@ try {
         } : url.pathname === '/api/auth/me' ? null : []
         return route.fulfill({ json: { success: true, data } })
       }
-      const path = resolve(root, url.pathname === '/' ? 'index.html' : `.${url.pathname}`)
+      const path = resolve(root, resolvePublicPath(url.pathname).kind === 'page' ? 'index.html' : `.${url.pathname}`)
       assert.ok(path.startsWith(root + sep))
       const contentType = path.endsWith('.js') ? 'application/javascript' :
         path.endsWith('.css') ? 'text/css' : 'text/html'
@@ -53,13 +54,13 @@ try {
     await page.getByRole('heading', { name: '鬼畜区排行榜', exact: true }).waitFor()
     assert.equal(await page.getByRole('img', { name: '视频数据雷达图' }).count(), 0)
     for (const name of ['鬼畜区排行榜', '鬼畜潜力视频']) {
+      await page.goto('https://layout.test/')
+      await page.getByRole('heading', { name, exact: true }).waitFor()
       if (name === '鬼畜区排行榜') {
-        await page.getByRole('button', { name: '查看全部 →' }).first().click()
+        await page.getByRole('link', { name: '查看全部 →' }).first().click()
       } else {
-        await page.reload()
-        await page.getByRole('heading', { name, exact: true }).waitFor()
         const section = page.locator('section').filter({ has: page.getByRole('heading', { name, exact: true }) })
-        await section.getByRole('button', { name: '查看全部 →' }).click()
+        await section.getByRole('link', { name: '查看全部 →' }).click()
       }
       const card = page.locator('article').first()
       await card.waitFor()
@@ -133,7 +134,7 @@ try {
       assert.equal(await card.locator('.video-card-views').evaluate(el => getComputedStyle(el).color), 'rgb(251, 114, 153)')
       await card.getByRole('button', { name: '观测趋势', exact: true }).click()
       await card.getByText(/数据积累中/).waitFor()
-      assert.equal(page.url(), 'https://layout.test/')
+      assert.equal(page.url(), `https://layout.test/${name === '鬼畜区排行榜' ? 'rankings/kichu' : 'rankings/potential'}`)
       await card.getByRole('button', { name: '收起趋势', exact: true }).click()
       console.log(`${width}px ${name}: card=${Math.round(sizes.card)}px radar=${await radar.isVisible()}`)
       if (process.env.LAYOUT_SCREENSHOT_DIR) {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, readFile } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { chromium } from 'playwright-core'
+import { resolvePublicPath } from '../src/routing/publicRoutes.js'
 
 // Production assets with synthetic responses only; never reads runtime or contacts the real API.
 const root = resolve('dist')
@@ -41,7 +42,7 @@ try {
         } : url.pathname === '/api/auth/me' ? { admin: fixtureMember, user: fixtureMember ? { name: '示例站长' } : null } : []
         return route.fulfill({ json: { success: true, data } })
       }
-      const path = resolve(root, url.pathname === '/' ? 'index.html' : `.${url.pathname}`)
+      const path = resolve(root, resolvePublicPath(url.pathname).kind === 'page' ? 'index.html' : `.${url.pathname}`)
       assert.ok(path.startsWith(root + sep))
       const contentType = path.endsWith('.js') ? 'application/javascript' : path.endsWith('.css') ? 'text/css' :
         path.endsWith('.svg') ? 'image/svg+xml' : 'text/html'
@@ -70,7 +71,7 @@ try {
       assert.ok(main.y < 1, 'Desktop must not retain an empty header row')
       assert.ok((await page.locator('.site-sidebar').boundingBox()).height >= height - 34, 'Desktop island should reclaim header height')
     }
-    const shortcutButtons = page.getByRole('navigation', { name: '快捷导航' }).getByRole('button')
+    const shortcutButtons = page.getByRole('navigation', { name: '快捷导航' }).getByRole('link')
     if (width < 1024) {
       const boxes = await Promise.all((await shortcutButtons.all()).map(button => button.boundingBox()))
       assert.equal(boxes.length, 3)
@@ -101,13 +102,13 @@ try {
       assert.ok(iconCenters.every(center => Math.abs(center - iconCenters[0]) < 1), 'Collapsed navigation and action icons must share one center line')
       const navigation = page.getByRole('navigation', { name: '主导航' })
       for (const name of ['总览', '鬼畜榜', '梗素材库', '弹幕 & 评论']) {
-        assert.equal(await navigation.getByRole('button', { name, exact: true }).isVisible(), true, `${name} must remain reachable`)
+        assert.equal(await navigation.getByRole('link', { name, exact: true }).isVisible(), true, `${name} must remain reachable`)
       }
       await screenshot('collapsed')
       await page.setViewportSize({ width: 390, height: 900 })
       await page.getByRole('button', { name: '打开导航菜单' }).click()
       const drawer = page.getByRole('dialog', { name: '站点导航' })
-      assert.equal(await drawer.getByRole('button', { name: '潜力视频', exact: true }).innerText(), '潜力视频')
+      assert.equal(await drawer.getByRole('link', { name: '潜力视频', exact: true }).innerText(), '潜力视频')
       await page.keyboard.press('Escape')
       await drawer.waitFor({ state: 'detached' })
       await page.setViewportSize({ width, height })
@@ -132,12 +133,12 @@ try {
       assert.ok(rows.every(height => height >= 44), 'Drawer rows must retain touch targets')
       await screenshot('drawer')
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '关闭导航菜单')
-      await drawer.getByRole('button', { name: '品牌标志', exact: true }).focus()
+      await drawer.getByRole('link', { name: '品牌标志', exact: true }).focus()
       await page.keyboard.press('Shift+Tab')
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'B 站账号登录')
       await page.keyboard.press('Tab')
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '品牌标志')
-      await drawer.getByRole('button', { name: '热梗', exact: true }).click()
+      await drawer.getByRole('link', { name: '热梗', exact: true }).click()
       await drawer.waitFor({ state: 'detached' })
       await page.getByRole('heading', { name: '热梗库', exact: true }).waitFor()
       assert.equal(await page.locator('.app-shell').getAttribute('inert'), null)
@@ -156,16 +157,16 @@ try {
       await drawer.waitFor({ state: 'detached' })
       await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '关闭登录')
       await page.getByRole('button', { name: '关闭登录' }).click()
-      await page.getByRole('button', { name: 'GuichuHub 首页' }).click()
+      await page.getByRole('link', { name: 'GuichuHub 首页' }).click()
       await page.getByRole('heading', { name: '正在爆发', exact: true }).waitFor()
     }
     await page.evaluate(() => window.scrollTo(0, 650))
     if (width < 1024) assert.ok(Math.abs((await page.locator('.site-header').boundingBox()).y) < 1, 'Narrow-screen brand must remain visible while scrolling')
     if (width >= 1024) {
       assert.ok(Math.abs((await page.locator('.site-sidebar').boundingBox()).y - header.height - 16) < 2)
-      await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '热梗', exact: true }).click()
+      await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '热梗', exact: true }).click()
       await page.getByRole('heading', { name: '热梗库', exact: true }).waitFor()
-      assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('button', { name: '热梗', exact: true }).getAttribute('aria-current'), 'page')
+      assert.equal(await page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '热梗', exact: true }).getAttribute('aria-current'), 'page')
     }
     assert.deepEqual(errors, [], 'No browser runtime errors')
     if (width === 1440) {
