@@ -321,7 +321,6 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
 
         {activeTab !== 'dev' && (
           <div className="w-full max-w-[1400px] mx-auto px-4 md:px-8 py-6 md:py-10 space-y-10 animate-stagger-in">
-            <PublicSnapshotTime bootstrap={initialAux} tab={activeTab} />
             {breakerTrend.length > 0 && (
               <div className="kb-card overflow-hidden">
                 <div className="inner px-2 pt-1">
@@ -699,6 +698,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
             {!loading && activeTab === 'up-trends' && (
                 <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} initialPublicAnalysis={initialAux?.sections?.['up-trends']?.data?.up_analysis} initialRenderYear={renderYear} /></Suspense>
             )}
+            <PublicSnapshotTime bootstrap={initialAux} tab={activeTab} />
           </div>
         )}
         <SiteFooter renderYear={renderYear}
