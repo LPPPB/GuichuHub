@@ -26,6 +26,19 @@ function Harness(props) {
 
 afterEach(() => { document.body.style.overflow = ''; vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+it('closes the mobile drawer and releases the page when its brand returns home',async()=>{
+  const user=userEvent.setup()
+  render(<Harness />)
+  await user.click(within(screen.getByRole('navigation',{name:'快捷导航'})).getByRole('link',{name:'潜力视频'}))
+  await user.click(screen.getByRole('button',{name:'打开导航菜单'}))
+  const drawer=screen.getByRole('dialog',{name:'站点导航'})
+  await user.click(within(drawer).getByRole('link',{name:'品牌标志'}))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.getByRole('heading',{name:'dashboard'})).toBeVisible()
+  expect(document.querySelector('.app-shell')).not.toHaveAttribute('inert')
+  expect(document.body.style.overflow).toBe('')
+})
+
 it('exposes the brand before opening navigation and lets the brand return home', async () => {
   const user = userEvent.setup()
   render(<Harness />)
@@ -62,7 +75,7 @@ it('locks the background, traps focus, and restores focus and scrolling on Escap
   expect(document.body.style.overflow).toBe('hidden')
   expect(document.querySelector('.app-shell')).toHaveAttribute('inert')
   const brand = within(drawer).getByRole('link', { name: '品牌标志' })
-  await user.click(brand)
+  brand.focus() // Focus the first link without activating its home navigation.
   await user.tab({ shift: true })
   expect(within(drawer).getByRole('button', { name: 'B 站账号登录' })).toHaveFocus()
   await user.tab()

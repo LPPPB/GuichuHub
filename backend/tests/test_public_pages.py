@@ -30,6 +30,19 @@ def test_global_clock_and_private_fields_do_not_change_content_version():
     data['hot_memes'][0]['heat'] = 10
     assert first['sections']['memes']['content_version'] != build_public_sections(data, None)['sections']['memes']['content_version']
 
+
+def test_material_related_songs_are_bounded_public_rows_and_affect_version():
+    song = {'bvid': VIDEO['bvid'], 'name': '公开关联 BGM', 'plays': 10, 'cookie': 'private-cookie'}
+    data = {'meme_materials': [{'name': '公开素材', 'related_songs': [song] * 21}]}
+    first = build_public_sections(data, None)['sections']['meme-materials']
+    rows = first['data']['meme_materials'][0]['related_songs']
+    assert len(rows) == 20
+    assert rows[0]['name'] == '公开关联 BGM'
+    assert rows[0]['plays'] == 10
+    assert 'private-' not in json.dumps(rows)
+    song['plays'] = 20
+    assert first['content_version'] != build_public_sections(data, None)['sections']['meme-materials']['content_version']
+
 def test_up_timeline_is_bounded_and_projects_only_public_statistics():
     up = {'created_at': 1792300000, 'analysis': {'timeline': [
         {'date': '2026-10-18', 'count': 0, 'views': 30, 'token': 'private-token'}] * 61}}

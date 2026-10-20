@@ -103,7 +103,7 @@ export default function Sidebar(props) {
     {mobileOpen && createPortal(<div className="site-drawer-layer">
       <button type="button" className="site-drawer-backdrop" tabIndex={-1} aria-label="关闭导航遮罩" onClick={() => setMobileOpen(false)} />
       <div className="site-drawer" id="site-navigation-drawer" ref={drawerRef} role="dialog" aria-modal="true" aria-label="站点导航">
-        <MobileDrawerContent {...actions} tabGroups={tabGroups} onTabChange={navigate} onBrandNavigate={onTabChange} onLogoClick={registerBrandClick} onClose={() => setMobileOpen(false)} />
+        <MobileDrawerContent {...actions} tabGroups={tabGroups} onTabChange={navigate} onBrandNavigate={navigate} onLogoClick={registerBrandClick} onClose={() => setMobileOpen(false)} />
       </div>
     </div>, document.body)}
   </>

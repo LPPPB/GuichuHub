@@ -65,6 +65,11 @@ HTML 支持 ETag、HEAD、304；未知地址 404，规范尾斜杠 308，
 再将启动及后台状态更新改为 transition，保留 hydration 中的服务端内容。
 新增 `frontend/scripts/verify-public-hydration.mjs` 覆盖首页及 UP 页面，并加入前端 CI。
 
+PR 自动审查补充修复：专用 HTML 缓存每次指针提交成功后，仅回收带本服务所有权标记、
+且只含普通 `pages.json` / `manifest.json` 文件的旧代目录，保留当前及前一代；不删除卷、
+未知文件、符号链接或历史未标记目录。清理失败不撤销成功发布，下次提交再试。
+移动抽屉品牌跳转复用关闭回调；素材公开投影补齐最多 20 条关联 BGM，仍使用显式字段白名单。
+
 从工作树根目录运行：
 
 ```powershell

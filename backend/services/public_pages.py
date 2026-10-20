@@ -77,7 +77,8 @@ def _material(value):
     return {'name': _text(value['name'], 500), 'description': _text(value.get('description'), 4000),
             'aliases': [s[:500] for s in (value.get('aliases') or [])[:20] if isinstance(s, str)] if isinstance(value.get('aliases'), list) else [],
             'video_count': _number(value.get('video_count')), 'total_views': _number(value.get('total_views')),
-            'related_videos': _rows(value.get('related_videos'), _video, 20)}
+            'related_videos': _rows(value.get('related_videos'), _video, 20),
+            'related_songs': _rows(value.get('related_songs'), _song, 20)}
 
 
 def _song(value):

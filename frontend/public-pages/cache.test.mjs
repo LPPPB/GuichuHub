@@ -34,3 +34,35 @@ test('rejects path traversal and corrupt manifest',async t=>{
   await fs.writeFile(join(directory,generation,'pages.json'),'[]')
   assert.equal((await cache.load()).size,0)
 })
+
+test('bounds owned generations to current and previous without touching unrelated files',async t=>{
+  const directory=await fs.mkdtemp(join(tmpdir(),'public-cache-'))
+  t.after(()=>fs.rm(directory,{recursive:true,force:true}))
+  const unrelated='00000000-0000-0000-0000-000000000000'
+  await fs.mkdir(join(directory,unrelated))
+  await fs.writeFile(join(directory,unrelated,'private.txt'),'keep')
+  const cache=createDiskCache({directory,buildId:'build1'}),generations=[]
+  for(let index=0;index<6;index++){
+    await cache.commitBatch(new Map([['/',{...page,html:'version '+index}]]))
+    generations.push((await fs.readFile(join(directory,'CURRENT'),'utf8')).trim())
+  }
+  const directories=(await fs.readdir(directory,{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name)
+  assert.deepEqual(directories.sort(),[unrelated,...generations.slice(-2)].sort())
+  assert.equal((await cache.load()).get('/').html,'version 5')
+  const previous=JSON.parse(await fs.readFile(join(directory,generations.at(-2),'pages.json'),'utf8'))
+  assert.equal(previous[0][1].html,'version 4')
+  assert.equal(await fs.readFile(join(directory,unrelated,'private.txt'),'utf8'),'keep')
+})
+
+test('cleanup failure does not reject or undo a successfully committed page',async t=>{
+  const directory=await fs.mkdtemp(join(tmpdir(),'public-cache-'))
+  t.after(()=>fs.rm(directory,{recursive:true,force:true}))
+  const cache=createDiskCache({directory,buildId:'build1'})
+  await cache.commitBatch(new Map([['/',page]]))
+  await cache.commitBatch(new Map([['/',{...page,html:'second'}]]))
+  const warning=t.mock.method(console,'warn',()=>{})
+  const broken=createDiskCache({directory,buildId:'build1',io:{...fs,rm:async()=>{throw Error('cleanup unavailable')}}})
+  await broken.commitBatch(new Map([['/',{...page,html:'third'}]]))
+  assert.equal((await cache.load()).get('/').html,'third')
+  assert.equal(warning.mock.callCount(),1)
+})
