@@ -39,6 +39,8 @@ jobs:
         run: node scripts/verify-seo.mjs
       - name: Install layout browser
         run: npx playwright-core install --with-deps chromium
+      - name: Verify public hydration with delayed chunks and fast startup updates
+        run: node scripts/verify-public-hydration.mjs
       - name: Verify responsive layout and radar interactions
         run: |
           LAYOUT_COLOR_SCHEME=light node scripts/verify-ranking-layout.mjs

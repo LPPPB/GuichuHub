@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense, startTransition } from 'react'
 import { usePublicNavigation } from './routing/usePublicNavigation'
 import PublicLink, { PublicNavigationAvailability } from './routing/PublicLink'
 import PublicSnapshotTime from './publicPages/PublicSnapshotTime'
@@ -100,8 +100,12 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   useEffect(() => {
     if (!initialData) return
     const saved = localStorage.getItem('kb-theme')
-    setTheme(saved === 'light' || saved === 'dark' ? saved : window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
-    setPreferencesReady(true)
+    // Startup effects can finish before public lazy chunks hydrate. Keep the
+    // server content in place until those boundaries can accept the update.
+    startTransition(() => {
+      setTheme(saved === 'light' || saved === 'dark' ? saved : window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      setPreferencesReady(true)
+    })
   }, [])
 
   useEffect(() => {
@@ -130,9 +134,11 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
           dashboardRevisionRef.current = revision
           if ((crawlingRef.current && !isCrawling) || changed) loadData({ background: true })
           crawlingRef.current = isCrawling
-          setCrawling(isCrawling)
-          if (res.data.online_breaker?.trend)     setBreakerTrend(res.data.online_breaker.trend)
-          if (res.data.online_breaker?.threshold != null) setBreakerThreshold(res.data.online_breaker.threshold)
+          startTransition(() => {
+            setCrawling(isCrawling)
+            if (res.data.online_breaker?.trend) setBreakerTrend(res.data.online_breaker.trend)
+            if (res.data.online_breaker?.threshold != null) setBreakerThreshold(res.data.online_breaker.threshold)
+          })
         }
       } finally { inFlight = false }
       if (!stopped && !document.hidden) timer = setTimeout(poll, delay())
@@ -148,17 +154,19 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
 
   useEffect(() => {
     let cancelled = false
-    api.getInteractionQuality(20).then(res => { if (!cancelled && res.success) setInteractionQuality(res.data || []) }).catch(() => {})
+    api.getInteractionQuality(20).then(res => { if (!cancelled && res.success) startTransition(() => setInteractionQuality(res.data || [])) }).catch(() => {})
     return () => { cancelled = true }
   }, [data.last_updated, isLive])
 
   useEffect(() => {
     let cancelled = false
-    api.getTagHeat(40).then(res => { if (!cancelled && res.success) setTagHeat(res.data || []) }).catch(() => {})
+    api.getTagHeat(40).then(res => { if (!cancelled && res.success) startTransition(() => setTagHeat(res.data || [])) }).catch(() => {})
     api.getRisingWords(2, 6, 30).then(res => {
       if (!cancelled && res.success) {
-        setRisingWords(res.data || [])
-        setRisingMeta(res.meta || null)
+        startTransition(() => {
+          setRisingWords(res.data || [])
+          setRisingMeta(res.meta || null)
+        })
       }
     }).catch(() => {})
     return () => { cancelled = true }
@@ -181,24 +189,28 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       for (const [tab,field] of Object.entries(PUBLIC_FIELDS)) if (Array.isArray(res.data[field])) availableTabs.current.add(tab)
       if (Object.values(PUBLIC_FIELDS).every(field=>Array.isArray(res.data[field]))) availableTabs.current.add('dashboard')
       hasPublicData.current = true
-      setData(previous => ({...previous, ...res.data}))
       const newIsLive = res.data.is_live || false
-      setIsLive(newIsLive); setLiveExpired(false)
+      startTransition(() => {
+        setData(previous => ({...previous, ...res.data}))
+        setIsLive(newIsLive); setLiveExpired(false)
+      })
       if (liveExpiryTimer.current) { clearTimeout(liveExpiryTimer.current); liveExpiryTimer.current = null }
       if (newIsLive) {
         liveExpiryTimer.current = setTimeout(() => { setLiveExpired(true); liveExpiryTimer.current = null }, 10 * 60 * 1000)
       }
     }
     } catch { /* Retain the last successful public snapshot when offline. */ }
-    finally { if (requestId === dashboardRequestRef.current) setLoading(false) }
+    finally { if (requestId === dashboardRequestRef.current) startTransition(() => setLoading(false)) }
   }
-  const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) setFavorites(res.data || []) }
+  const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) startTransition(() => setFavorites(res.data || [])) }
   // 三态身份刷新：GET /auth/me → {admin, via, user}（口令超管 / B站管理员会话 / 访客）
   const refreshIdentity = async () => {
     const res = await api.getAuthMe()
     if (res.success && res.data) {
-      setIsAdmin(!!res.data.admin)
-      setBiliUser(res.data.user || null)
+      startTransition(() => {
+        setIsAdmin(!!res.data.admin)
+        setBiliUser(res.data.user || null)
+      })
     }
   }
   // 身份登录成功（会话已写入 HttpOnly Cookie）：刷新身份与收藏归属后进入UP主动态
