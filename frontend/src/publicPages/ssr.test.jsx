@@ -15,6 +15,12 @@ export function fixture(tab = 'kichu-rank') {
   }}
 }
 describe('initial public HTML', () => {
+  it.each([['up-trends', '/up-trends', 'noindex, follow'], ['kichu-rank', '/rankings/kichu', 'index, follow']])('sets crawler policy for %s', async (tab, path, policy) => {
+    const html = await renderPublicPage({route:{tabId:tab,path}, bootstrap:fixture(tab), template})
+    const doc = new JSDOM(html).window.document
+    expect(doc.querySelectorAll('meta[name="robots"]')).toHaveLength(1)
+    expect(doc.querySelector('meta[name="robots"]').content).toBe(policy)
+  })
   it.each([
     ['kichu-rank', '/rankings/kichu', '合成鬼畜榜作品'],
     ['videos', '/rankings/potential', '合成潜力作品'],

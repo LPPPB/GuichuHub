@@ -28,6 +28,13 @@ export function usePublicNavigation(initialTab, isAvailable=()=>true) {
       document.head.append(canonical)
     }
     canonical.href = `https://guichuhub.cn${route.path}`
+    let robots = document.querySelector('meta[name="robots"]')
+    if (!robots) {
+      robots = document.createElement('meta')
+      robots.name = 'robots'
+      document.head.append(robots)
+    }
+    robots.content = `${route.noindex ? 'noindex' : 'index'}, follow`
   }, [activeTab])
   useEffect(() => {
     const result = resolvePublicPath(window.location.pathname)

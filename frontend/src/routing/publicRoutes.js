@@ -7,7 +7,7 @@ export const PUBLIC_ROUTES = [
   {tabId: 'songs', path: '/bgm', title: '热歌 BGM'},
   {tabId: 'materials', path: '/materials', title: '素材发掘'},
   {tabId: 'danmaku', path: '/insights/discussion', title: '弹幕 & 评论'},
-  {tabId: 'up-trends', path: '/up-trends', title: 'UP 主动态'},
+  {tabId: 'up-trends', path: '/up-trends', title: 'UP 主动态', noindex: true},
 ]
 export function resolvePublicPath(pathname) {
   const route = PUBLIC_ROUTES.find(route => route.path === pathname)
