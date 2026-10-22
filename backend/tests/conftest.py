@@ -55,6 +55,28 @@ def postgres_server_url():
     """One disposable PostgreSQL 16 server shared by isolated test databases."""
     from sqlalchemy import create_engine, text
 
+    # CI/container runners may supply a dedicated disposable PostgreSQL server.
+    # Never use a production connection: this fixture creates and drops databases.
+    external = os.environ.get("KICHU_TEST_POSTGRES_SERVER_URL")
+    if external:
+        from sqlalchemy.engine import make_url
+        url = make_url(external)
+        if url.username != "kichu_test_owner" or url.database != "postgres":
+            pytest.fail("external test server must use the dedicated test owner and postgres database")
+        engine = create_engine(external)
+        for _ in range(30):
+            try:
+                with engine.connect() as connection:
+                    connection.execute(text("SELECT 1"))
+                break
+            except Exception:
+                time.sleep(1)
+        else:
+            pytest.fail("dedicated test PostgreSQL did not become ready")
+        engine.dispose()
+        yield external
+        return
+
     container_id = subprocess.check_output(
         [
             "docker", "run", "--rm", "-d", "-e", "POSTGRES_USER=kichu_test_owner",

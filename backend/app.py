@@ -97,29 +97,14 @@ print('[API] 写操作口令已启用（写接口需 X-Write-Token 请求头）'
 
 
 def _current_identity():
-    """身份判定链（三态，每请求缓存一次）：
-    1. X-Write-Token 命中 → 超级管理员（应急后门，永不过期）
-    2. HttpOnly 会话 Cookie → 会话有效且 mid ∈ PostgreSQL 管理员名单 → 管理员
-    3. 其余 → 访客（含"已登录B站但不在名单"的有身份访客）
-    """
+    """扫码登录已下线：仅写口令可获得管理员身份，不读取旧 B 站会话。"""
     ident = getattr(g, 'kb_identity', None)
     if ident is not None:
         return ident
     vid = request.headers.get('X-Visitor-Id', '').strip()
     vid = vid if vid and 0 < len(vid) <= 64 else None
-    # B站会话用户信息先统一解析（写口令与会话同时携带时，写口令只决定 admin 权限，
-    # 不吞掉 user，否则站长扫码登录后 /auth/me 仍返回 user=null → 前端误判未登录）。
-    token = request.cookies.get(SESSION_COOKIE_NAME, '').strip()
-    sess = get_session(token) if token else None
-    user = None
-    if sess:
-        user = {'mid': sess.get('mid'), 'name': sess.get('name'), 'face': sess.get('face')}
     if request.headers.get('X-Write-Token', '') == WRITE_TOKEN:
-        # 应急后门：写口令命中即超管，但仍透传 B站会话 user
-        ident = {'admin': True, 'via': 'write_token', 'user': user, 'visitor_id': vid}
-    elif sess:
-        ident = {'admin': is_admin_mid(sess.get('mid')), 'via': 'session',
-                 'user': user, 'visitor_id': vid}
+        ident = {'admin': True, 'via': 'write_token', 'user': None, 'visitor_id': vid}
     else:
         ident = {'admin': False, 'via': None, 'user': None, 'visitor_id': vid}
     g.kb_identity = ident
@@ -196,6 +181,21 @@ def _record_verify_failure(ip):
 def _clear_verify_failures(ip):
     with _verify_lock:
         _VERIFY_FAILURES.pop(ip, None)
+
+
+@app.before_request
+def _disable_legacy_bilibili_login():
+    """Fail closed before any QR generation, polling, session or collector write."""
+    if request.path.rstrip('/') in {
+        '/api/bili-auth/qrcode', '/api/bili-auth/check',
+        '/api/bili-auth/collect-login', '/api/bili-auth/collect-check',
+    }:
+        response = jsonify({
+            'success': False, 'code': 'BILIBILI_LOGIN_DISABLED',
+            'message': 'B站登录已下线，后续将接入官方授权',
+        })
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 410
 
 
 @app.before_request
@@ -1914,8 +1914,9 @@ def route_bursting_videos():
 def route_interaction_quality():
     """互动质量榜：低播放高互动的宝藏视频（选材信号）。
 
-    基于最新批次观测计算投币/收藏/点赞/分享/弹幕/同接率，
-    综合互动分 = (投币×3 + 收藏×2 + 其余互动) ÷ 播放。
+    只显示发布于近 14 天的视频。复用 radar-v2 的同龄样本分位口径：
+    点赞、投币、收藏、分享、评论、弹幕六项分位分等权平均。
+    缺少可信观测或有效基线时保留候选，但不伪造得分。
     """
     from storage.db import get_interaction_quality
     limit = request.args.get('limit', 20, type=int)

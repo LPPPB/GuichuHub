@@ -77,7 +77,7 @@ it('locks the background, traps focus, and restores focus and scrolling on Escap
   const brand = within(drawer).getByRole('link', { name: '品牌标志' })
   brand.focus() // Focus the first link without activating its home navigation.
   await user.tab({ shift: true })
-  expect(within(drawer).getByRole('button', { name: 'B 站账号登录' })).toHaveFocus()
+  expect(within(drawer).getByRole('button', { name: '我的收藏' })).toHaveFocus()
   await user.tab()
   expect(brand).toHaveFocus()
   await user.keyboard('{Escape}')
@@ -87,47 +87,39 @@ it('locks the background, traps focus, and restores focus and scrolling on Escap
   expect(menu).toHaveFocus()
 })
 
-it('closes the drawer before opening login and supports dismissal using its backdrop', async () => {
+it('removes login from the desktop and mobile drawer while keeping backdrop dismissal', async () => {
   const user = userEvent.setup()
   const onOpenLogin = vi.fn()
   render(<Harness onOpenLogin={onOpenLogin} />)
+  expect(screen.queryByRole('button', { name: 'B 站账号登录' })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '打开导航菜单' }))
-  await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'B 站账号登录' }))
-  expect(onOpenLogin).toHaveBeenCalledOnce()
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: '打开导航菜单' }))
+  expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'B 站账号登录' })).not.toBeInTheDocument()
+  expect(within(screen.getByRole('dialog')).getByText('B站登录已下线')).toBeVisible()
+  expect(onOpenLogin).not.toHaveBeenCalled()
   await user.click(screen.getByRole('button', { name: '关闭导航遮罩', hidden: true }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
 
-it('preserves guest and member restrictions for refresh and developer navigation', async () => {
-  const user = userEvent.setup()
-  const onDevBlocked = vi.fn()
+it('keeps guests and former members out of developer navigation', () => {
   const devTab = { id: 'dev', label: '开发者后台' }
-  const { rerender } = render(<Harness devTab={devTab} onDevBlocked={onDevBlocked} />)
+  const { rerender } = render(<Harness devTab={devTab} />)
   expect(screen.queryByRole('button', { name: '刷新数据' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '开发者后台' })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'B 站账号登录' })).toBeInTheDocument()
-  rerender(<Harness devTab={devTab} onDevBlocked={onDevBlocked} biliUser={{ name: '测试用户' }} />)
-  await user.click(screen.getByRole('button', { name: '开发者后台' }))
-  expect(onDevBlocked).toHaveBeenCalledOnce()
-  expect(screen.getByRole('heading', { name: 'dashboard' })).toBeVisible()
-  expect(screen.queryByRole('button', { name: '刷新数据' })).not.toBeInTheDocument()
+  rerender(<Harness devTab={devTab} biliUser={{ name: '旧会话用户' }} />)
+  expect(screen.queryByRole('button', { name: '开发者后台' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'B 站账号登录' })).not.toBeInTheDocument()
 })
 
-it('keeps administrator refresh, account logout, and developer navigation available', async () => {
+it('keeps write-token administrator navigation available without a Bilibili identity', async () => {
   const user = userEvent.setup()
-  const onRefresh = vi.fn(), onLogout = vi.fn()
-  render(<Harness isAdmin biliUser={{ name: '站长' }} onRefresh={onRefresh} onLogout={onLogout}
-    devTab={{ id: 'dev', label: '开发者后台' }} />)
+  const onRefresh = vi.fn()
+  render(<Harness isAdmin onRefresh={onRefresh} devTab={{ id: 'dev', label: '开发者后台' }} />)
   await user.click(screen.getByRole('button', { name: '刷新数据' }))
   expect(onRefresh).toHaveBeenCalledOnce()
   await user.click(screen.getByRole('button', { name: '开发者后台' }))
   expect(screen.getByRole('heading', { name: 'dev' })).toBeVisible()
-  expect(screen.getByText('管理员')).toBeVisible()
-  await user.click(screen.getByRole('button', { name: /站长/ }))
-  await user.click(screen.getByRole('button', { name: '退出登录' }))
-  expect(onLogout).toHaveBeenCalledOnce()
+  await user.click(screen.getByRole('button', { name: '打开导航菜单' }))
+  expect(within(screen.getByRole('dialog')).getByRole('button', { name: '开发者后台' })).toBeVisible()
 })
 
 it('preserves the hidden administrator shortcut on the header brand', async () => {

@@ -33,6 +33,7 @@ export async function renderPublicPage({route, bootstrap, template}) {
   const body = await renderTree(initialProps(bootstrap))
   const title = known.tabId === 'dashboard' ? known.title : `${known.title} · GuichuHub`
   return template.replace(/<title>[\s\S]*?<\/title>/, () => `<title>${escape(title)}</title>`)
+    .replace('</head>', () => `<meta name="robots" content="${known.noindex ? 'noindex' : 'index'}, follow"></head>`)
     .replace(/<link\s+rel="canonical"[^>]*>/, () => `<link rel="canonical" href="https://guichuhub.cn${known.path}">`)
     .replace('<div id="root"></div>', () => `<div id="root">${body}</div><script id="public-page-bootstrap" type="application/json">${serializeBootstrap(bootstrap)}</script>`)
 }

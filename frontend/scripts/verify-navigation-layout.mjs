@@ -24,7 +24,7 @@ try {
     const height = [319, 1046].includes(width) ? 701 : 900
     const page = await browser.newPage({ viewport: { width, height }, colorScheme: theme })
     const errors = []
-    let fixtureMember = false
+    let fixtureAdmin = false
     page.on('pageerror', error => errors.push(error.message))
     await page.route('**/*', async route => {
       const url = new URL(route.request().url())
@@ -32,14 +32,13 @@ try {
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="#ccebf4"/><path d="m0 100 55-65 35 35 30-45 40 75" fill="#68aabf"/><circle cx="125" cy="24" r="12" fill="#fff1b4"/></svg>' })
       if (url.hostname !== 'navigation.test') return route.abort()
       if (url.pathname.startsWith('/api/')) {
-        if (url.pathname === '/api/bili-auth/logout') fixtureMember = false
         const data = url.pathname === '/api/dashboard' ? {
           kichu_rank: [video], hot_memes: [], hot_songs: [], hot_videos: [video],
           material_candidates: [], meme_materials: [], danmaku_words: [], comments_gold: [], last_updated: '2026-10-14 18:00',
         } : url.pathname === '/api/bursting-videos' ? { videos: [video,
           { ...video, bvid: 'BVsecond', title: '朋友的酒 · 灵感混剪', views: 245000, speed: 21000 },
           { ...video, bvid: 'BVthird', title: '今天也要找到新灵感', views: 121000, speed: 23000 }],
-        } : url.pathname === '/api/auth/me' ? { admin: fixtureMember, user: fixtureMember ? { name: '示例站长' } : null } : []
+        } : url.pathname === '/api/auth/me' ? { admin: fixtureAdmin, via: fixtureAdmin ? 'write_token' : null, user: null } : []
         return route.fulfill({ json: { success: true, data } })
       }
       const path = resolve(root, resolvePublicPath(url.pathname).kind === 'page' ? 'index.html' : `.${url.pathname}`)
@@ -135,7 +134,7 @@ try {
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '关闭导航菜单')
       await drawer.getByRole('link', { name: '品牌标志', exact: true }).focus()
       await page.keyboard.press('Shift+Tab')
-      assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'B 站账号登录')
+      assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '我的收藏')
       await page.keyboard.press('Tab')
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), '品牌标志')
       await drawer.getByRole('link', { name: '热梗', exact: true }).click()
@@ -153,10 +152,11 @@ try {
       assert.equal(await page.evaluate(() => document.body.style.overflow), '')
       await page.setViewportSize({ width, height })
       await page.getByRole('button', { name: '打开导航菜单' }).click()
-      await drawer.getByRole('button', { name: 'B 站账号登录' }).click()
+      assert.equal(await drawer.getByRole('button', { name: 'B 站账号登录' }).count(), 0)
+      await drawer.getByText('B站登录已下线', { exact: true }).waitFor()
+      await drawer.getByRole('button', { name: '我的收藏' }).click()
       await drawer.waitFor({ state: 'detached' })
-      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '关闭登录')
-      await page.getByRole('button', { name: '关闭登录' }).click()
+      await page.getByRole('status').filter({ hasText: 'B站登录已下线，收藏功能暂不可用' }).waitFor()
       await page.getByRole('link', { name: 'GuichuHub 首页' }).click()
       await page.getByRole('heading', { name: '正在爆发', exact: true }).waitFor()
     }
@@ -170,24 +170,13 @@ try {
     }
     assert.deepEqual(errors, [], 'No browser runtime errors')
     if (width === 1440) {
-      fixtureMember = true
+      fixtureAdmin = true
       await page.reload()
       await page.getByRole('button', { name: '刷新数据', exact: true }).waitFor()
       await settled()
       await screenshot('admin-home')
-      const verifyAccountMenu = async container => {
-        await container.getByRole('button', { name: /示例站长/ }).click()
-        const logout = container.getByRole('button', { name: '退出登录' })
-        const box = await logout.boundingBox()
-        assert.ok(box.y >= 0 && box.y + box.height <= 900, 'Account menu must fit the viewport')
-        await logout.click({ trial: true, timeout: 1500 })
-        if (await container.locator('.mobile-drawer-footer').count()) {
-          await container.getByRole('button', { name: /示例站长/ }).click()
-        } else {
-          await container.locator('.fixed.inset-0.z-10').click({ position: { x: 4, y: 4 } })
-        }
-      }
-      await verifyAccountMenu(page.locator('.site-sidebar'))
+      assert.equal(await page.getByRole('button', { name: 'B 站账号登录' }).count(), 0)
+      await page.locator('.site-sidebar').getByRole('button', { name: '开发者后台' }).waitFor()
       const getStyles = button => button.evaluate(el => {
         const style = getComputedStyle(el)
         return Object.fromEntries(['fontSize', 'fontWeight', 'color', 'backgroundColor', 'borderColor', 'borderRadius',
@@ -202,20 +191,17 @@ try {
       const drawer = page.getByRole('dialog', { name: '站点导航' })
       await settled()
       const drawerBox = await drawer.boundingBox()
-      await verifyAccountMenu(drawer)
+      await drawer.getByRole('button', { name: '开发者后台' }).waitFor()
       assert.equal(drawerBox.x, 0, 'Drawer must attach to the viewport edge')
       assert.equal(await drawer.evaluate(el => getComputedStyle(el).borderRadius), '0px', 'Drawer must not use an island frame')
       if (screenshotDir) await page.screenshot({ path: resolve(screenshotDir, `390-${theme}-admin-drawer.png`) })
-      await drawer.getByRole('button', { name: /示例站长/ }).click()
-      await drawer.getByRole('button', { name: '退出登录' }).click()
-      await drawer.getByRole('button', { name: 'B 站账号登录' }).waitFor()
-      assert.equal(await drawer.getByRole('button', { name: '刷新数据', exact: true }).count(), 0)
+      await drawer.getByText('B站登录已下线', { exact: true }).waitFor()
+      assert.equal(await drawer.getByRole('button', { name: 'B 站账号登录' }).count(), 0)
       await page.keyboard.press('Escape')
       await drawer.waitFor({ state: 'detached' })
       await page.setViewportSize({ width, height })
       await settled()
       for (const [name, style] of Object.entries(originalStyles)) {
-        if (name === '刷新数据') continue // Logout intentionally removes this admin action.
         assert.deepEqual(await getStyles(page.locator('.site-sidebar').getByRole('button', { name, exact: true })), style, `${name}: desktop UI must stay unchanged`)
       }
       assert.deepEqual(errors, [])

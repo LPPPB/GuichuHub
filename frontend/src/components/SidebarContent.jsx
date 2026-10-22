@@ -1,6 +1,6 @@
 import PublicLink from '../routing/PublicLink'
 import { useMemo, useState } from 'react'
-import { RefreshCw, Star, User, LogOut, Clock, Sun, Moon, ChevronDown, Code2, ShieldCheck } from 'lucide-react'
+import { RefreshCw, Star, Clock, Sun, Moon, ChevronDown, Code2, ShieldCheck } from 'lucide-react'
 
 // Original sidebar presentation from a7bd796, shared by the desktop island and mobile drawer.
 export default function SidebarContent({
@@ -9,7 +9,6 @@ export default function SidebarContent({
   onToggleFavorites, favoritesCount, onOpenLogin, biliUser, onLogout,
   isAdmin, onDevBlocked, theme, onToggleTheme, onLogoClick,
 }) {
-  const [showMenu, setShowMenu] = useState(false)
   const initialExpanded = useMemo(() => {
     const m = {}
     tabGroups.forEach(g => { m[g.id] = true })
@@ -179,8 +178,8 @@ export default function SidebarContent({
 
   const DevEntry = () => {
     if (!devTab) return null
-    // 未登录（无 B站账号）→ 隐藏开发者后台入口；登录后可见，普通用户点击提示无权限
-    if (!biliUser) return null
+    // 管理员写口令继续可用，不依赖已下线的 B 站身份。
+    if (!isAdmin) return null
     const handleClick = () => {
       if (!isAdmin) { if (onDevBlocked) onDevBlocked(); return }
       onTabChange(devTab.id)
@@ -287,79 +286,8 @@ export default function SidebarContent({
         </>
       )}
 
-      {/* B站身份区块（全员开放）：访客可扫码登录自己的账号；
-          登录后显示身份，管理员账号带徽标；凭证只落服务器会话表 */}
-      {biliUser ? (
-        collapsed ? (
-          <div className="relative w-9 h-9 mx-auto" title={`${biliUser.name}${isAdmin ? '（管理员）' : ''}`}>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-bili-default/40 to-neon-violet/40
-                            overflow-hidden ring-2 ring-void-800">
-              {biliUser.face ? (
-                <img src={`/api/proxy/image?url=${encodeURIComponent(biliUser.face)}`}
-                     alt={biliUser.name} className="w-full h-full object-cover" />
-              ) : <div className="w-full h-full flex items-center justify-center"><User aria-hidden="true" size={14} className="text-haze-300" /></div>}
-            </div>
-            {isAdmin && (
-              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-bili-default
-                               ring-2 ring-void-950 flex items-center justify-center" title="管理员">
-                <ShieldCheck aria-hidden="true" size={9} className="text-white" />
-              </span>
-            )}
-          </div>
-        ) : (
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-medium text-[0.82rem]
-                         bg-haze-50/5 hover:bg-haze-50/8 text-haze-50 border border-haze-50/10 transition-all">
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-bili-default/40 to-neon-violet/40
-                              overflow-hidden ring-2 ring-void-800 shrink-0">
-                {biliUser.face ? (
-                  <img src={`/api/proxy/image?url=${encodeURIComponent(biliUser.face)}`}
-                       alt={biliUser.name} className="w-full h-full object-cover"
-                       onError={(e) => { e.target.style.display = 'none' }} />
-                ) : <User aria-hidden="true" size={12} className="w-full h-full flex items-center justify-center text-haze-300" />}
-              </div>
-              <span className="truncate">{biliUser.name}</span>
-              {isAdmin && (
-                <span className="ml-auto shrink-0 inline-flex items-center gap-1 px-1.5 py-[2px] rounded-full
-                                 text-[10px] font-semibold bg-bili-default/15 text-bili-default"
-                      title="管理员账号">
-                  <ShieldCheck aria-hidden="true" size={10} />管理员
-                </span>
-              )}
-            </button>
-            {showMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-                <div className="kb-card absolute right-3 bottom-full mb-2 w-44 py-1 z-20">
-                  <div className="inner">
-                    <button onClick={() => { onLogout(); setShowMenu(false) }}
-                            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-haze-300 hover:bg-haze-50/8 rounded-lg">
-                      <LogOut aria-hidden="true" size={15} /> 退出登录
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )
-      ) : (
-        collapsed ? (
-          <button onClick={onOpenLogin} title="B 站账号登录"
-            className="kb-icon-btn w-full !h-10 !rounded-xl">
-            <User aria-hidden="true" size={17} />
-          </button>
-        ) : (
-          <button
-            onClick={onOpenLogin}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl font-medium text-[0.82rem]
-                       bg-haze-50/5 hover:bg-haze-50/8 text-haze-50 border border-haze-50/10 transition-all">
-            <User aria-hidden="true" size={15} className="shrink-0 text-haze-300" />
-            <span className="truncate">B 站账号登录</span>
-          </button>
-        )
-      )}
+      {!collapsed && <p className="px-3 py-2 text-xs text-haze-400">B站登录已下线</p>}
+
     </div>
   )
 

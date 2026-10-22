@@ -9,6 +9,16 @@ function Harness() {
   return <><p>{activeTab}</p><PublicLink tabId="memes" onNavigate={navigate}>热梗</PublicLink>
     <button onClick={() => navigate('dev')}>管理</button></>
 }
+it('restores indexing when leaving UP observations and noindex on history return', () => {
+  window.history.replaceState({}, '', '/up-trends')
+  render(<Harness />)
+  expect(document.querySelector('meta[name="robots"]')?.content).toBe('noindex, follow')
+  fireEvent.click(screen.getByRole('link'))
+  expect(document.querySelector('meta[name="robots"]')?.content).toBe('index, follow')
+  act(() => { window.history.replaceState({}, '', '/up-trends'); window.dispatchEvent(new PopStateEvent('popstate')) })
+  expect(document.querySelector('meta[name="robots"]')?.content).toBe('noindex, follow')
+  expect(document.querySelectorAll('meta[name="robots"]')).toHaveLength(1)
+})
 it('opens a deep link, navigates and restores the historical page', () => {
   window.history.replaceState({}, '', '/rankings/potential')
   render(<Harness />)

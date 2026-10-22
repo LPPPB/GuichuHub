@@ -62,22 +62,10 @@ def client(monkeypatch, postgres_runtime):
 
 
 def _login(client, monkeypatch=None, vid=VID_A, mid=42, name='测试账号'):
-    """走完整身份登录流程，返回测试客户端 Cookie 中的 token 与用户。"""
-    if monkeypatch is not None:
-        monkeypatch.setattr(app_module, 'check_login_status',
-                            lambda key, save=True: {
-                                'success': True, 'status': 'success', 'message': '登录成功',
-                                'user_mid': mid,
-                                'cookies': {'SESSDATA': 'S', 'bili_jct': 'J', 'DedeUserID': str(mid)},
-                            })
-    res = client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': vid})
-    assert res.status_code == 200, '二维码生成对访客开放'
-    res = client.get(f'/api/bili-auth/check?key={QR_KEY}', headers={'X-Visitor-Id': vid})
-    body = res.get_json()
-    assert res.status_code == 200 and body.get('success'), f'登录失败: {body}'
-    cookie = client.get_cookie(app_module.SESSION_COOKIE_NAME)
-    assert cookie is not None, '登录成功必须写入会话 Cookie'
-    return cookie.value, body['user']
+    """Seed a historical session directly; the retired QR API cannot create one."""
+    token = auth_store.create_session(vid, mid, name, '', {'SESSDATA': 'synthetic'})
+    client.set_cookie(app_module.SESSION_COOKIE_NAME, token)
+    return token, {'mid': mid, 'name': name, 'face': ''}
 
 
 def _use_session(client, token, headers=None):
@@ -105,22 +93,16 @@ class TestAdminChain:
         assert data['user'] is None
 
     def test_session_admin_in_list(self, client, monkeypatch):
-        """B站账号 mid 在管理员名单 → 管理员"""
         _add_admin(client, 42)
-        token, user = _login(client, monkeypatch, mid=42)
-        res = client.get('/api/auth/me', headers=_use_session(client, token))
-        data = res.get_json()['data']
-        assert data['admin'] is True
-        assert data['via'] == 'session'
-        assert data['user']['mid'] == 42
+        token, _ = _login(client, mid=42)
+        data = client.get('/api/auth/me', headers=_use_session(client, token)).get_json()['data']
+        assert data == {'admin': False, 'via': None, 'user': None}
+        assert auth_store.get_session(token) is not None
 
     def test_session_not_in_list_is_visitor(self, client, monkeypatch):
-        """B站登录但不在名单 → 非管理员（有身份的访客）"""
-        token, user = _login(client, monkeypatch, mid=99)
-        res = client.get('/api/auth/me', headers=_use_session(client, token))
-        data = res.get_json()['data']
-        assert data['admin'] is False
-        assert data['user'] is not None and data['user']['mid'] == 99
+        token, _ = _login(client, mid=99)
+        data = client.get('/api/auth/me', headers=_use_session(client, token)).get_json()['data']
+        assert data == {'admin': False, 'via': None, 'user': None}
 
     def test_no_identity_plain_visitor(self, client):
         """无任何凭证 → 纯访客"""
@@ -153,87 +135,36 @@ class TestAdminChain:
         assert data['user'] is None
 
     def test_write_token_beats_session(self, client, monkeypatch):
-        """口令与 session 同在 → 管理员（超管优先级最高），且不透传吞掉 B站 user"""
-        token, _ = _login(client, monkeypatch, mid=99)  # 99 不在名单
-        res = client.get('/api/auth/me',
-                         headers=_use_session(client, token, {'X-Write-Token': ADMIN_TOKEN}))
-        data = res.get_json()['data']
-        assert data['admin'] is True and data['via'] == 'write_token'
-        # 修复：写口令只决定 admin 权限，不得吞掉会话 user（否则登录状态“消失”）
-        assert data['user'] is not None and data['user']['mid'] == 99
+        token, _ = _login(client, mid=99)
+        data = client.get('/api/auth/me', headers=_use_session(client, token, {'X-Write-Token': ADMIN_TOKEN})).get_json()['data']
+        assert data == {'admin': True, 'via': 'write_token', 'user': None}
 
 
 # ==================== 多会话登录 ====================
 
 class TestSessionLogin:
+    def test_retired_login_cannot_replace_historical_session(self, client):
+        token, _ = _login(client)
+        for path in ('qrcode', 'check?key=never-issued'):
+            response = client.get('/api/bili-auth/' + path)
+            assert response.status_code == 410
+            assert 'Set-Cookie' not in response.headers
+            assert 'SESSDATA' not in response.get_data(as_text=True)
+        assert auth_store.get_session(token) is not None
 
-    def test_login_returns_token_not_credentials(self, client):
-        """响应体不含 session token、cookies、SESSDATA 或 bili_jct。"""
-        _, body = None, None
-        res = client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': VID_A})
-        assert res.status_code == 200
-        res = client.get(f'/api/bili-auth/check?key={QR_KEY}', headers={'X-Visitor-Id': VID_A})
-        body = res.get_json()
-        assert body['success'] is True
-        assert 'session_token' not in body
-        assert client.get_cookie(app_module.SESSION_COOKIE_NAME) is not None
-        assert 'cookies' not in body
-        assert 'SESSDATA' not in str(body)
-        assert 'bili_jct' not in str(body)
-
-    def test_identity_login_does_not_write_crawl_cookie(self, client, monkeypatch):
-        """身份登录不落采集 Cookie：check_login_status 必须以 save=False 调用"""
-        calls = []
-        monkeypatch.setattr(app_module, 'check_login_status',
-                            lambda key, save=True: (calls.append(save), _fake_check(key))[1])
-        _login(client)
-        assert calls == [False], f'身份登录不得写采集cookie，实际 save 调用: {calls}'
-
-    def test_qrcode_requires_visitor_id(self, client):
-        res = client.get('/api/bili-auth/qrcode')
-        assert res.status_code == 401
-
-    def test_check_requires_registered_key(self, client):
-        """未注册的二维码 key → 404（防 key 伪造/挪用）"""
-        res = client.get('/api/bili-auth/check?key=never-issued', headers={'X-Visitor-Id': VID_A})
-        assert res.status_code == 404
-
-    def test_check_bound_to_generating_visitor(self, client):
-        """A 生成的二维码，B 不能拿来完成登录"""
-        client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': VID_A})
-        res = client.get(f'/api/bili-auth/check?key={QR_KEY}', headers={'X-Visitor-Id': VID_B})
-        assert res.status_code == 403
-
-    def test_relogin_replaces_old_session(self, client, monkeypatch):
-        """同浏览器重新登录（换账号）→ 旧会话失效"""
-        token1, _ = _login(client, monkeypatch, mid=42)
-        token2, _ = _login(client, monkeypatch, mid=43)
-        assert token1 != token2
-        old = client.get('/api/auth/me', headers=_use_session(client, token1))
-        assert old.get_json()['data']['user'] is None, '旧会话应已替换失效'
-        new = client.get('/api/auth/me', headers=_use_session(client, token2))
-        assert new.get_json()['data']['user']['mid'] == 43
-
-    def test_logout_deletes_session(self, client, monkeypatch):
-        token, _ = _login(client, monkeypatch, mid=42)
-        res = client.post('/api/bili-auth/logout', headers=_use_session(client, token))
-        assert res.status_code == 200
-        me = client.get('/api/auth/me', headers=_use_session(client, token))
-        assert me.get_json()['data']['user'] is None
+    def test_logout_deletes_session_only_when_explicitly_requested(self, client):
+        token, _ = _login(client)
+        assert client.post('/api/bili-auth/logout').status_code == 200
+        assert auth_store.get_session(token) is None
 
     def test_logout_without_session_rejected(self, client):
-        res = client.post('/api/bili-auth/logout')
-        assert res.status_code == 401
+        assert client.post('/api/bili-auth/logout').status_code == 401
 
-    def test_login_admin_selfheals_profile(self, client, monkeypatch):
-        """登录时回写名单内的昵称头像（管理员资料自愈）"""
-        _add_admin(client, 42, name='')
-        _login(client, monkeypatch, mid=42)
-        accounts = client.get('/api/admin/accounts',
-                              headers={'X-Write-Token': ADMIN_TOKEN}).get_json()['data']['accounts']
-        row = next(a for a in accounts if a['mid'] == 42)
-        assert row['name'] == '测试账号'
-        assert row['face'] == 'http://face/42.png'
+    def test_retired_login_does_not_update_admin_profile(self, client):
+        _add_admin(client, 42, name='retained name')
+        assert client.get('/api/bili-auth/check?key=old').status_code == 410
+        accounts = client.get('/api/admin/accounts', headers={'X-Write-Token': ADMIN_TOKEN}).get_json()['data']['accounts']
+        assert accounts[0]['name'] == 'retained name'
 
 
 # ==================== 管理员名单管理 ====================
@@ -282,15 +213,11 @@ class TestAdminAccountsApi:
         res = client.delete('/api/admin/accounts/999', headers={'X-Write-Token': ADMIN_TOKEN})
         assert res.status_code == 404
 
-    def test_session_admin_can_manage(self, client, monkeypatch):
-        """B站会话管理员也能增删名单（与超管等权）"""
+    def test_session_admin_cannot_manage_after_retirement(self, client, monkeypatch):
         _add_admin(client, 42)
-        token, _ = _login(client, monkeypatch, mid=42)
-        res = client.post('/api/admin/accounts', json={'mid': 43},
-                          headers=_use_session(client, token))
-        assert res.status_code == 200
-        res = client.delete('/api/admin/accounts/43', headers=_use_session(client, token))
-        assert res.status_code == 200
+        token, _ = _login(client, mid=42)
+        assert client.post('/api/admin/accounts', json={'mid': 43}, headers=_use_session(client, token)).status_code == 401
+        assert client.delete('/api/admin/accounts/43', headers=_use_session(client, token)).status_code == 401
 
     def test_recent_logins_reference(self, client, monkeypatch):
         """最近登录列表：给"一键设为管理员"提供参考"""
@@ -308,29 +235,18 @@ class TestCollectLogin:
     def test_collect_login_blocked_for_visitor(self, client):
         """访客不能发起采集账号登录（防扫码顶替爬虫 Cookie）"""
         res = client.get('/api/bili-auth/collect-login')
-        assert res.status_code == 403
+        assert res.status_code == 410
 
     def test_collect_check_blocked_for_visitor(self, client):
         res = client.get('/api/bili-auth/collect-check?key=x')
-        assert res.status_code == 403
+        assert res.status_code == 410
 
-    def test_collect_login_hands_cookie_to_authenticated_worker(self, client, monkeypatch):
-        """API 只轮询凭证，采集 Cookie 必须交给 Worker 持久化。"""
-        calls = []
+    def test_retired_collect_login_never_hands_off_credentials(self, client, monkeypatch):
         handed_off = []
-        monkeypatch.setattr(app_module, 'check_login_status',
-                            lambda key, save=True: (calls.append(save), _fake_check(key))[1])
-        monkeypatch.setattr(app_module, 'request_collector_cookie_update',
-                            lambda cookies, requested_by: handed_off.append((cookies, requested_by)))
-        res = client.get('/api/bili-auth/collect-login',
-                         headers={'X-Write-Token': ADMIN_TOKEN})
-        assert res.status_code == 200
-        res = client.get(f'/api/bili-auth/collect-check?key={QR_KEY}',
-                         headers={'X-Write-Token': ADMIN_TOKEN})
-        assert res.status_code == 200
-        assert calls == [False], 'API 不得直接写爬虫 Cookie'
-        assert handed_off == [(_fake_check(QR_KEY)['cookies'], 'write_token')]
-        assert 'cookies' not in res.get_json()
+        monkeypatch.setattr(app_module, 'request_collector_cookie_update', lambda *args: handed_off.append(args))
+        for path in ('collect-login', 'collect-check?key=old'):
+            assert client.get('/api/bili-auth/' + path, headers={'X-Write-Token': ADMIN_TOKEN}).status_code == 410
+        assert handed_off == []
 
     def test_collect_logout_requires_admin(self, client):
         res = client.post('/api/bili-auth/collect-logout')
@@ -355,12 +271,10 @@ class TestCollectLogin:
 
 class TestWriteGateWithSession:
 
-    def test_session_admin_passes_write_gate(self, client, monkeypatch):
-        """B站会话管理员无需写口令即可执行写操作（以 /auth/verify 为最轻探针）"""
+    def test_session_admin_cannot_pass_write_gate(self, client, monkeypatch):
         _add_admin(client, 42)
-        token, _ = _login(client, monkeypatch, mid=42)
-        res = client.post('/api/auth/verify', headers=_use_session(client, token))
-        assert res.status_code == 200
+        token, _ = _login(client, mid=42)
+        assert client.post('/api/auth/verify', headers=_use_session(client, token)).status_code == 401
 
     def test_visitor_session_blocked_from_write(self, client, monkeypatch):
         token, _ = _login(client, monkeypatch, mid=99)  # 不在名单
