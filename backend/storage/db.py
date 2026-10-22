@@ -197,10 +197,14 @@ def reconcile_calendar_author(mid, year, seen_bvids, missing_threshold=2):
     )
 
 
-def get_interaction_quality(limit=20, min_views=1000, max_views=1000000, now=None):
+def get_interaction_quality(limit=20, min_views=1000, max_views=1000000, now=None,
+                            radar_repository=None):
+    """近 14 天候选按 radar-v2 六项互动分位排序；不可评分者排在后面。"""
+    from services.radar_service import RadarService
+    from storage.repositories.radar import get_radar_repository
+
     now = int(time.time()) if now is None else int(now)
     cutoff = now - 14 * 86400
-    score_half_rate = 0.2  # 加权互动率为 20% 时得 50 分；高互动不再直接封顶
     repository = _repository()
     latest_ts = repository.latest_video_observation_ts()
     if latest_ts is None:
@@ -214,7 +218,7 @@ def get_interaction_quality(limit=20, min_views=1000, max_views=1000000, now=Non
     def pct(number, views):
         return round(number / views * 100, 3) if views and number else 0.0
 
-    scored_items = []
+    candidates = []
     for row in rows:
         pub_date = int(row['pub_date'] or 0)
         if not cutoff <= pub_date <= now:
@@ -222,12 +226,7 @@ def get_interaction_quality(limit=20, min_views=1000, max_views=1000000, now=Non
         views = row['views'] or 0
         if views <= 0:
             continue
-        weighted_rate = (
-            3 * (row['coins'] or 0) + 2 * (row['favorites'] or 0)
-            + (row['likes'] or 0) + (row['shares'] or 0)
-            + (row['comments'] or 0) + (row['danmaku'] or 0)
-        ) / views
-        item = {
+        candidates.append({
             'bvid': row['bvid'], 'title': row['title'] or '', 'mid': row['mid'],
             'author': row['author'] or '', 'tname': row['tname'] or '',
             'pub_date': pub_date, 'views': views,
@@ -235,27 +234,55 @@ def get_interaction_quality(limit=20, min_views=1000, max_views=1000000, now=Non
             'favorites': row['favorites'] or 0, 'shares': row['shares'] or 0,
             'comments': row['comments'] or 0, 'danmaku': row['danmaku'] or 0,
             'online_count': row['online_count'],
-            'coin_ratio': pct(row['coins'], views),
-            'fav_ratio': pct(row['favorites'], views),
-            'like_ratio': pct(row['likes'], views),
-            'share_ratio': pct(row['shares'], views),
-            'danmaku_ratio': pct(row['danmaku'], views),
-            'online_ratio': pct(row['online_count'], views),
-            'engagement_score': round(
-                100 * weighted_rate / (weighted_rate + score_half_rate), 2,
-            ),
-        }
-        scored_items.append((weighted_rate, item))
-    if not scored_items:
+        })
+    if not candidates:
         return []
-    items = [item for _, item in scored_items]
+    radar_repository = radar_repository or get_radar_repository()
+    items = [item for item in RadarService(radar_repository).decorate(candidates, now)
+             if min_views <= (item['views'] or 0) <= max_views]
+    if not items:
+        return []
+    for item in items:
+        views = item['views'] or 0
+        for field, count in (
+            ('coin_ratio', 'coins'), ('fav_ratio', 'favorites'),
+            ('like_ratio', 'likes'), ('share_ratio', 'shares'),
+            ('danmaku_ratio', 'danmaku'), ('online_ratio', 'online_count'),
+        ):
+            item[field] = pct(item.get(count), views)
+        radar = item.pop('radar')
+        item.pop('online_observation', None)
+        axes = [axis for axis in radar['axes'] if axis['id'] in (
+            'approval', 'retention', 'discussion', 'sharing',
+        )]
+        components = [component for axis in axes for component in axis['components']]
+        valid = len(axes) == 4 and len(components) == 6 and all(
+            axis['status'] == 'available' for axis in axes
+        )
+        item['score_method'] = 'radar-v2-interaction'
+        item['baseline_version'] = radar['baseline_version']
+        item['engagement_score'] = round(
+            sum(component['score'] for component in components) / 6, 2,
+        ) if valid else None
+        item['score_reason'] = None if valid else next(
+            (axis['reason'] for axis in axes if axis['status'] != 'available'),
+            '暂无可信观测',
+        )
+        item['_rate_tiebreak'] = sum(component['raw'] or 0 for component in components) if valid else 0
     views_median = statistics.median(item['views'] for item in items)
     coin_median = statistics.median(item['coin_ratio'] for item in items)
     for item in items:
         item['is_treasure'] = bool(
             item['views'] < views_median and item['coin_ratio'] > coin_median,
         )
-    return [item for _, item in sorted(scored_items, key=lambda pair: pair[0], reverse=True)[:limit]]
+    items.sort(key=lambda item: (
+        item['engagement_score'] is not None,
+        item['engagement_score'] if item['engagement_score'] is not None else -1,
+        item['_rate_tiebreak'], item['pub_date'],
+    ), reverse=True)
+    for item in items:
+        item.pop('_rate_tiebreak')
+    return items[:limit]
 
 
 def get_publish_habits(mids=None, days=180):

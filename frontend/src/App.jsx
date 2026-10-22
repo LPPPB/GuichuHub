@@ -371,7 +371,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
                   </Section>
 
                   <Section title="互动质量宝藏视频" icon={<Sparkles size={20} className="text-neon-amber" />}
-                           desc={interactionQuality.length > 0 ? '仅展示近 14 天发布的视频。⭐ 表示「低播放 + 高互动」—— 播放低于中位且投币率高于中位。加权互动率 = 投币率×3 + 收藏率×2 + 点赞/分享/评论/弹幕率；评分 = 100×加权互动率÷(加权互动率+20%)。剔除百万级已火作品。' : null}>
+                           desc={interactionQuality.length > 0 ? '仅展示近 14 天发布的视频。综合相对分复用雷达图的同龄样本基线：点赞、投币、收藏、分享、评论、弹幕六项分位分等权平均；参考或观测不足时标为待评分。⭐ 表示播放低于中位且投币率高于中位。剔除百万级已火作品。' : null}>
                     <div className="space-y-2">
                       {interactionQuality.slice(0, 10).map((v, i) => (
                         <a key={v.bvid} href={`https://www.bilibili.com/video/${v.bvid}`} target="_blank" rel="noopener noreferrer"
@@ -388,7 +388,10 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
                             <div className="hidden sm:flex items-center gap-1.5 shrink-0">
                               <span className="kb-chip kb-chip--cyan" title="投币率">币 {Number(v.coin_ratio).toFixed(2)}%</span>
                               <span className="kb-chip kb-chip--ghost" title="收藏率">藏 {Number(v.fav_ratio).toFixed(2)}%</span>
-                              <span className="kb-chip kb-chip--pink" title="综合互动分">分 {Number(v.engagement_score).toFixed(2)}</span>
+                              <span className={`kb-chip ${v.engagement_score == null ? 'kb-chip--ghost' : 'kb-chip--pink'}`}
+                                    title={v.score_reason || '六项互动行为的同龄样本综合相对分'}>
+                                {v.engagement_score == null ? '待评分' : `分 ${Number(v.engagement_score).toFixed(2)}`}
+                              </span>
                             </div>
                           </div>
                         </a>
