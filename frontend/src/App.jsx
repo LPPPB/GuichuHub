@@ -371,7 +371,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
                   </Section>
 
                   <Section title="互动质量宝藏视频" icon={<Sparkles size={20} className="text-neon-amber" />}
-                           desc={interactionQuality.length > 0 ? '⭐ 表示「低播放 + 高互动」—— 播放低于中位 & 投币率高于中位。综合互动分 = 投币率×3 + 收藏率×2 + 点赞/分享/评论/弹幕率，剔除百万级已火作品，是二创选材的优先目标。' : null}>
+                           desc={interactionQuality.length > 0 ? '仅展示近 14 天发布的视频。⭐ 表示「低播放 + 高互动」—— 播放低于中位且投币率高于中位。加权互动率 = 投币率×3 + 收藏率×2 + 点赞/分享/评论/弹幕率；评分 = 100×加权互动率÷(加权互动率+20%)。剔除百万级已火作品。' : null}>
                     <div className="space-y-2">
                       {interactionQuality.slice(0, 10).map((v, i) => (
                         <a key={v.bvid} href={`https://www.bilibili.com/video/${v.bvid}`} target="_blank" rel="noopener noreferrer"
@@ -393,7 +393,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
                           </div>
                         </a>
                       ))}
-                      {interactionQuality.length === 0 && <EmptyHint text="暂无互动质量数据（需最新批次视频观测）" />}
+                      {interactionQuality.length === 0 && <EmptyHint text="近 14 天暂无符合条件的互动质量视频（需最新批次视频观测）" />}
                     </div>
                   </Section>
 

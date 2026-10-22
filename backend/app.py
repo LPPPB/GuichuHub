@@ -1914,8 +1914,9 @@ def route_bursting_videos():
 def route_interaction_quality():
     """互动质量榜：低播放高互动的宝藏视频（选材信号）。
 
-    基于最新批次观测计算投币/收藏/点赞/分享/弹幕/同接率，
-    综合互动分 = (投币×3 + 收藏×2 + 其余互动) ÷ 播放。
+    只显示发布于近 14 天的视频。基于最新批次观测计算互动率，
+    加权互动率 = (投币×3 + 收藏×2 + 点赞/分享/评论/弹幕) ÷ 播放，
+    评分 = 100 × 加权互动率 ÷ (加权互动率 + 20%)，避免高互动视频集体满分。
     """
     from storage.db import get_interaction_quality
     limit = request.args.get('limit', 20, type=int)

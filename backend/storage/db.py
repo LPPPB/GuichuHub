@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from config import KICHU_TIDS_WITH_PARENT
-from utils.scorer import calc_engagement_quality
+
 
 CN_TZ = timezone(timedelta(hours=8))
 _business_repository = None
@@ -197,7 +197,10 @@ def reconcile_calendar_author(mid, year, seen_bvids, missing_threshold=2):
     )
 
 
-def get_interaction_quality(limit=20, min_views=1000, max_views=1000000):
+def get_interaction_quality(limit=20, min_views=1000, max_views=1000000, now=None):
+    now = int(time.time()) if now is None else int(now)
+    cutoff = now - 14 * 86400
+    score_half_rate = 0.2  # 加权互动率为 20% 时得 50 分；高互动不再直接封顶
     repository = _repository()
     latest_ts = repository.latest_video_observation_ts()
     if latest_ts is None:
@@ -211,15 +214,23 @@ def get_interaction_quality(limit=20, min_views=1000, max_views=1000000):
     def pct(number, views):
         return round(number / views * 100, 3) if views and number else 0.0
 
-    items = []
+    scored_items = []
     for row in rows:
+        pub_date = int(row['pub_date'] or 0)
+        if not cutoff <= pub_date <= now:
+            continue
         views = row['views'] or 0
         if views <= 0:
             continue
+        weighted_rate = (
+            3 * (row['coins'] or 0) + 2 * (row['favorites'] or 0)
+            + (row['likes'] or 0) + (row['shares'] or 0)
+            + (row['comments'] or 0) + (row['danmaku'] or 0)
+        ) / views
         item = {
             'bvid': row['bvid'], 'title': row['title'] or '', 'mid': row['mid'],
             'author': row['author'] or '', 'tname': row['tname'] or '',
-            'pub_date': row['pub_date'] or 0, 'views': views,
+            'pub_date': pub_date, 'views': views,
             'likes': row['likes'] or 0, 'coins': row['coins'] or 0,
             'favorites': row['favorites'] or 0, 'shares': row['shares'] or 0,
             'comments': row['comments'] or 0, 'danmaku': row['danmaku'] or 0,
@@ -230,23 +241,21 @@ def get_interaction_quality(limit=20, min_views=1000, max_views=1000000):
             'share_ratio': pct(row['shares'], views),
             'danmaku_ratio': pct(row['danmaku'], views),
             'online_ratio': pct(row['online_count'], views),
-            'engagement_score': calc_engagement_quality({
-                'views': views, 'likes': row['likes'] or 0,
-                'coins': row['coins'] or 0, 'favorites': row['favorites'] or 0,
-                'shares': row['shares'] or 0, 'comments': row['comments'] or 0,
-                'danmaku': row['danmaku'] or 0,
-            }),
+            'engagement_score': round(
+                100 * weighted_rate / (weighted_rate + score_half_rate), 2,
+            ),
         }
-        items.append(item)
-    if not items:
+        scored_items.append((weighted_rate, item))
+    if not scored_items:
         return []
+    items = [item for _, item in scored_items]
     views_median = statistics.median(item['views'] for item in items)
     coin_median = statistics.median(item['coin_ratio'] for item in items)
     for item in items:
         item['is_treasure'] = bool(
             item['views'] < views_median and item['coin_ratio'] > coin_median,
         )
-    return sorted(items, key=lambda item: item['engagement_score'], reverse=True)[:limit]
+    return [item for _, item in sorted(scored_items, key=lambda pair: pair[0], reverse=True)[:limit]]
 
 
 def get_publish_habits(mids=None, days=180):
