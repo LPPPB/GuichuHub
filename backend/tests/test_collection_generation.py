@@ -40,6 +40,15 @@ def test_shadow_keeps_legacy_results_separate_from_strict(derived_io):
     assert 'potential_score' not in next(v for v in result['_all_videos'] if v['bvid']==rows[-1]['bvid'])
 
 
+def test_shadow_registers_old_legacy_rank_rows_outside_discovery_window(derived_io):
+    import collectors.bilibili as bili
+    old=raw_video(tid=22,pubdate=NOW-365*86400)
+    result=bili.run_all_crawlers(context=context([old]),mode='shadow')
+    assert [v['bvid'] for v in result['kichu_rank']]==[old['bvid']]
+    assert result['potential_v2_snapshot']['items']==[]
+    assert old['bvid'] in {v['bvid'] for v in result['_all_videos']}
+
+
 def test_shadow_preserves_historical_over_cap_score(derived_io,monkeypatch):
     import collectors.bilibili as bili
     monkeypatch.setattr(bili,'_smooth_online',lambda b,v:500)
