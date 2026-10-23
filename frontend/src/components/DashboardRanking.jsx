@@ -1,9 +1,10 @@
 import PublicLink from '../routing/PublicLink'
 import { Trophy } from 'lucide-react'
 import VideoCard from './VideoCard'
+import RankingSource from './RankingSource'
 import './DashboardRanking.css'
 
-export default function DashboardRanking({ videos = [], formatNumber, onViewAll }) {
+export default function DashboardRanking({ videos = [], meta, formatNumber, onViewAll }) {
   return (
     <section className="dashboard-ranking" aria-labelledby="dashboard-ranking-title">
       <div className="inner">
@@ -15,11 +16,12 @@ export default function DashboardRanking({ videos = [], formatNumber, onViewAll 
           </div>
           <PublicLink tabId="kichu-rank" onNavigate={onViewAll} className="dashboard-ranking-more">查看全部 →</PublicLink>
         </header>
+        <RankingSource meta={meta} />
         {videos.length ? (
           <ol className="dashboard-ranking-list">
             {videos.slice(0, 5).map((video, index) => (
               <li key={video.bvid || index}>
-                <VideoCard video={video} index={index} formatNumber={formatNumber} variant="dashboard" staggerDelay={index * 40} />
+                <VideoCard video={video} index={index} displayRank={meta?.source === 'bilibili_official_ranking_v2' ? video.official_rank : undefined} formatNumber={formatNumber} variant="dashboard" staggerDelay={index * 40} />
               </li>
             ))}
           </ol>

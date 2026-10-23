@@ -4,6 +4,7 @@ import time
 import re
 import os
 import html
+from collectors.collection_context import record_http_attempt
 from datetime import datetime, timezone, timedelta
 from config import (
     POTENTIAL_VIEWS_MAX, POTENTIAL_VIEWS_MIN,
@@ -138,6 +139,7 @@ def get_headers():
 def safe_get(url, params=None, max_retries=2, return_error_code=False):
     for i in range(max_retries + 1):
         try:
+            record_http_attempt()
             resp = requests.get(url, headers=get_headers(), params=params, timeout=10)
             # 412 限流：记录日志但不立即抛出，走重试逻辑
             if resp.status_code == 412:
@@ -186,8 +188,8 @@ def fetch_ranking(tid=0, day=3):
 def fetch_ranking_v2(rid=0):
     """全站排行榜（ranking/v2）。
 
-    注意：B站已停止为分区维护独立排行榜，ranking/v2?rid=<子分区ID> 一律返回空列表。
-    因此本函数只支持 rid=0（全站榜），调用方需自行按 tid 过滤目标分区视频。
+    本函数保留旧的列表返回契约，默认 rid=0 用于独立发现。
+    新版官方鬼畜榜 rid=1007 的保序解析、状态及失败处理由 official_ranking 模块负责。
     字段结构与 popular feed 一致（stat/owner/pubdate/tid/tname/pic），可直接用 parse_video_item 解析。
     """
     url = 'https://api.bilibili.com/x/web-interface/ranking/v2'
@@ -1341,7 +1343,7 @@ def is_useless_tag(kw):
 
 def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     print('正在提取热梗...')
-    all_videos = kichu_videos + music_videos + funny_videos + popular_videos
+    all_videos = _deduplicate_by_bvid(kichu_videos + music_videos + funny_videos + popular_videos)
     meme_dict = {}
 
     # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
@@ -1665,6 +1667,7 @@ def fetch_danmaku_xml(cid):
     url = f'https://comment.bilibili.com/{cid}.xml'
     try:
         import xml.etree.ElementTree as ET
+        record_http_attempt()
         resp = requests.get(url, headers=get_headers(), timeout=10)
         resp.raise_for_status()
         root = ET.fromstring(resp.content)
@@ -1679,7 +1682,7 @@ def fetch_danmaku_xml(cid):
         return []
 
 
-def get_real_danmaku_words(videos):
+def get_real_danmaku_words(videos, *, detail_loader=None):
     """抓取真实弹幕并用 jieba 分词统计词频，返回热词列表。
 
     相比 get_danmaku_hot_words（预定义词库匹配标题），本函数直接抓取视频弹幕，
@@ -1719,7 +1722,7 @@ def get_real_danmaku_words(videos):
     if need_detail:
         print(f'  补抓 {len(need_detail)} 个视频的cid...')
         for v in need_detail:
-            detail = fetch_video_detail(v['bvid'])
+            detail = (detail_loader or fetch_video_detail)(v['bvid'])
             if detail:
                 cid = detail.get('cid')
                 if cid:
@@ -2107,7 +2110,45 @@ def _filter_material_candidates(music_videos, funny_videos, now):
     return material_candidates
 
 
-def run_all_crawlers():
+def make_collection_context(policy, now, seed_cursor=0):
+    """Adapt raw API envelopes without collapsing empty responses into errors."""
+    from collectors.collection_context import RoundContext, SourceResult
+    root = 'https://api.bilibili.com'
+    def paced(loader):
+        try:
+            return loader()
+        finally:
+            _online_pacing()
+    def source(path, params, keys, expected=list):
+        response = paced(lambda:safe_get(root+path,params=params,return_error_code=True))
+        if not isinstance(response,dict) or response.get('code') != 0:
+            return SourceResult(outcome='error',error_code='upstream')
+        value = response
+        for key in keys:
+            if not isinstance(value,dict) or key not in value:
+                return SourceResult(outcome='invalid',error_code='shape')
+            value = value[key]
+        return SourceResult(value) if isinstance(value,expected) else SourceResult(outcome='invalid',error_code='shape')
+    return RoundContext(policy,now=now,clock=time.time,loaders={
+        'popular_page':lambda page:source('/x/web-interface/popular',{'pn':page,'ps':50},('data','list')),
+        'search_page':lambda keyword,tid,order,page:source('/x/web-interface/search/type',
+            {'search_type':'video','keyword':keyword,'tids':tid,'order':order,'page':page,'page_size':20},('data','result')),
+        'all_ranking':lambda:source('/x/web-interface/ranking/v2',{'rid':0,'type':'all'},('data','list')),
+        'region_ranking':lambda rid:source('/x/web-interface/ranking/region',{'rid':rid,'day':3},('data',)),
+        'newest':lambda:source('/x/web-interface/newlist',{'rid':119,'type':0,'pn':1,'ps':20},('data','archives')),
+        'detail':lambda bvid:source('/x/web-interface/view',{'bvid':bvid},('data',),dict),
+        'tags':lambda bvid:paced(lambda:fetch_video_tags(bvid)),
+        'online':lambda bvid,cid:SourceResult(outcome='skipped',error_code='circuit')
+            if _online_breaker_open() else paced(lambda:fetch_online_count(bvid,cid)),
+        'seed_words':load_meme_seed_words,'seed_cursor':seed_cursor,
+    })
+
+
+def run_all_crawlers(*, context=None, official_snapshot=None, pending=None, mode=None):
+    if context is not None:
+        from collectors.generation import generate_collection
+        return generate_collection(context=context,official_snapshot=official_snapshot,
+                                   pending=pending or [],mode=mode or context.policy.mode)
     print('=' * 60)
     print('开始执行爬虫任务...')
     start_time = time.time()

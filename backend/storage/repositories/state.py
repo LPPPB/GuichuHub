@@ -82,23 +82,24 @@ class StateRepository:
                       "updated_at": now},
             ))
 
-    def update_dashboard(self, mutator, now: int, initial: dict | None = None) -> dict:
+    def update_dashboard(self, mutator, now: int, initial: dict | None = None, *, connection=None) -> dict:
         """Apply one current-state mutation while holding its PostgreSQL row lock."""
+        if connection is not None:
+            return self._mutate_dashboard(connection, mutator, now, initial)
         with self._sessions.begin() as session:
-            row = session.execute(select(dashboard_state.c.payload).where(
-                dashboard_state.c.name == "current",
-            ).with_for_update()).mappings().first()
-            payload = dict(row["payload"]) if row else dict(initial or {})
-            mutator(payload)
-            if row is None:
-                session.execute(insert(dashboard_state).values(
-                    name="current", payload=payload, version=1, updated_at=now,
-                ))
-            else:
-                session.execute(dashboard_state.update().where(
-                    dashboard_state.c.name == "current",
-                ).values(payload=payload, version=dashboard_state.c.version + 1, updated_at=now))
-            return payload
+            return self._mutate_dashboard(session, mutator, now, initial)
+
+    @staticmethod
+    def _mutate_dashboard(session, mutator, now, initial):
+        session.execute(insert(dashboard_state).values(name='current',payload=initial or {},
+            version=0,updated_at=now).on_conflict_do_nothing(index_elements=[dashboard_state.c.name]))
+        row = session.execute(select(dashboard_state.c.payload).where(
+            dashboard_state.c.name == 'current').with_for_update()).mappings().one()
+        payload = dict(row['payload'])
+        mutator(payload)
+        session.execute(dashboard_state.update().where(dashboard_state.c.name == 'current').values(
+            payload=payload,version=dashboard_state.c.version+1,updated_at=now))
+        return payload
 
     def add_favorite(self, item_type: str, item: dict, owner: str | None, now: int) -> dict:
         favorite_id = f"{item_type}_{uuid.uuid4().hex}"

@@ -272,6 +272,8 @@ def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
         return source if v2 else _with_radar_metrics(source)
     return {
         'kichu_rank': rows('kichu_rank', True),
+        'kichu_rank_meta': data.get('kichu_rank_meta'),
+        'potential_meta': data.get('potential_meta'),
         'hot_memes': data.get('hot_memes', []),
         'hot_songs': data.get('hot_songs', []),
         'hot_videos': rows('hot_videos', True),
@@ -303,20 +305,27 @@ def route_dashboard():
     - 实时缓存过期/不存在：返回定时数据 + is_live=False 标识
     """
     from storage.cache import get_live_cache, get_data_version
+    from services.collection_views import select_collection_views
+    from config import load_collection_policy
 
     # 优先读实时缓存（手动抓取数据，未过期则返回）
     live = get_live_cache()
+    persisted=get_data() or {}
+    mode=load_collection_policy(os.environ).mode
+    now=int(time.time())
     if live:
         data = live['data']
         is_live = True
         live_cached_at = live['cached_at']
-        cache_key = ('live', live_cached_at)
+        cache_key = ('live', live_cached_at, get_data_version(),mode)
     else:
-        data = get_data()
+        data = persisted
         is_live = False
         live_cached_at = None
         # 定时数据：以数据版本号为缓存键（数据未变则复用组装结果）
-        cache_key = ('timer', get_data_version())
+        cache_key = ('timer', get_data_version(),mode)
+
+    data={**data,**select_collection_views(persisted,live=live,mode=mode,now=now)}
 
     from storage.repositories.radar import get_radar_repository
     repository = get_radar_repository()
@@ -343,14 +352,24 @@ def route_songs():
 
 @app.route('/api/videos', methods=['GET'])
 def route_videos():
-    data = get_data()
-    return jsonify({'success': True, 'data': _with_video_observations(data.get('hot_videos'))})
+    from services.collection_views import select_collection_views
+    from config import load_collection_policy
+    from storage.cache import get_live_cache
+    data=select_collection_views(get_data() or {},live=get_live_cache(),
+        mode=load_collection_policy(os.environ).mode,now=int(time.time()))
+    return jsonify({'success': True,'data':_with_video_observations(data['hot_videos']),
+                    'meta':data['potential_meta']})
 
 
 @app.route('/api/kichu-rank', methods=['GET'])
 def route_kichu_rank():
-    data = get_data()
-    return jsonify({'success': True, 'data': _with_video_observations(data.get('kichu_rank'))})
+    from services.collection_views import select_collection_views
+    from config import load_collection_policy
+    from storage.cache import get_live_cache
+    data=select_collection_views(get_data() or {},live=get_live_cache(),
+        mode=load_collection_policy(os.environ).mode,now=int(time.time()))
+    return jsonify({'success': True, 'meta':data['kichu_rank_meta'],
+                    'data':_with_video_observations(data.get('kichu_rank'))})
 
 
 @app.route('/api/meme-materials', methods=['GET'])
@@ -472,7 +491,8 @@ def route_refresh():
     与定时抓取共用 _crawl_lock 互斥，不会并发。
     数据仅供即时展示，TTL 10 分钟后自动回退到定时数据（数据库）。
     """
-    if not try_acquire_lock():
+    guard=try_acquire_lock()
+    if guard is None:
         return jsonify({
             'success': False,
             'message': '数据正在更新中，请稍候',
@@ -486,12 +506,18 @@ def route_refresh():
         实时抓取失败时清空实时缓存，前端会自动回退到定时数据。
         """
         try:
-            _crawl_job_live('manual')
+            _crawl_job_live('manual',guard=guard)
         except Exception:
             pass  # 异常已记录在 _crawl_status，前端轮询 /api/status 可见
 
     thread = threading.Thread(target=_safe_crawl_live, daemon=True)
-    thread.start()
+    try:
+        thread.start()
+    except Exception:
+        guard.release()
+        from jobs.crawl_jobs import _crawl_status
+        _crawl_status['crawling']=False
+        raise
     return jsonify({
         'success': True,
         'message': '已开始实时刷新（约2-3分钟），数据不落库',

@@ -59,6 +59,16 @@ def setup_scheduler():
     from jobs.radar_jobs import run_radar_baseline_job
 
     scheduler = BackgroundScheduler(timezone=SCHEDULER_TIMEZONE)
+    import os
+    from config import load_collection_policy
+    from jobs.official_ranking_jobs import run_official_ranking_job, configure_scheduler
+    policy=load_collection_policy(os.environ)
+    configure_scheduler(scheduler)
+    if policy.mode!='legacy':
+        timing={'minute':'5,35'} if policy.refresh_seconds==1800 else {'seconds':policy.refresh_seconds}
+        scheduler.add_job(run_official_ranking_job,'cron' if 'minute' in timing else 'interval',
+                          **timing,id='official_kichu_rank',name='官方鬼畜榜独立刷新',
+                          max_instances=1,coalesce=True)
 
     # 1. 全量抓取：每天多个时段（默认 03:00 + 15:00）
     for hour_str in CRAWL_HOURS.split(','):

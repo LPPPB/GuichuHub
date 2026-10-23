@@ -35,7 +35,11 @@ class BusinessRepository:
         engine = create_engine(url, pool_pre_ping=True)
         return cls(sessionmaker(bind=engine, expire_on_commit=False))
 
-    def record_video(self, video: dict, ts: int | None = None, source: str | None = None) -> None:
+    def register_video_metadata(self, video: dict, *, new_tier: str = 'warm') -> None:
+        self.record_video({**video, 'observe_tier': new_tier}, preserve_tier=True)
+
+    def record_video(self, video: dict, ts: int | None = None, source: str | None = None,
+                     *, preserve_tier: bool = False) -> None:
         bvid = video.get("bvid")
         if not bvid:
             return
@@ -60,7 +64,7 @@ class BusinessRepository:
                 index_elements=[videos.c.bvid],
                 set_={
                     key: value for key, value in row.items()
-                    if key not in {"bvid", "first_seen"} and value is not None
+                    if key not in ({"bvid", "first_seen", "observe_tier"} if preserve_tier else {"bvid", "first_seen"}) and value is not None
                 },
             ))
             if ts is not None:

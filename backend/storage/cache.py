@@ -31,6 +31,9 @@ def get_data_version():
 def persist_data(new_data):
     """Merge new dashboard data while protecting non-empty sections."""
     global _data_cache, _data_cache_version
+    from storage.repositories.collection_state import PROTECTED_KEYS
+    if PROTECTED_KEYS.intersection(new_data):
+        raise ValueError('Use source-specific snapshot publication')
     with _data_lock:
         def merge(current):
             for key, value in new_data.items():

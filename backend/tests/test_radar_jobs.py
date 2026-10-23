@@ -126,8 +126,7 @@ def _assert_failed_crawl_still_revises(runtime, monkeypatch, failure):
     c = context()
     row = dict(**c['latest'], bvid=c['bvid'], first_seen=NOW-86400, pub_date=c['pub_date'], tid=216)
     rows = [row, {**row, 'bvid': 'BVsecond'}] if failure == 'record' else [row]
-    monkeypatch.setattr(crawl_jobs, 'run_all_crawlers', lambda: {'_all_videos': rows, 'hot_videos': [], 'material_candidates': []})
-    monkeypatch.setattr(crawl_jobs, '_crawl_lock', threading.Lock())
+    monkeypatch.setattr(crawl_jobs, '_collect_round', lambda: {'_all_videos': rows, 'hot_videos': [], 'material_candidates': []})
     monkeypatch.setattr(crawl_jobs, '_crawl_status', {**crawl_jobs._crawl_status, 'started_at': NOW})
     original = crawl_jobs.tsdb.record_video
     def record(v, ts, source):
@@ -139,9 +138,9 @@ def _assert_failed_crawl_still_revises(runtime, monkeypatch, failure):
         raise RuntimeError('test dashboard failure')
     if failure == 'dashboard':
         monkeypatch.setattr(crawl_jobs, 'persist_data', fail_dashboard)
-    crawl_jobs._crawl_lock.acquire()
+    guard=runtime.collection_lock.try_acquire(trigger="test")
     with pytest.raises(RuntimeError, match='test .* failure'):
-        crawl_jobs._crawl_job_locked('scheduled')
+        crawl_jobs._crawl_job_locked('scheduled',guard=guard)
     assert repo.video_contexts(['BV0'], NOW)['BV0']['latest']['views'] == 10000
     assert repo.revision()[0] == 1
 
@@ -154,7 +153,6 @@ def test_observation_adds_reference_quota_without_extra_online_requests(postgres
     for bvid in ('BVrank','BVmusic','BVref'):
         row=context()['latest'].copy(); row.update(bvid=bvid,first_seen=NOW-86400,pub_date=NOW-86400,tid=216)
         postgres_runtime.business.record_video(row,ts=NOW-3600)
-    monkeypatch.setattr(crawl_jobs,'_crawl_lock',threading.Lock())
     monkeypatch.setattr(crawl_jobs.tsdb,'get_observation_targets',lambda **_: ['BVmusic','BVrank'])
     monkeypatch.setattr(crawl_jobs,'_get_rank_bvids',lambda: ['BVrank'])
     monkeypatch.setattr('storage.repositories.radar.get_radar_repository',lambda: repo)

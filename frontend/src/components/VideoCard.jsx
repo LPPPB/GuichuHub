@@ -8,7 +8,8 @@ import { observationTime } from './RadarDetails'
 const ObsTrendChart = lazy(() => import('./ObsTrendChart'))
 const AiSummary = lazy(() => import('./AiSummary'))
 
-export default function VideoCard({ video, index, formatNumber, onFavorite, isFavorited, staggerDelay = 0, showRadar = false, variant = 'full' }) {
+export default function VideoCard({ video, index, displayRank, formatNumber, onFavorite, isFavorited, staggerDelay = 0, showRadar = false, variant = 'full' }) {
+  const rank=Number.isInteger(displayRank) && displayRank>0 ? displayRank : index!=null ? index+1 : null
   const [expanded, setExpanded] = useState(false)
   const [showAiSummary, setShowAiSum] = useState(false)
   const [showPortrait, setShowPortrait] = useState(false)
@@ -53,7 +54,7 @@ export default function VideoCard({ video, index, formatNumber, onFavorite, isFa
 
           <div className="video-card-heading">
             <div className="video-card-title-row">
-              {index != null && <span className={`kb-rank shrink-0 ${index < 3 ? `kb-rank--${index + 1}` : 'kb-rank--n'}`}>{index + 1}</span>}
+              {rank != null && <span className={`kb-rank shrink-0 ${rank <= 3 ? `kb-rank--${rank}` : 'kb-rank--n'}`}>{rank}</span>}
               <h4><a href={videoUrl} target="_blank" rel="noopener noreferrer" title={video.title}>{video.title}</a></h4>
             </div>
             {label && <span className={`kb-chip video-card-status ${statusClass}`}>{label}</span>}
