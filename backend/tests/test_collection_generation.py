@@ -25,7 +25,7 @@ def derived_io(monkeypatch):
     def capture(name,rows):
         samples[name]=[v['bvid'] for v in rows]
         return []
-    monkeypatch.setattr(bili,'get_real_danmaku_words',lambda rows:capture('danmaku',rows))
+    monkeypatch.setattr(bili,'get_real_danmaku_words',lambda rows,**kwargs:capture('danmaku',rows))
     monkeypatch.setattr(bili,'get_golden_comments',lambda rows:capture('comments',rows))
     return samples
 
@@ -38,6 +38,35 @@ def test_shadow_keeps_legacy_results_separate_from_strict(derived_io):
     assert result['hot_videos']==[]
     assert [v['bvid'] for v in result['potential_v2_snapshot']['items']]==[rows[-1]['bvid']]
     assert 'potential_score' not in next(v for v in result['_all_videos'] if v['bvid']==rows[-1]['bvid'])
+
+
+def test_shadow_preserves_historical_over_cap_score(derived_io,monkeypatch):
+    import collectors.bilibili as bili
+    monkeypatch.setattr(bili,'_smooth_online',lambda b,v:500)
+    rows=[raw_video(f'BV{i:010d}',tid=22) for i in range(12)]
+    rows[0]['stat']['view']=3000000
+    result=bili.run_all_crawlers(context=context(rows),mode='shadow')
+    over_cap=rows[0]['bvid']
+    assert over_cap not in {v['bvid'] for v in result['hot_videos']}
+    projected=next(v for v in result['_all_videos'] if v['bvid']==over_cap)
+    card=next(v for v in result['kichu_rank'] if v['bvid']==over_cap)
+    assert projected['potential_score'] is not None
+    assert card['potential_score']==projected['potential_score']
+    assert card['online_count']==500
+    assert card['online_count_raw'] is None
+
+
+def test_danmaku_missing_cid_uses_bounded_detail_loader(monkeypatch):
+    import collectors.bilibili as bili
+    monkeypatch.setattr(bili.time,'sleep',lambda _:None)
+    monkeypatch.setattr(bili,'fetch_video_detail',lambda _:pytest.fail('unbounded detail request'))
+    monkeypatch.setattr(bili,'fetch_danmaku_xml',lambda _:[])
+    monkeypatch.setattr(bili,'get_danmaku_hot_words',lambda rows:[])
+    calls=[]
+    row={'bvid':'BVtest','title':'test'}
+    bili.get_real_danmaku_words([row],detail_loader=lambda b:calls.append(b) or {'cid':123})
+    assert calls==['BVtest']
+    assert row['cid']==123
 
 
 def test_official_history_uses_strict_score_without_expanding_derived_samples(derived_io):

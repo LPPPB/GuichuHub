@@ -65,8 +65,17 @@ def generate_collection(*,context,official_snapshot,pending,mode):
         legacy_candidates,_=bili._filter_potential_candidates(legacy_pool,now)
         for video in legacy_candidates:
             enrich(video,online=True)
-        score_potential_batch(legacy_candidates,now)
-        for video in legacy_candidates:
+        over_cap=[]
+        for video in legacy_pool:
+            if video.get('tid') not in bili.KICHU_TIDS or int(video.get('views') or 0)<=bili.POTENTIAL_VIEWS_MAX:
+                continue
+            historical_online=bili._smooth_online(video['bvid'],None)
+            if historical_online is None:
+                continue
+            video.update(online_count=historical_online,online_count_raw=None,online_circuit_skipped=True)
+            over_cap.append(video)
+        score_potential_batch(legacy_candidates,now,extra=over_cap)
+        for video in legacy_candidates+over_cap:
             video['potential_reason']=get_potential_reason(video,now)
         legacy_candidates.sort(key=lambda v:-v['potential_score'])
         legacy_hot=legacy_candidates[:30]
@@ -90,7 +99,12 @@ def generate_collection(*,context,official_snapshot,pending,mode):
         meme_materials=bili.get_meme_materials(bili._deduplicate_by_bvid(legacy_pool+seeds),hot_songs,
                                              seed_words=discovery.attempt.get('seed_words',[]))
         active_hot=(strict.snapshot or {}).get('items',[]) if mode=='official' else legacy_hot
-        danmaku=bili.get_real_danmaku_words(bili._deduplicate_by_bvid(kichu[:20]+active_hot[:30]+material[:20]))
+        def bounded_detail(bvid):
+            response=context.call('detail',bvid,kind='detail')
+            return response.value if response.outcome=='success' and isinstance(response.value,dict) else None
+        danmaku=bili.get_real_danmaku_words(
+            bili._deduplicate_by_bvid(kichu[:20]+active_hot[:30]+material[:20]),
+            detail_loader=bounded_detail)
         comments=bili.get_golden_comments(kichu[:10])
 
         found={}
@@ -99,7 +113,7 @@ def generate_collection(*,context,official_snapshot,pending,mode):
         for video in all_inputs:
             bvid=video['bvid']
             found[bvid]=merge_video(found.get(bvid),video)
-        score_rows=strict.evaluated if mode=='official' else legacy_candidates
+        score_rows=strict.evaluated if mode=='official' else legacy_candidates+over_cap
         scores={v['bvid']:v for v in score_rows}
         visible={v['bvid'] for v in list((official_snapshot or {}).get('items',[]))[:20]+active_hot}
         for bvid,video in found.items():

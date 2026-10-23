@@ -1682,7 +1682,7 @@ def fetch_danmaku_xml(cid):
         return []
 
 
-def get_real_danmaku_words(videos):
+def get_real_danmaku_words(videos, *, detail_loader=None):
     """抓取真实弹幕并用 jieba 分词统计词频，返回热词列表。
 
     相比 get_danmaku_hot_words（预定义词库匹配标题），本函数直接抓取视频弹幕，
@@ -1722,7 +1722,7 @@ def get_real_danmaku_words(videos):
     if need_detail:
         print(f'  补抓 {len(need_detail)} 个视频的cid...')
         for v in need_detail:
-            detail = fetch_video_detail(v['bvid'])
+            detail = (detail_loader or fetch_video_detail)(v['bvid'])
             if detail:
                 cid = detail.get('cid')
                 if cid:
