@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar'
 import MemeCard from './components/MemeCard'
 import SongCard from './components/SongCard'
 import VideoCard from './components/VideoCard'
+import InteractionQualityCard from './components/InteractionQualityCard'
 import DashboardRanking from './components/DashboardRanking'
 import DanmakuCloud from './components/DanmakuCloud'
 import CommentList from './components/CommentList'
@@ -368,30 +369,11 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
                   </Section>
 
                   <Section title="互动质量宝藏视频" icon={<Sparkles size={20} className="text-neon-amber" />}
-                           desc={interactionQuality.length > 0 ? '仅展示近 14 天发布的视频。综合相对分复用雷达图的同龄样本基线：点赞、投币、收藏、分享、评论、弹幕六项分位分等权平均；参考或观测不足时标为待评分。⭐ 表示播放低于中位且投币率高于中位。剔除百万级已火作品。' : null}>
-                    <div className="space-y-2">
+                           desc={interactionQuality.length > 0 ? '近 14 天 · 百万播放以下。按点赞、投币、收藏、分享、评论与弹幕的同龄分位综合排序；「宝藏」表示低播放、高投币率。' : null}>
+                    <div className="space-y-2.5">
                       {interactionQuality.slice(0, 10).map((v, i) => (
-                        <a key={v.bvid} href={`https://www.bilibili.com/video/${v.bvid}`} target="_blank" rel="noopener noreferrer"
-                           className="kb-card kb-stagger px-4 py-3 flex items-center gap-3 group"
-                           style={{ animationDelay: `${d(i, 35)}ms` }}>
-                          <div className="inner w-full flex items-center gap-3">
-                            <span className="kb-rank kb-rank--n shrink-0">{i + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[0.92rem] font-semibold text-haze-50 truncate leading-snug group-hover:text-primary-500 transition-colors flex items-center gap-1.5">
-                                {v.is_treasure && <span title="低播放高互动宝藏视频">⭐</span>}{v.title}
-                              </p>
-                              <p className="text-xs text-haze-400 truncate mt-0.5">{v.author || '未知UP'} · {v.tname} · {formatNumber(v.views)} 播放</p>
-                            </div>
-                            <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-                              <span className="kb-chip kb-chip--cyan" title="投币率">币 {Number(v.coin_ratio).toFixed(2)}%</span>
-                              <span className="kb-chip kb-chip--ghost" title="收藏率">藏 {Number(v.fav_ratio).toFixed(2)}%</span>
-                              <span className={`kb-chip ${v.engagement_score == null ? 'kb-chip--ghost' : 'kb-chip--pink'}`}
-                                    title={v.score_reason || '六项互动行为的同龄样本综合相对分'}>
-                                {v.engagement_score == null ? '待评分' : `分 ${Number(v.engagement_score).toFixed(2)}`}
-                              </span>
-                            </div>
-                          </div>
-                        </a>
+                        <InteractionQualityCard key={v.bvid} video={v} rank={i + 1}
+                                                formatNumber={formatNumber} delay={d(i, 35)} />
                       ))}
                       {interactionQuality.length === 0 && <EmptyHint text="近 14 天暂无符合条件的互动质量视频（需最新批次视频观测）" />}
                     </div>
