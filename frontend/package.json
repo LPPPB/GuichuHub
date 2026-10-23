@@ -5,14 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/prerender-home.mjs && node scripts/generate-sitemap.mjs",
+    "build": "vite build && node scripts/build-public-pages.mjs && node scripts/prerender-home.mjs && node scripts/generate-sitemap.mjs",
     "sitemap": "node scripts/generate-sitemap.mjs",
     "icons": "node scripts/generate-favicons.mjs",
     "test:seo": "npm run build && node scripts/verify-seo.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:layout": "npm run build && node scripts/verify-ranking-layout.mjs"
+    "test:layout": "npm run build && node scripts/verify-ranking-layout.mjs",
+    "test:radar-demo": "npm run build && node scripts/verify-radar-demo.mjs",
+    "test:observations": "npm run build && node scripts/verify-observation-consistency.mjs"
   },
   "dependencies": {
     "echarts": "^6.1.0",

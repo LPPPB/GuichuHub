@@ -1,0 +1,1 @@
+Verified 18 JS/no-JS route visits, six widths and history navigation.

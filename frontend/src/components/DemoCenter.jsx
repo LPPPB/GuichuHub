@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ObsTrendChart from './ObsTrendChart'
 import { PlayRankingChangeCard } from './TrendCharts'
+import RadarDemo from './RadarDemo'
 import { FlaskConical, Gauge, Radar, GitCompare, Music2, BarChart3 } from 'lucide-react'
 
 // 示例演示中心：各可视化样例的统一演示区。
@@ -116,14 +117,14 @@ export default function DemoCenter() {
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
         可视化样例演示区：合成数据直接注入图表组件（不走后端），用于验证/预览渲染效果。
-        当前 2 个样例，未来在此追加。
+        当前 3 个样例，未来在此追加。
       </p>
 
       {/* 样例选择（未来扩展） */}
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         <button
           onClick={() => setSample('precision')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+          className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
             sample === 'precision' ? 'bg-primary-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
@@ -132,12 +133,18 @@ export default function DemoCenter() {
         </button>
         <button
           onClick={() => setSample('ranking')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+          className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
             sample === 'ranking' ? 'bg-primary-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
           <BarChart3 size={13} />
           排行柱标签位置
+        </button>
+        <button type="button" onClick={() => setSample('radar')}
+          className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            sample === 'radar' ? 'bg-primary-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}>
+          <Radar size={13} />视频雷达图
         </button>
       </div>
 
@@ -145,7 +152,7 @@ export default function DemoCenter() {
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <div className="flex items-center gap-2 mb-1">
             <p className="text-sm font-semibold text-slate-800">同接精度标记点</p>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">样例 1/2</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">样例 1/3</span>
           </div>
           <p className="text-xs text-slate-500 mb-4">
             点"同接"按钮查看：精确点=实心圆，近似点（"1000+"/"1.1万"）=空心圆 + tooltip"（约）"，NULL=断点不连线。
@@ -175,7 +182,7 @@ export default function DemoCenter() {
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <div className="flex items-center gap-2 mb-1">
               <p className="text-sm font-semibold text-slate-800">排行柱标签位置切换</p>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">样例 2/2</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">样例 2/3</span>
             </div>
             <p className="text-xs text-slate-500">
               阈值 = 最大变化 × 35%（本样例 maxAbs = 500万 → 阈值 = <b>175万</b>）：|变化| &gt; 175万 → 文字进柱内（白字），
@@ -202,6 +209,8 @@ export default function DemoCenter() {
           </div>
         </div>
       )}
+
+      {sample === 'radar' && <RadarDemo />}
 
       {/* 未来样例占位 */}
       <div>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 // ─── Mock ECharts 模块（jsdom 无 canvas，避免真实渲染）───
 // 导出需与 src/lib/echarts.js 注册列表保持一致（charts/components/renderers），
@@ -14,6 +14,7 @@ vi.mock('echarts-for-react', () => ({
     <div
       data-testid="echarts"
       data-series-count={props.option?.series?.length ?? 0}
+      data-series={JSON.stringify(props.option?.series ?? [])}
     />
   ),
 }))
@@ -167,5 +168,42 @@ describe('ObsTrendChart', () => {
     // 切换到同接（含 null 点），渲染不崩溃
     fireEvent.click(screen.getByText('同接'))
     expect(screen.getByTestId('echarts').dataset.seriesCount).toBe('2')
+  })
+
+  it('refreshes the curve when the same video receives a newer statistics observation', async () => {
+    api.getVideoObsTrend.mockResolvedValue({ success: true, data: { points: mockPoints } })
+    const { rerender } = render(<ObsTrendChart bvid="BVsame" observedAt={1700000000} />)
+    await screen.findByTestId('echarts')
+    api.getVideoObsTrend.mockResolvedValue({ success: true, data: { points: mockPoints.map(p => ({ ...p, views: 245764 })) } })
+    rerender(<ObsTrendChart bvid="BVsame" observedAt={1700001800} />)
+    await waitFor(() => {
+      const series = JSON.parse(screen.getByTestId('echarts').dataset.series)
+      expect(series[0].data.at(-1)[1]).toBe(245764)
+    })
+  })
+
+  it('switches videos and ignores the previous video request finishing late', async () => {
+    let finishOld
+    api.getVideoObsTrend.mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+      .mockResolvedValueOnce({ success: true, data: { points: mockPoints.map(p => ({ ...p, views: 9999 })) } })
+    const { rerender } = render(<ObsTrendChart bvid="BVold" />)
+    rerender(<ObsTrendChart bvid="BVnew" />)
+    await screen.findByTestId('echarts')
+    await act(async () => { finishOld({ success: true, data: { points: mockPoints } }) })
+    await waitFor(() => {
+      const series = JSON.parse(screen.getByTestId('echarts').dataset.series)
+      expect(series[0].data.at(-1)[1]).toBe(9999)
+    })
+  })
+
+  it('plots zero interaction as zero and leaves incomplete or invalid interaction points missing', () => {
+    const zero = { ts: 1700000000, views: 1000, likes: 0, coins: 0, favorites: 0, shares: 0 }
+    const points = [zero, { ...zero, ts: zero.ts+1, likes: 1, shares: null },
+      { ...zero, ts: zero.ts+2, views: 0 }, { ...zero, ts: zero.ts+3, coins: -1 },
+      { ...zero, ts: zero.ts+4, likes: 100, shares: 10 }]
+    render(<ObsTrendChart points={points} />)
+    fireEvent.click(screen.getByText('互动率'))
+    const series = JSON.parse(screen.getByTestId('echarts').dataset.series)
+    expect(series.find(s => s.name === '互动率').data.map(p => p[1])).toEqual([0, null, null, null, 11])
   })
 })

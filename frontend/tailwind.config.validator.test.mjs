@@ -1046,19 +1046,7 @@ describe('[Section Icon] 去掉圆角矩形底+Trophy 改为白色', () => {
     ).toBe(true)
   })
 
-  it('2. 鬼畜区排行榜 Section 的 Trophy 图标颜色必须为白色（text-white / text-haze-50），禁止 text-neon-amber 橙金', () => {
-    const re = /<Section title="鬼畜区排行榜"[\s\S]{0,800}/
-    const block = appJsx.match(re)
-    expect(block, 'App.jsx 必须包含"鬼畜区排行榜" Section').not.toBe(null)
-    const trophyLine = block[0].match(/<Trophy[^>]*className="([^"]*)"[^>]*>/)
-    expect(trophyLine, '鬼畜区排行榜 Section 必须用 Trophy 图标').not.toBe(null)
-    const cls = trophyLine[1]
-    const hasWhite = /text-white|text-haze-50/.test(cls)
-    expect(
-      hasWhite,
-      `鬼畜区排行榜的 Trophy 必须白色（text-white 或 text-haze-50），当前: ${cls}`,
-    ).toBe(true)
-  })
+  // DashboardRanking 图标的实际主题颜色由 verify-dashboard-ranking.mjs 校验。
 })
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1372,15 +1360,10 @@ describe('[Access Control · App.jsx] 管理员状态与门禁接线', () => {
     expect(/onAdminLogin=\{/.test(appJsx), 'Sidebar 需要 onAdminLogin prop').toBe(true)
   })
 
-  it('5. 收藏门禁：未登录触发登录弹窗（requireLogin 守卫），登录后正常收藏', () => {
-    const hasGuard = /const\s+requireLogin\s*=/.test(appJsx)
-    const addFavGuarded = /handleAddFavorite[\s\S]{0,80}requireLogin\(\)/.test(appJsx)
-    const removeFavGuarded = /handleRemoveFavorite[\s\S]{0,80}requireLogin\(\)/.test(appJsx)
-    const toggleGuarded = /if\s*\(!biliUser\)\s*\{\s*setShowLogin\(true\)/.test(appJsx)
-    expect(
-      hasGuard && addFavGuarded && removeFavGuarded && toggleGuarded,
-      `requireLogin守卫=${hasGuard}, 收藏守卫=${addFavGuarded}, 取消收藏守卫=${removeFavGuarded}, 收藏面板守卫=${toggleGuarded}`,
-    ).toBe(true)
+  it('5. 登录下线期间收藏写入仍经过门禁，且不挂载二维码弹窗', () => {
+    expect(/handleAddFavorite[\s\S]{0,80}requireLogin\(\)/.test(appJsx)).toBe(true)
+    expect(/handleRemoveFavorite[\s\S]{0,80}requireLogin\(\)/.test(appJsx)).toBe(true)
+    expect(appJsx).not.toContain('<BilibiliLogin')
   })
 
   it('6. 无权限轻提示：onDevBlocked 触发 flashNotice，普通用户点开发者后台提示「需要管理员权限」', () => {
@@ -1593,10 +1576,8 @@ describe('[Admin Identity · BilibiliLogin] 双模式扫码登录', () => {
     expect(loginJsx, '找不到 BilibiliLogin.jsx').not.toBe(null)
   })
 
-  it('1. mode prop 区分身份登录（identity）与采集登录（collect）', () => {
-    const hasMode = /mode\s*=\s*'identity'/.test(loginJsx)
-    const branches = /isCollect\s*\?\s*await\s+api\.collectLogin\(\)\s*:\s*await\s+api\.getQrcode\(\)/.test(loginJsx)
-    expect(hasMode && branches, `mode prop=${hasMode}, 双分支=${branches}`).toBe(true)
+  it('1. 退役登录组件不包含二维码请求和轮询', () => {
+    expect(loginJsx).not.toMatch(/api\.(getQrcode|collectLogin|checkLogin|collectCheck)|setInterval/)
   })
 
   it('2. 不消费 B站凭证：组件不出现 cookies / SESSDATA / bili_jct', () => {
@@ -1622,11 +1603,9 @@ describe('[Admin Identity · App.jsx] 三态身份刷新', () => {
     expect(hasFn && setsBoth, `函数定义=${hasFn}, 同步双状态=${setsBoth}`).toBe(true)
   })
 
-  it('2. 登录/登出/口令登录后都经 refreshIdentity 重判（不硬编码 setIsAdmin）', () => {
-    const loginPath = /handleLoginSuccess[\s\S]{0,300}refreshIdentity\(\)/.test(appJsx)
-    const logoutPath = /handleLogout[\s\S]{0,300}refreshIdentity\(\)/.test(appJsx)
-    const noHardSet = !/setIsAdmin\(true\)/.test(appJsx)
-    expect(loginPath && logoutPath && noHardSet, `登录后重判=${loginPath}, 登出后重判=${logoutPath}, 无硬编码=${noHardSet}`).toBe(true)
+  it('2. 写口令登录仍刷新管理员身份', () => {
+    expect(/handleAdminLogin[\s\S]{0,300}refreshIdentity\(\)/.test(appJsx)).toBe(true)
+    expect(appJsx).not.toContain('setIsAdmin(true)')
   })
 })
 
@@ -1661,10 +1640,9 @@ describe('[Admin Identity · DevConsole] 管理员管理模块', () => {
     expect(loads && adds && removes && confirms, `读取=${loads}, 添加=${adds}, 删除=${removes}, 删除确认=${confirms}`).toBe(true)
   })
 
-  it('3. 采集账号区块：状态查询 + collect 模式登录弹窗 + 退出', () => {
-    const hasStatus = /api\.getUserInfo\(\)/.test(panelJsx)
-    const collectLogin = /mode="collect"|mode='collect'/.test(panelJsx)
-    const collectLogout = /api\.collectLogout/.test(panelJsx)
-    expect(hasStatus && collectLogin && collectLogout, `状态=${hasStatus}, 采集登录弹窗=${collectLogin}, 采集退出=${collectLogout}`).toBe(true)
+  it('3. 采集账号保留状态查询和退出，移除扫码登录弹窗', () => {
+    expect(panelJsx).toContain('api.getUserInfo()')
+    expect(panelJsx).toContain('api.collectLogout')
+    expect(panelJsx).not.toContain('<BilibiliLogin')
   })
 })

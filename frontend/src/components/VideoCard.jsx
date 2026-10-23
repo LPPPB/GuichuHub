@@ -8,7 +8,7 @@ import { observationTime } from './RadarDetails'
 const ObsTrendChart = lazy(() => import('./ObsTrendChart'))
 const AiSummary = lazy(() => import('./AiSummary'))
 
-export default function VideoCard({ video, index, displayRank, formatNumber, onFavorite, isFavorited, staggerDelay = 0, showRadar = false }) {
+export default function VideoCard({ video, index, displayRank, formatNumber, onFavorite, isFavorited, staggerDelay = 0, showRadar = false, variant = 'full' }) {
   const rank=Number.isInteger(displayRank) && displayRank>0 ? displayRank : index!=null ? index+1 : null
   const [expanded, setExpanded] = useState(false)
   const [showAiSummary, setShowAiSum] = useState(false)
@@ -18,6 +18,7 @@ export default function VideoCard({ video, index, displayRank, formatNumber, onF
   const videoUrl = video.url || `https://www.bilibili.com/video/${video.bvid}`
   const avatar = video.author_avatar || ''
   const published = formatVideoPublishTime(video.pub_date)
+  const statisticsTime = formatVideoPublishTime(video.observed_at)
   const historical = Boolean(video.online_circuit_skipped || video.online_count_raw === null)
   const hasOnline = video.online_count != null && Number.isFinite(Number(video.online_count)) && Number(video.online_count) >= 0
   const online = video.online_display || (hasOnline ? formatNumber(video.online_count) : '')
@@ -28,9 +29,21 @@ export default function VideoCard({ video, index, displayRank, formatNumber, onF
   const hasRadar = showRadar && Boolean(video.radar)
   const observedOnline = video.online_observation
   const isV2 = video.radar?.algorithm_version === 'radar-v2'
+  const isDashboard = variant === 'dashboard'
+  const reasons = (
+    <div className="video-card-reasons">
+      {video.potential_score != null && <span className="kb-chip kb-chip--rose">潜力 <b>{video.potential_score}</b><span>· {video.potential_reason || '综合潜力'}</span></span>}
+      {video.material_score != null && <span className="kb-chip kb-chip--cyan">素材 <b>{video.material_score}</b><span>· {video.material_reason || '素材价值'}</span></span>}
+    </div>
+  )
+  const trendButton = (
+    <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls={`${panelId}-trend`} className="video-card-action video-card-action--primary">
+      {expanded ? <ChevronUp size={18} /> : <TrendingUp size={18} />}<span>{expanded ? '收起趋势' : '观测趋势'}</span>
+    </button>
+  )
 
   return (
-    <article className="kb-card kb-stagger kb-video-card video-card" style={{ animationDelay: `${staggerDelay}ms` }}>
+    <article className={`kb-card kb-stagger kb-video-card video-card${isDashboard ? ' video-card--dashboard' : ''}`} style={{ animationDelay: `${staggerDelay}ms` }}>
       <div className="inner">
         <div className={`video-card-layout ${hasRadar ? 'video-card-layout--radar' : ''}`}>
           <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="video-card-cover" aria-label={`在 B 站播放：${video.title}`}>
@@ -73,6 +86,8 @@ export default function VideoCard({ video, index, displayRank, formatNumber, onF
             <div className="video-card-secondary-metrics">
               <span><Subtitles size={14} />弹幕 <b>{video.danmaku == null ? '—' : formatNumber(video.danmaku)}</b></span>
               <span><MessageSquare size={14} />评论 <b>{video.comments == null ? '—' : formatNumber(video.comments)}</b></span>
+              {statisticsTime && <span>数据观测 <time aria-label="统计观测时间" dateTime={statisticsTime.iso}
+                title="统计观测时间（北京时间）">{statisticsTime.text}</time></span>}
               {observedOnline ? <span className={observedOnline.status === 'available' ? 'video-card-online' : ''}>
                 <Users size={14} />{observedOnline.status === 'unavailable' ? '在看暂缺' :
                   `${observedOnline.status === 'stale' ? '历史在看' : '在看观测'} ${observedOnline.display}人`}
@@ -83,13 +98,12 @@ export default function VideoCard({ video, index, displayRank, formatNumber, onF
           </div>
 
           {hasRadar && <div className="kb-video-radar-slot"><VideoRadar radar={video.radar} delay={staggerDelay} /></div>}
+          {isDashboard && reasons}
+          {isDashboard && <div className="video-card-inline-action">{trendButton}</div>}
         </div>
 
-        <div className="video-card-footer">
-          <div className="video-card-reasons">
-            {video.potential_score != null && <span className="kb-chip kb-chip--rose">潜力 <b>{video.potential_score}</b><span>· {video.potential_reason || '综合潜力'}</span></span>}
-            {video.material_score != null && <span className="kb-chip kb-chip--cyan">素材 <b>{video.material_score}</b><span>· {video.material_reason || '素材价值'}</span></span>}
-          </div>
+        {!isDashboard && <div className="video-card-footer">
+          {reasons}
           <div className="video-card-actions">
             {hasRadar && isV2 && <button type="button" className="video-card-action video-card-radar-toggle"
               onClick={() => setShowPortrait(value => !value)} aria-expanded={showPortrait} aria-controls={`${panelId}-portrait`}>
@@ -101,17 +115,15 @@ export default function VideoCard({ video, index, displayRank, formatNumber, onF
             <button type="button" onClick={() => setShowAiSum(value => !value)} aria-expanded={showAiSummary} aria-controls={`${panelId}-summary`} className="video-card-action">
               <Sparkles size={17} /><span>AI 总结</span>
             </button>
-            <button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} aria-controls={`${panelId}-trend`} className="video-card-action video-card-action--primary">
-              {expanded ? <ChevronUp size={18} /> : <TrendingUp size={18} />}<span>{expanded ? '收起趋势' : '观测趋势'}</span>
-            </button>
+            {trendButton}
           </div>
-        </div>
+        </div>}
 
         {showPortrait && <div id={`${panelId}-portrait`} className="video-card-panel video-card-mobile-portrait">
           <div className="flex justify-center py-3"><VideoRadar radar={video.radar} /></div>
         </div>}
         {expanded && <div id={`${panelId}-trend`} className="video-card-panel">
-          <Suspense fallback={<p className="text-xs text-haze-400 py-6">加载趋势图表…</p>}><ObsTrendChart bvid={video.bvid} /></Suspense>
+          <Suspense fallback={<p className="text-xs text-haze-400 py-6">加载趋势图表…</p>}><ObsTrendChart bvid={video.bvid} observedAt={video.observed_at} /></Suspense>
         </div>}
         {showAiSummary && <div id={`${panelId}-summary`} className="video-card-panel">
           <Suspense fallback={<p className="text-xs text-haze-400 py-6">AI 总结加载中…</p>}><AiSummary bvid={video.bvid} /></Suspense>

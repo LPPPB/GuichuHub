@@ -1,0 +1,137 @@
+✔ recovers only the committed generation after restart and ignores partial files (14.3385ms)
+✔ failed pointer rename preserves previous committed generation (12.6081ms)
+✔ rejects path traversal and corrupt manifest (10.0462ms)
+✔ nine exact pages, HEAD, conditional and query requests share cached documents (79.298ms)
+✔ canonical redirects, unknown paths and unsupported methods have honest status (33.8562ms)
+✔ unpublished pages return retryable non-indexable 503 (3.3684ms)
+✖ a running publisher refuses pages requested by a different client build (3.4549ms)
+✔ publishes changed content and leaves timestamps and ETag unchanged for equal versions (2.767ms)
+✔ keeps failed source and home summary while independently updating another source (0.9363ms)
+✔ failed candidate render or disk commit never replaces a successful batch (0.5374ms)
+✔ coalesces overlapping refreshes and retains successful data after fetch failure (2.6365ms)
+✔ publishes an explicit empty result and refreshes UP independently (0.5335ms)
+✔ a fetch timeout aborts and returns without replacing the committed page (19.733ms)
+✔ a new build regenerates old cached content before exposing documents (0.6934ms)
+✖ restart serves already committed same-build documents without any disk writes (2.0512ms)
+✖ new-build reconstruction retries when the first durable commit fails (0.724ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 13
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 244.2295
+
+✖ failing tests:
+
+test at public-pages\http.test.mjs:44:1
+✖ a running publisher refuses pages requested by a different client build (3.4549ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  200 !== 503
+
+      at TestContext.<anonymous> (file:///F:/%E4%BD%9C%E4%B8%9A%E5%B7%A5%E7%A8%8B%E5%BA%93/GuichuHub%E5%BC%80%E5%8F%91%E5%B7%A5%E4%BD%9C%E5%8C%BA/guichuhub-public-html/frontend/public-pages/http.test.mjs:48:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 503,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at public-pages\publisher.test.mjs:89:1
+✖ restart serves already committed same-build documents without any disk writes (2.0512ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+  + Map(0) {}
+  - Map(2) {
+  -   '/' => {
+  -     bootstrap: {
+  -       build_id: 'build1',
+  -       confirmed_at: {
+  -         'kichu-rank': 1000
+  -       },
+  -       render_year: 2026,
+  -       schema_version: 1,
+  -       sections: {
+  -         'kichu-rank': {
+  -           content_version: 'one',
+  -           data: {
+  -             kichu_rank: [
+  -               {
+  -                 bvid: 'BV1HYp16oE8v',
+  -                 title: 'one'
+  -               }
+  -             ]
+  -           },
+  -           source_updated_at: null,
+  -           status: 'ready'
+  -         }
+  -       },
+  -       tab_id: 'dashboard'
+  -     },
+  -     etag: '"d7c5f0f3d10f04acb017cf7243912e4bf08a1607c53b587c8ba332eb2ceffb41"',
+  -     html: '{"schema_version":1,"build_id":"build1","tab_id":"dashboard","sections":{"kichu-rank":{"status":"ready","content_version":"one","source_updated_at":null,"data":{"kichu_rank":[{"title":"one","bvid":"BV1HYp16oE8v"}]}}},"confirmed_at":{"kichu-rank":1000},"render_year":2026}'
+  -   },
+  -   '/rankings/kichu' => {
+  -     bootstrap: {
+  -       build_id: 'build1',
+  -       confirmed_at: {
+  -         'kichu-rank': 1000
+  -       },
+  -       render_year: 2026,
+  -       schema_version: 1,
+  -       sections: {
+  -         'kichu-rank': {
+  -           content_version: 'one',
+  -           data: {
+  -             kichu_rank: [
+  -               {
+  -                 bvid: 'BV1HYp16oE8v',
+  -                 title: 'one'
+  -               }
+  -             ]
+  -           },
+  -           source_updated_at: null,
+  -           status: 'ready'
+  -         }
+  -       },
+  -       tab_id: 'kichu-rank'
+  -     },
+  -     etag: '"3e10276f6ed9d184e29db3f28f0bb3d2eb830ac863b4abe6b987b1fb09589da4"',
+  -     html: '{"schema_version":1,"build_id":"build1","tab_id":"kichu-rank","sections":{"kichu-rank":{"status":"ready","content_version":"one","source_updated_at":null,"data":{"kichu_rank":[{"title":"one","bvid":"BV1HYp16oE8v"}]}}},"confirmed_at":{"kichu-rank":1000},"render_year":2026}'
+  -   }
+  - }
+
+      at TestContext.<anonymous> (file:///F:/%E4%BD%9C%E4%B8%9A%E5%B7%A5%E7%A8%8B%E5%BA%93/GuichuHub%E5%BC%80%E5%8F%91%E5%B7%A5%E4%BD%9C%E5%8C%BA/guichuhub-public-html/frontend/public-pages/publisher.test.mjs:96:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: Map(0) {},
+    expected: Map(2) { '/rankings/kichu' => { html: '{"schema_version":1,"build_id":"build1","tab_id":"kichu-rank","sections":{"kichu-rank":{"status":"ready","content_version":"one","source_updated_at":null,"data":{"kichu_rank":[{"title":"one","bvid":"BV1HYp16oE8v"}]}}},"confirmed_at":{"kichu-rank":1000},"render_year":2026}', etag: '"3e10276f6ed9d184e29db3f28f0bb3d2eb830ac863b4abe6b987b1fb09589da4"', bootstrap: [Object] }, '/' => { html: '{"schema_version":1,"build_id":"build1","tab_id":"dashboard","sections":{"kichu-rank":{"status":"ready","content_version":"one","source_updated_at":null,"data":{"kichu_rank":[{"title":"one","bvid":"BV1HYp16oE8v"}]}}},"confirmed_at":{"kichu-rank":1000},"render_year":2026}', etag: '"d7c5f0f3d10f04acb017cf7243912e4bf08a1607c53b587c8ba332eb2ceffb41"', bootstrap: [Object] } },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at public-pages\publisher.test.mjs:100:1
+✖ new-build reconstruction retries when the first durable commit fails (0.724ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  0 !== 2
+
+      at TestContext.<anonymous> (file:///F:/%E4%BD%9C%E4%B8%9A%E5%B7%A5%E7%A8%8B%E5%BA%93/GuichuHub%E5%BC%80%E5%8F%91%E5%B7%A5%E4%BD%9C%E5%8C%BA/guichuhub-public-html/frontend/public-pages/publisher.test.mjs:108:10)
+      at async Test.run (node:internal/test_runner/test:1332:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

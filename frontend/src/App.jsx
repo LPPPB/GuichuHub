@@ -1,15 +1,19 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense, startTransition } from 'react'
+import { usePublicNavigation } from './routing/usePublicNavigation'
+import PublicLink, { PublicNavigationAvailability } from './routing/PublicLink'
+import PublicSnapshotTime from './publicPages/PublicSnapshotTime'
 import { api, verifyAdminSilent } from './utils/api'
 import Sidebar from './components/Sidebar'
 import MemeCard from './components/MemeCard'
 import SongCard from './components/SongCard'
 import VideoCard from './components/VideoCard'
 import RankingSource from './components/RankingSource'
+import InteractionQualityCard from './components/InteractionQualityCard'
+import DashboardRanking from './components/DashboardRanking'
 import DanmakuCloud from './components/DanmakuCloud'
 import CommentList from './components/CommentList'
 import FavoritesPanel from './components/FavoritesPanel'
 import MiniPlayer from './components/MiniPlayer'
-import BilibiliLogin from './components/BilibiliLogin'
 import OnlineBreakerChart from './components/OnlineBreakerChart'
 import SiteFooter from './components/SiteFooter'
 import { Flame, Music, Video, MessageCircle, Star, TrendingUp, Trophy, Zap, Sparkles, Users, Search, Tag, Code2, LayoutDashboard, LineChart, Layers, ScanSearch, ChevronRight, AlertTriangle } from 'lucide-react'
@@ -29,19 +33,27 @@ const EMPTY_DATA = {
   material_candidates: [], meme_materials: [], danmaku_words: [],
   comments_gold: [], last_updated: null,
 }
+const PUBLIC_FIELDS = {'kichu-rank':'kichu_rank',memes:'hot_memes',videos:'hot_videos',songs:'hot_songs',
+  'meme-materials':'meme_materials',materials:'material_candidates',danmaku:'danmaku_words'}
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard')
-  const [data, setData] = useState(EMPTY_DATA)
+export default function App({initialTab, initialData, initialAux, renderYear} = {}) {
+  const availableTabs = useRef(new Set(initialData
+    ? [initialTab, ...Object.entries(PUBLIC_FIELDS).filter(([,field])=>Array.isArray(initialData[field])).map(([tab])=>tab),
+       ...(initialAux?.sections?.['up-trends'] ? ['up-trends'] : [])]
+    : ['dashboard','up-trends',...Object.keys(PUBLIC_FIELDS)]))
+  const isPublicTabAvailable = tab => availableTabs.current.has(tab)
+  const {activeTab, navigate: setActiveTab} = usePublicNavigation(initialTab, isPublicTabAvailable)
+  const [data, setData] = useState(() => ({...EMPTY_DATA, ...initialData}))
   const [interactionQuality, setInteractionQuality] = useState([])
   const [tagHeat, setTagHeat] = useState([])
   const [risingWords, setRisingWords] = useState([])
   const [risingMeta, setRisingMeta] = useState(null)
   const maxHeat = Math.max(...(data.hot_memes || []).map((m) => Number(m.heat) || 0), 1)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!initialData)
+  const hasPublicData = useRef(Boolean(initialData))
+  const [preferencesReady, setPreferencesReady] = useState(!initialData)
   const [favorites, setFavorites] = useState([])
   const [showFavorites, setShowFavorites] = useState(false)
-  const [showLogin, setShowLogin] = useState(false)
   // 顶部轻提示（如「需要管理员权限」）；3 秒自动消失
   const [notice, setNotice] = useState('')
   const noticeTimerRef = useRef(null)
@@ -51,13 +63,15 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [crawling, setCrawling] = useState(false)
   const crawlingRef = useRef(false)
+  const dashboardRevisionRef = useRef(null)
+  const dashboardRequestRef = useRef(0)
   const [breakerTrend, setBreakerTrend] = useState([])
   const [breakerThreshold, setBreakerThreshold] = useState(3)
   const [isLive, setIsLive] = useState(false)
   const [liveExpired, setLiveExpired] = useState(false)
   const liveExpiryTimer = useRef(null)
   const [theme, setTheme] = useState(() => {
-    if (typeof window === 'undefined') return 'dark'
+    if (initialData || typeof window === 'undefined') return 'dark'
     const saved = localStorage.getItem('kb-theme')
     if (saved === 'light' || saved === 'dark') return saved
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
@@ -84,11 +98,23 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!initialData) return
+    const saved = localStorage.getItem('kb-theme')
+    // Startup effects can finish before public lazy chunks hydrate. Keep the
+    // server content in place until those boundaries can accept the update.
+    startTransition(() => {
+      setTheme(saved === 'light' || saved === 'dark' ? saved : window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      setPreferencesReady(true)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!preferencesReady) return
     const root = document.documentElement
     if (theme === 'dark') root.classList.add('dark')
     else root.classList.remove('dark')
     localStorage.setItem('kb-theme', theme)
-  }, [theme])
+  }, [theme, preferencesReady])
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
 
   useEffect(() => {
@@ -102,11 +128,17 @@ export default function App() {
         if (stopped) return
         if (res.success && res.data) {
           const isCrawling = !!res.data.crawling
-          if (crawlingRef.current && !isCrawling) loadData()
+          const revision = JSON.stringify([res.data.last_updated, res.data.data_source,
+            res.data.observation_revision, Math.floor(Date.now() / 60000)])
+          const changed = dashboardRevisionRef.current != null && dashboardRevisionRef.current !== revision
+          dashboardRevisionRef.current = revision
+          if ((crawlingRef.current && !isCrawling) || changed) loadData({ background: true })
           crawlingRef.current = isCrawling
-          setCrawling(isCrawling)
-          if (res.data.online_breaker?.trend)     setBreakerTrend(res.data.online_breaker.trend)
-          if (res.data.online_breaker?.threshold != null) setBreakerThreshold(res.data.online_breaker.threshold)
+          startTransition(() => {
+            setCrawling(isCrawling)
+            if (res.data.online_breaker?.trend) setBreakerTrend(res.data.online_breaker.trend)
+            if (res.data.online_breaker?.threshold != null) setBreakerThreshold(res.data.online_breaker.threshold)
+          })
         }
       } finally { inFlight = false }
       if (!stopped && !document.hidden) timer = setTimeout(poll, delay())
@@ -122,17 +154,19 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false
-    api.getInteractionQuality(20).then(res => { if (!cancelled && res.success) setInteractionQuality(res.data || []) }).catch(() => {})
+    api.getInteractionQuality(20).then(res => { if (!cancelled && res.success) startTransition(() => setInteractionQuality(res.data || [])) }).catch(() => {})
     return () => { cancelled = true }
   }, [data.last_updated, isLive])
 
   useEffect(() => {
     let cancelled = false
-    api.getTagHeat(40).then(res => { if (!cancelled && res.success) setTagHeat(res.data || []) }).catch(() => {})
+    api.getTagHeat(40).then(res => { if (!cancelled && res.success) startTransition(() => setTagHeat(res.data || [])) }).catch(() => {})
     api.getRisingWords(2, 6, 30).then(res => {
       if (!cancelled && res.success) {
-        setRisingWords(res.data || [])
-        setRisingMeta(res.meta || null)
+        startTransition(() => {
+          setRisingWords(res.data || [])
+          setRisingMeta(res.meta || null)
+        })
       }
     }).catch(() => {})
     return () => { cancelled = true }
@@ -145,31 +179,40 @@ export default function App() {
     }
   }, [])
 
-  const loadData = async () => {
-    setLoading(true)
+  const loadData = async ({ background = false } = {}) => {
+    const requestId = ++dashboardRequestRef.current
+    if (!background) setLoading(!hasPublicData.current)
+    try {
     const res = await api.getDashboard()
+    if (requestId !== dashboardRequestRef.current) return
     if (res.success && res.data) {
-      setData(res.data)
+      for (const [tab,field] of Object.entries(PUBLIC_FIELDS)) if (Array.isArray(res.data[field])) availableTabs.current.add(tab)
+      if (Object.values(PUBLIC_FIELDS).every(field=>Array.isArray(res.data[field]))) availableTabs.current.add('dashboard')
+      hasPublicData.current = true
       const newIsLive = res.data.is_live || false
-      setIsLive(newIsLive); setLiveExpired(false)
+      startTransition(() => {
+        setData(previous => ({...previous, ...res.data}))
+        setIsLive(newIsLive); setLiveExpired(false)
+      })
       if (liveExpiryTimer.current) { clearTimeout(liveExpiryTimer.current); liveExpiryTimer.current = null }
       if (newIsLive) {
         liveExpiryTimer.current = setTimeout(() => { setLiveExpired(true); liveExpiryTimer.current = null }, 10 * 60 * 1000)
       }
     }
-    setLoading(false)
+    } catch { /* Retain the last successful public snapshot when offline. */ }
+    finally { if (requestId === dashboardRequestRef.current) startTransition(() => setLoading(false)) }
   }
-  const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) setFavorites(res.data || []) }
+  const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) startTransition(() => setFavorites(res.data || [])) }
   // 三态身份刷新：GET /auth/me → {admin, via, user}（口令超管 / B站管理员会话 / 访客）
   const refreshIdentity = async () => {
     const res = await api.getAuthMe()
     if (res.success && res.data) {
-      setIsAdmin(!!res.data.admin)
-      setBiliUser(res.data.user || null)
+      startTransition(() => {
+        setIsAdmin(!!res.data.admin)
+        setBiliUser(res.data.user || null)
+      })
     }
   }
-  // 身份登录成功（会话已写入 HttpOnly Cookie）：刷新身份与收藏归属后进入UP主动态
-  const handleLoginSuccess = async () => { await refreshIdentity(); await loadFavorites(); setActiveTab('up-trends') }
   // 退出B站身份（api.logout 清除服务器会话与 HttpOnly Cookie）；口令超管身份不受影响，重判即可
   const handleLogout = async () => { await api.logout(); await refreshIdentity(); setActiveTab('dashboard') }
   const handleRefresh = async () => { const res = await api.refresh(); if (res.success || res.crawling) { crawlingRef.current = true; setCrawling(true) } }
@@ -181,8 +224,8 @@ export default function App() {
       await loadFavorites()
     }
   }
-  // 收藏需登录 B站账号（归属 mid，跨设备持久）；未登录触发统一登录弹窗
-  const requireLogin = () => { if (!biliUser) { setShowLogin(true); return true } return false }
+  // 收藏记录保留；扫码身份登录下线期间不发起收藏写请求。
+  const requireLogin = () => { flashNotice('B站登录已下线，收藏功能暂不可用'); return true }
   const handleAddFavorite = async (type, item) => { if (requireLogin()) return; await api.addFavorite(type, item); await loadFavorites() }
   const handleRemoveFavorite = async (id) => { if (requireLogin()) return; await api.removeFavorite(id); await loadFavorites() }
   // 顶部轻提示：3 秒自动消失（无权限/操作反馈）
@@ -247,20 +290,23 @@ export default function App() {
   const d = (idx, step = 45) => idx * step
 
   return (
+    <PublicNavigationAvailability.Provider value={isPublicTabAvailable}>
     <div className="app-shell">
       <Sidebar
         tabGroups={tabGroups} devTab={devTab}
         activeTab={activeTab} onTabChange={setActiveTab}
         onRefresh={handleRefresh} loading={loading} crawling={crawling}
         lastUpdated={data.last_updated} isLive={isLive} liveExpired={liveExpired}
-        onToggleFavorites={() => { if (!biliUser) { setShowLogin(true); return } setShowFavorites(v => !v) }} favoritesCount={favorites.length}
-        onOpenLogin={() => setShowLogin(true)} biliUser={biliUser} onLogout={handleLogout}
+        onToggleFavorites={() => { if (!biliUser) { flashNotice('B站登录已下线，收藏功能暂不可用'); return } setShowFavorites(v => !v) }} favoritesCount={favorites.length}
+        onOpenLogin={() => flashNotice('B站登录已下线，后续将接入官方授权')} biliUser={biliUser} onLogout={handleLogout}
         isAdmin={isAdmin} onAdminLogin={handleAdminLogin}
         onDevBlocked={() => flashNotice('需要管理员权限')}
         theme={theme} onToggleTheme={toggleTheme}
       />
 
       <main className="flex-1 min-w-0 relative z-10 flex flex-col">
+        {notice && <div role="status" className="sticky top-4 z-30 mx-auto mt-4 rounded-xl border border-white/10 bg-void-900 px-4 py-3 text-sm text-haze-50">{notice}</div>}
+        {activeTab === 'not-found' && <div className="p-8"><h1>页面不存在</h1><PublicLink tabId="dashboard" onNavigate={setActiveTab}>返回首页</PublicLink></div>}
         {activeTab === 'dashboard' && (
           <div className="sr-only">
             <h1>GuichuHub · B站鬼畜创作灵感看板</h1>
@@ -297,17 +343,8 @@ export default function App() {
                 <div className="lg:col-span-8 space-y-10">
                   <Suspense fallback={<LazyFallback />}><BurstingVideos /></Suspense>
 
-                  <Section title="鬼畜区排行榜" icon={<Trophy size={20} className="text-haze-50" />}
-                           total={data.kichu_rank?.length} moreText="查看全部" more={() => setActiveTab('kichu-rank')}>
-                    <RankingSource meta={data.kichu_rank_meta} />
-                    <div className="space-y-3">
-                      {data.kichu_rank?.slice(0, 3).map((v, i) => (
-                        <VideoCard key={v.bvid || i} video={v} index={i} displayRank={data.kichu_rank_meta?.source === 'bilibili_official_ranking_v2' ? v.official_rank : undefined} trendColor={trendColor} formatNumber={formatNumber}
-                                   onFavorite={() => handleAddFavorite('video', v)} isFavorited={isFav('video', v)} staggerDelay={d(i)} />
-                      ))}
-                      {data.kichu_rank?.length === 0 && <EmptyHint text="暂无鬼畜区排行数据" />}
-                    </div>
-                  </Section>
+                  <DashboardRanking videos={data.kichu_rank || []} meta={data.kichu_rank_meta} formatNumber={formatNumber}
+                                    onViewAll={() => setActiveTab('kichu-rank')} />
 
                   <Section title="今日热梗 TOP" icon={<Flame size={20} className="text-neon-rose" />}
                            total={data.hot_memes?.length}>
@@ -321,7 +358,7 @@ export default function App() {
                   </Section>
 
                   <Section title="鬼畜潜力视频" icon={<Zap size={20} className="text-primary-500" />}
-                           moreText="查看全部" more={() => setActiveTab('videos')}
+                           moreText="查看全部" more={() => setActiveTab('videos')} moreTab="videos"
                            desc="已发布的鬼畜作品中具有爆发潜力的视频，分数用于比较本批候选作品。">
                     <RankingSource meta={data.potential_meta} />
                     <div className="space-y-3">
@@ -334,34 +371,18 @@ export default function App() {
                   </Section>
 
                   <Section title="互动质量宝藏视频" icon={<Sparkles size={20} className="text-neon-amber" />}
-                           desc={interactionQuality.length > 0 ? '⭐ 表示「低播放 + 高互动」—— 播放低于中位 & 投币率高于中位。综合互动分 = 投币率×3 + 收藏率×2 + 点赞/分享/评论/弹幕率，剔除百万级已火作品，是二创选材的优先目标。' : null}>
-                    <div className="space-y-2">
+                           desc={interactionQuality.length > 0 ? '近 14 天 · 百万播放以下。按点赞、投币、收藏、分享、评论与弹幕的同龄分位综合排序；「宝藏」表示低播放、高投币率。' : null}>
+                    <div className="space-y-2.5">
                       {interactionQuality.slice(0, 10).map((v, i) => (
-                        <a key={v.bvid} href={`https://www.bilibili.com/video/${v.bvid}`} target="_blank" rel="noopener noreferrer"
-                           className="kb-card kb-stagger px-4 py-3 flex items-center gap-3 group"
-                           style={{ animationDelay: `${d(i, 35)}ms` }}>
-                          <div className="inner w-full flex items-center gap-3">
-                            <span className="kb-rank kb-rank--n shrink-0">{i + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[0.92rem] font-semibold text-haze-50 truncate leading-snug group-hover:text-primary-500 transition-colors flex items-center gap-1.5">
-                                {v.is_treasure && <span title="低播放高互动宝藏视频">⭐</span>}{v.title}
-                              </p>
-                              <p className="text-xs text-haze-400 truncate mt-0.5">{v.author || '未知UP'} · {v.tname} · {formatNumber(v.views)} 播放</p>
-                            </div>
-                            <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-                              <span className="kb-chip kb-chip--cyan" title="投币率">币 {Number(v.coin_ratio).toFixed(2)}%</span>
-                              <span className="kb-chip kb-chip--ghost" title="收藏率">藏 {Number(v.fav_ratio).toFixed(2)}%</span>
-                              <span className="kb-chip kb-chip--pink" title="综合互动分">分 {Number(v.engagement_score).toFixed(2)}</span>
-                            </div>
-                          </div>
-                        </a>
+                        <InteractionQualityCard key={v.bvid} video={v} rank={i + 1}
+                                                formatNumber={formatNumber} delay={d(i, 35)} />
                       ))}
-                      {interactionQuality.length === 0 && <EmptyHint text="暂无互动质量数据（需最新批次视频观测）" />}
+                      {interactionQuality.length === 0 && <EmptyHint text="近 14 天暂无符合条件的互动质量视频（需最新批次视频观测）" />}
                     </div>
                   </Section>
 
                   <Section title="素材发掘" icon={<Search size={20} className="text-neon-cyan" />}
-                           moreText="查看全部" more={() => setActiveTab('materials')}
+                           moreText="查看全部" more={() => setActiveTab('materials')} moreTab="materials"
                            desc="从音乐区/搞笑区挖掘有潜力被二创成鬼畜的热门素材，按素材热度 × 传播性 × 新鲜度评分，原素材越火二创受众越大。">
                     <div className="space-y-3">
                       {data.material_candidates?.slice(0, 4).map((v, i) => (
@@ -608,6 +629,7 @@ export default function App() {
             {/* ═══════════ 弹幕 & 评论 ═══════════ */}
             {!loading && activeTab === 'danmaku' && (
               <div className="space-y-10 max-w-6xl">
+                <PageHeader title="弹幕 & 评论" icon={<MessageCircle size={22} className="text-neon-emerald" />} />
                 <Section title="弹幕热词升温榜" icon={<TrendingUp size={20} className="text-neon-rose" />}
                          subtitle={`最近 ${risingMeta?.recent_batch_count || 2} 批 vs 此前 ${risingMeta?.base_batch_count || 6} 批`}
                          desc="按每批每万词出现率计算，降低抓取量和缺失批次对升温倍率的干扰。">
@@ -660,11 +682,12 @@ export default function App() {
 
             {/* ═══════════ UP主动态 ═══════════ */}
             {!loading && activeTab === 'up-trends' && (
-              <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} /></Suspense>
+                <Suspense fallback={<LazyFallback />}><UpTrends formatNumber={formatNumber} isAdmin={isAdmin} initialPublicAnalysis={initialAux?.sections?.['up-trends']?.data?.up_analysis} initialRenderYear={renderYear} /></Suspense>
             )}
+            <PublicSnapshotTime bootstrap={initialAux} tab={activeTab} />
           </div>
         )}
-        <SiteFooter
+        <SiteFooter renderYear={renderYear}
           tabGroups={tabGroups}
           activeTab={activeTab}
           onNavigate={(tabId) => { setActiveTab(tabId); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
@@ -675,15 +698,13 @@ export default function App() {
         <FavoritesPanel favorites={favorites} onClose={() => setShowFavorites(false)}
                         onRemove={handleRemoveFavorite} formatNumber={formatNumber} onRefresh={loadFavorites} />
       )}
-      {showLogin && (
-        <BilibiliLogin onClose={() => setShowLogin(false)} onLoginSuccess={handleLoginSuccess} />
-      )}
       <MiniPlayer />
     </div>
+    </PublicNavigationAvailability.Provider>
   )
 }
 
-function Section({ title, icon, subtitle, desc, note, total, more, moreText, children }) {
+function Section({ title, icon, subtitle, desc, note, total, more, moreTab, moreText, children }) {
   return (
     <section>
       <div className="flex items-baseline justify-between gap-3 mb-4 md:mb-5">
@@ -703,9 +724,9 @@ function Section({ title, icon, subtitle, desc, note, total, more, moreText, chi
           )}
         </div>
         {more && (
-          <button onClick={more} className="kb-chip text-primary-600 bg-primary-50 border border-primary-200 hover:bg-primary-100 transition shrink-0 cursor-pointer">
+          <PublicLink tabId={moreTab} onNavigate={more} className="kb-chip text-primary-600 bg-primary-50 border border-primary-200 hover:bg-primary-100 transition shrink-0 cursor-pointer">
             {moreText || '查看更多'} →
-          </button>
+          </PublicLink>
         )}
       </div>
       {children}

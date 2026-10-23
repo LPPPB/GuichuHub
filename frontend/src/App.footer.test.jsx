@@ -46,18 +46,22 @@ it('navigates to an existing dashboard tab without inventing a route', async () 
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('GuichuHub')
   const footer = within(screen.getByRole('contentinfo'))
-  await user.click(footer.getByRole('button', { name: '热梗' }))
+  await user.click(footer.getByRole('link', { name: '热梗' }))
   expect(await screen.findByRole('heading', { name: '热梗库' })).toBeInTheDocument()
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
 })
 
-it('moves focus from the navigation drawer into the login panel', async () => {
+it('explains unavailable favorites without opening or requesting Bilibili login', async () => {
+  const { api } = await import('./utils/api')
   const user = userEvent.setup()
   render(<App />)
   await user.click(screen.getByRole('button', { name: '打开导航菜单' }))
-  await user.click(within(screen.getByRole('dialog', { name: '站点导航' })).getByRole('button', { name: 'B 站账号登录' }))
-  expect(screen.queryByRole('dialog', { name: '站点导航' })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '关闭登录' })).toHaveFocus()
+  const drawer = within(screen.getByRole('dialog', { name: '站点导航' }))
+  expect(drawer.queryByRole('button', { name: 'B 站账号登录' })).not.toBeInTheDocument()
+  await user.click(drawer.getByRole('button', { name: '我的收藏' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.getByText('B站登录已下线，收藏功能暂不可用')).toBeVisible()
+  expect(api.getQrcode).not.toHaveBeenCalled()
 })
 
 it('keeps the ICP link and displays the approved public security filing as a safe query link', () => {

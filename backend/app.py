@@ -97,29 +97,14 @@ print('[API] 写操作口令已启用（写接口需 X-Write-Token 请求头）'
 
 
 def _current_identity():
-    """身份判定链（三态，每请求缓存一次）：
-    1. X-Write-Token 命中 → 超级管理员（应急后门，永不过期）
-    2. HttpOnly 会话 Cookie → 会话有效且 mid ∈ PostgreSQL 管理员名单 → 管理员
-    3. 其余 → 访客（含"已登录B站但不在名单"的有身份访客）
-    """
+    """扫码登录已下线：仅写口令可获得管理员身份，不读取旧 B 站会话。"""
     ident = getattr(g, 'kb_identity', None)
     if ident is not None:
         return ident
     vid = request.headers.get('X-Visitor-Id', '').strip()
     vid = vid if vid and 0 < len(vid) <= 64 else None
-    # B站会话用户信息先统一解析（写口令与会话同时携带时，写口令只决定 admin 权限，
-    # 不吞掉 user，否则站长扫码登录后 /auth/me 仍返回 user=null → 前端误判未登录）。
-    token = request.cookies.get(SESSION_COOKIE_NAME, '').strip()
-    sess = get_session(token) if token else None
-    user = None
-    if sess:
-        user = {'mid': sess.get('mid'), 'name': sess.get('name'), 'face': sess.get('face')}
     if request.headers.get('X-Write-Token', '') == WRITE_TOKEN:
-        # 应急后门：写口令命中即超管，但仍透传 B站会话 user
-        ident = {'admin': True, 'via': 'write_token', 'user': user, 'visitor_id': vid}
-    elif sess:
-        ident = {'admin': is_admin_mid(sess.get('mid')), 'via': 'session',
-                 'user': user, 'visitor_id': vid}
+        ident = {'admin': True, 'via': 'write_token', 'user': None, 'visitor_id': vid}
     else:
         ident = {'admin': False, 'via': None, 'user': None, 'visitor_id': vid}
     g.kb_identity = ident
@@ -199,6 +184,21 @@ def _clear_verify_failures(ip):
 
 
 @app.before_request
+def _disable_legacy_bilibili_login():
+    """Fail closed before any QR generation, polling, session or collector write."""
+    if request.path.rstrip('/') in {
+        '/api/bili-auth/qrcode', '/api/bili-auth/check',
+        '/api/bili-auth/collect-login', '/api/bili-auth/collect-check',
+    }:
+        response = jsonify({
+            'success': False, 'code': 'BILIBILI_LOGIN_DISABLED',
+            'message': 'B站登录已下线，后续将接入官方授权',
+        })
+        response.headers['Cache-Control'] = 'no-store'
+        return response, 410
+
+
+@app.before_request
 def _require_write_token():
     # 收藏接口豁免全局写口令：访客凭 X-Visitor-Id 即可收藏自己的内容（路由内自行校验归属）
     if request.path.startswith('/api/favorites'):
@@ -246,28 +246,37 @@ def _with_radar_metrics(videos):
     ]
 
 
+def _with_video_observations(videos):
+    from services.radar_service import RadarService
+    from storage.repositories.radar import get_radar_repository
+    return RadarService(get_radar_repository()).decorate(videos or [], int(time.time()))
+
+
 def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
     """组装 /api/dashboard 响应体（弹幕热词过滤在数据变化时只执行一次）"""
     from services.radar_service import RadarService
     from storage.repositories.radar import get_radar_repository
     now = int(time.time()) if now is None else now
     fields = ('kichu_rank', 'hot_videos', 'material_candidates')
-    all_rows = [v for field in fields for v in (data.get(field) or []) if isinstance(v, dict)]
+    all_rows = [v for field in fields for v in (data.get(field) or [])]
     decorated = RadarService(get_radar_repository()).decorate(all_rows, now)
-    metrics = {v.get('bvid'): v for v in decorated if v.get('bvid')}
+    # Keep each section's own scores/metadata, even when a bvid occurs in several lists.
+    sections = {}
+    offset = 0
+    for field in fields:
+        count = len(data.get(field) or [])
+        sections[field] = decorated[offset:offset+count]
+        offset += count
     def rows(field, v2=False):
-        source = data.get(field) or []
-        source = source if v2 else _with_radar_metrics(source)
-        return [{**v, 'online_observation': metrics.get(v.get('bvid'), {}).get('online_observation'),
-                 **({'radar': metrics.get(v.get('bvid'), {}).get('radar')} if v2 else {})}
-                if isinstance(v, dict) else v for v in source]
+        source = sections[field]
+        return source if v2 else _with_radar_metrics(source)
     return {
         'kichu_rank': rows('kichu_rank', True),
         'kichu_rank_meta': data.get('kichu_rank_meta'),
         'potential_meta': data.get('potential_meta'),
         'hot_memes': data.get('hot_memes', []),
         'hot_songs': data.get('hot_songs', []),
-        'hot_videos': rows('hot_videos'),
+        'hot_videos': rows('hot_videos', True),
         'material_candidates': rows('material_candidates'),
         'meme_materials': data.get('meme_materials', []),
         'danmaku_words': filter_danmaku_words(data.get('danmaku_words', [])),
@@ -276,6 +285,16 @@ def _build_dashboard_payload(data, is_live, live_cached_at=None, now=None):
         'is_live': is_live,
         'live_cached_at': live_cached_at,
     }
+
+
+@app.route('/internal/public-pages', methods=['GET'])
+def route_public_pages():
+    from services.public_pages import load_public_pages
+    try:
+        return jsonify(load_public_pages())
+    except Exception:
+        app.logger.error('Public page export unavailable')
+        return jsonify({'success': False}), 503
 
 
 @app.route('/api/dashboard', methods=['GET'])
@@ -338,7 +357,8 @@ def route_videos():
     from storage.cache import get_live_cache
     data=select_collection_views(get_data() or {},live=get_live_cache(),
         mode=load_collection_policy(os.environ).mode,now=int(time.time()))
-    return jsonify({'success': True,'data':data['hot_videos'],'meta':data['potential_meta']})
+    return jsonify({'success': True,'data':_with_video_observations(data['hot_videos']),
+                    'meta':data['potential_meta']})
 
 
 @app.route('/api/kichu-rank', methods=['GET'])
@@ -348,10 +368,8 @@ def route_kichu_rank():
     from storage.cache import get_live_cache
     data=select_collection_views(get_data() or {},live=get_live_cache(),
         mode=load_collection_policy(os.environ).mode,now=int(time.time()))
-    from services.radar_service import RadarService
-    from storage.repositories.radar import get_radar_repository
-    return jsonify({'success': True, 'meta':data['kichu_rank_meta'], 'data': RadarService(get_radar_repository()).decorate(
-        data.get('kichu_rank') or [], int(time.time()))})
+    return jsonify({'success': True, 'meta':data['kichu_rank_meta'],
+                    'data':_with_video_observations(data.get('kichu_rank'))})
 
 
 @app.route('/api/meme-materials', methods=['GET'])
@@ -363,7 +381,8 @@ def route_meme_materials():
 @app.route('/api/material-candidates', methods=['GET'])
 def route_material_candidates():
     data = get_data()
-    return jsonify({'success': True, 'data': data.get('material_candidates', [])})
+    return jsonify({'success': True, 'data': _with_radar_metrics(
+        _with_video_observations(data.get('material_candidates')))})
 
 
 @app.route('/api/danmaku', methods=['GET'])
@@ -520,6 +539,9 @@ def route_status():
     # 数据来源：实时缓存存在且未过期 = live，否则 = scheduled
     from storage.cache import get_live_cache
     data_source = 'live' if get_live_cache() else 'scheduled'
+    from storage.repositories.radar import get_radar_repository
+    repository = get_radar_repository()
+    observation_revision = repository.revision() if repository else (0, None)
     # 同接熔断器状态（L3）：fails/是否打开/冷却倒计时/半开态/状态趋势，便于运维排查风控
     try:
         from collectors.bilibili import (_ONLINE_BREAKER, _online_breaker_open,
@@ -545,6 +567,7 @@ def route_status():
             'last_updated': data.get('last_updated'),
             'bili_logged_in': bili_logged_in,      # B站登录态（过期时前端提示重新扫码）
             'data_source': data_source,             # 数据来源：live(实时)/scheduled(定时)
+            'observation_revision': observation_revision,
             'online_breaker': ob,                   # 同接熔断器状态（null=不可用）
         }
     })
@@ -1917,8 +1940,9 @@ def route_bursting_videos():
 def route_interaction_quality():
     """互动质量榜：低播放高互动的宝藏视频（选材信号）。
 
-    基于最新批次观测计算投币/收藏/点赞/分享/弹幕/同接率，
-    综合互动分 = (投币×3 + 收藏×2 + 其余互动) ÷ 播放。
+    只显示发布于近 14 天的视频。复用 radar-v2 的同龄样本分位口径：
+    点赞、投币、收藏、分享、评论、弹幕六项分位分等权平均。
+    缺少可信观测或有效基线时保留候选，但不伪造得分。
     """
     from storage.db import get_interaction_quality
     limit = request.args.get('limit', 20, type=int)

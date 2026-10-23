@@ -401,7 +401,7 @@ def test_interaction_quality_statistics_read_postgresql(business_repository):
         "shares": 10, "comments": 5, "danmaku": 50, "online_count": 100,
     }, ts=ts, source="test")
 
-    result = legacy_db.get_interaction_quality(limit=20)
+    result = legacy_db.get_interaction_quality(limit=20, now=ts)
 
     assert len(result) == 1
     assert result[0]["bvid"] == "BV-quality"

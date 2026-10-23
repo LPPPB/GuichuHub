@@ -1,0 +1,27 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-10-18-public-html-routes.md
+
+Spec approved; plan approved by user: 进入代码实现.
+Base: e99c019aa83ee903ce866a1a318c52441f4d4962. Start HEAD: 1dc2bdd.
+Execution: inline, one independent review at end; no production deployment.
+Baseline frontend: 20 files / 183 passed; existing act warnings recorded in baseline-frontend.log.
+Pre-flight 1->3/7: PUBLIC_ROUTES consumed by SSR and generated Nginx; consistent.
+Pre-flight 2->3/5/6: schema_version=1, section.status/content_version/source_updated_at/data; consistent.
+Pre-flight 3->4/5: identical bootstrap plus build_id required for SSR/hydration/cache; consistent.
+Pre-flight 5->7: committed snapshot Map and ETag consumed by HTTP; consistent.
+Pre-flight 6->8: all nine routes, independent UP version; consistent.
+Task 1: in progress, BASE 1dc2bdd707c1e20b0b630e566e9e32612fdd4d35.
+Task 1: Ruling: desktop brand now returns home as specified; administrator five-click gesture preserved. Full suite uses maxWorkers=4 after one existing lazy-panel test timed out under compiler contention.
+Task 1: complete (commits 1dc2bdd..557c414, tests: npm --prefix frontend test -- --reporter=dot --maxWorkers=4 →    Duration  11.43s (transform 1.48s, setup 2.38s, import 7.91s, tests 14.34s, environment 13.78s))
+Task 2: focused 7 passed; full backend suite running in disposable PG container. Ruling: bounds test uses ASCII description to stay under byte cap; separate test verifies 2 MiB rejection. No production DB access.
+Task 3: focused SSR 5 passed, npm run build passed, direct Node import of production SSR rendered fixture title. BASE ed043d3. Build output ignored; no Vite at runtime.
+Task 2: complete (557c414..ed043d3; focused 7 passed; full backend 682 passed, 3 third-party jieba SyntaxWarnings). Task 2 full-suite evidence: task-2-suite.log.
+Task 3: complete, SSR 5 and production build/direct import passed; task-4 full frontend suite also covers Task 3. Task 4: focused hydration 2 passed. Public snapshot refresh retains content; deterministic theme and render_year.
+Task 4: complete (a3b6dd5..837e767); full frontend 24 files / 207 passed. Task 5: Node cache/publisher 10 passed, atomic rename/restart/timeout/new build tested. Normal TEMP required due sandbox EPERM. Ruling: independent source+homepage form one publication batch; failed batch preserves both while other sources proceed.
+Task 5: complete (837e767..832231a); Node cache/publisher 10 passed. Task 6: complete; targeted frontend 26 passed; backend 9 passed; previous full frontend 216 passed. Ruling: SSR uses persisted public data only; radar API enrichments remain browser enhancements because the persisted dashboard does not contain them. Cost: radar appears after browser fetch.
+Task 6 correction: completion was recorded before checking a test NameError caused by misplaced assertions. Assertions restored to correct case; backend 9 passed verified. Follow-up commit retains complete evidence. Task 7 BASE includes this correction.
+Task 7: complete; Node 13 passed; deployment and Compose security 10 passed; production build passed. Real container HTTP validation follows in Task 8.
+Task 8: implemented, frontend 216; backend 686; Node 13; build/SEO/layout passed; isolated Docker HTTP and browser JS/no-JS all nine routes passed. Dashboard update 46562ms; independent UP update during dashboard failure 58811ms; both failed restart retained ETags. Old-build cache regenerated, cold cache 503, mismatch rejected. Browser mobile/theme/mock account/favorites passed. Final-build HTTP retry pending because isolated port no longer listening. No production action.
+Task 8 final-build recheck: Docker recovered with hidden start; final nine-page HTTP verifier and eighteen JS/no-JS browser visits passed. Initial conditional assertion raced startup publication of reset fixtures; stable rerun passed. Independent review in progress.
+Final independent review: 6 Important, 0 Critical; one fix pass completed. Real UP producer schemas, deterministic initial dates/calendar, read-only committed-cache restore plus new-build retry, per-request build guard, unloaded-target native navigation, historical online semantics all RED -> GREEN. Fake UP check fixture regraded Important verification gap and fixed RED -> GREEN. Twenty-row no-JS summary overlap regraded Important after actual browser RED; natural-height fix GREEN. Final suites frontend218/backend688/Node16; build/SEO/layout, HTTP/browser and runtime build mismatch/read-only cache checks passed. Final refresh 2018ms/60467ms.
+Final: minor (deferred): abnormal Unix second range and confirmed_at validation. Final: minor (deferred): related_songs missing from public meme-material projection. Final: Ruling: production excluded (no online claims); full SEO metadata/sitemap/IndexNow deferred (discovery work remains); radar browser-only (no initial radar); keep cache history (monitor disk); no fsync/power-loss guarantee (latest generation may be lost); large-summary issue fixed after reproduction; independent review uses targeted reproductions while full suites are author-run (no independent full-suite claim). Detailed costs and dispositions in docs/operations/public-pages-review.md.
+Task 8: complete including independent review disposition and one fix pass. Final post-fix restart with both sources unavailable retained content and ETags. Isolated test project stopped without deleting any volumes. Delivery remains local branch/worktree; no push, merge, production deployment or collection activation.

@@ -1,0 +1,40 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0
+rootdir: F:\��ҵ���̿�\GuichuHub����������\guichuhub-public-html\backend
+configfile: pyproject.toml
+plugins: cov-5.0.0
+collected 10 items
+
+tests\test_public_pages.py ...FF.....                                    [100%]
+
+================================== FAILURES ===================================
+___________ test_real_up_producer_shapes_survive_public_projection ____________
+
+    def test_real_up_producer_shapes_survive_public_projection():
+        up = {'created_at': 1792300000, 'analysis': {
+            'keyword_cloud': [{'text': '��ʵ�����ȴ�', 'value': 42, 'token': 'private-token'}],
+            'content_types': [{'type': '�������', 'count': 3, 'token': 'private-token'}],
+            'timeline': [{'date': '10-18', 'count': 2, 'views': 300, 'token': 'private-token'}]}}
+        analysis = build_public_sections({}, up)['sections']['up-trends']['data']['up_analysis']['analysis']
+>       assert analysis['keyword_cloud'] == [{'text': '��ʵ�����ȴ�', 'value': 42}]
+E       AssertionError: assert [] == [{'text': '��ʵ... 'value': 42}]
+E
+E         Right contains one more item: {'text': '��ʵ�����ȴ�', 'value': 42}
+E         Use -v to get more diff
+
+tests\test_public_pages.py:46: AssertionError
+_ test_persisted_online_observation_is_never_published_as_current_live_count __
+
+    def test_persisted_online_observation_is_never_published_as_current_live_count():
+        row = dict(VIDEO, online_count=99, online_count_raw=None, online_circuit_skipped=True)
+        result = build_public_sections({'kichu_rank': [row]}, None)['sections']['kichu-rank']['data']['kichu_rank'][0]
+        assert result['online_count'] == 99
+>       assert result['online_circuit_skipped'] is True
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'online_circuit_skipped'
+
+tests\test_public_pages.py:54: KeyError
+=========================== short test summary info ===========================
+FAILED tests/test_public_pages.py::test_real_up_producer_shapes_survive_public_projection
+FAILED tests/test_public_pages.py::test_persisted_online_observation_is_never_published_as_current_live_count
+========================= 2 failed, 8 passed in 0.21s =========================

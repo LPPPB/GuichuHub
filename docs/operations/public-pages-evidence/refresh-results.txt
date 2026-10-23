@@ -1,0 +1,4 @@
+Persisted dashboard change published after 2018ms; UP unchanged.
+Independent UP change published after 60467ms; failed dashboard retained.
+Both sources now unavailable. Restart only the isolated publisher, then compare retained ETags.
+{"memes":"\"a82b2d62c9f0fd596e7008ce26111e6f3d9ee5ce751f4e6147902c30943a3edb\"","up":"\"9f019f9790cb54a9924d0689f146d9243ee3c799d2f4dc650a08bcf7a801f54d\""}

@@ -78,7 +78,7 @@ it('opens and closes an observation panel without nesting controls in a video li
     expect(close).toHaveAttribute('aria-expanded', 'true')
     const panel = document.getElementById(close.getAttribute('aria-controls'))
     expect(panel).toBeInTheDocument()
-    await within(panel).findByText(/数据积累中/)
+    await within(panel).findByText(/数据积累中/, {}, { timeout: 5000 })
     expect(request).toHaveBeenCalledWith('BV1demo', 48)
     fireEvent.click(close)
     expect(panel).not.toBeInTheDocument()
@@ -97,4 +97,13 @@ it('reuses exactly one online slot with timestamp, precision, zero and stale sta
   expect(screen.getByText(/历史在看 0人/)).toBeVisible()
   rerender(<VideoCard video={{ ...video, online_observation: { status: 'unavailable' } }} formatNumber={String} />)
   expect(screen.getByText('在看暂缺')).toBeVisible()
+})
+
+it('shows the statistics observation time separately from publication and online time', () => {
+  render(<VideoCard video={{ ...video, pub_date: 1699900000, observed_at: 1700000000,
+    views: 245764, likes: 28966, shares: 947, comments: 356, danmaku: 160 }} formatNumber={String} />)
+  expect(screen.getByRole('time', { name: '统计观测时间' })).toHaveAttribute('datetime', '2023-11-14T22:13:20.000Z')
+  expect(screen.getByText('11.8%')).toBeVisible()
+  expect(screen.getByText('0.4%')).toBeVisible()
+  expect(screen.getByText('245764')).toBeVisible()
 })

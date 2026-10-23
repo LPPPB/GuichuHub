@@ -28,7 +28,7 @@ it('shows official provenance and contextual ranks on home and ranking page',asy
   expect(await screen.findByText(/哔哩哔哩官方榜/)).toBeVisible()
   expect([...container.querySelectorAll('.kb-rank')].map(n=>n.textContent)).toEqual(['7','1'])
   const section=screen.getByRole('heading',{name:'鬼畜区排行榜',exact:true}).closest('section')
-  await user.click(within(section).getByRole('button',{name:'查看全部 →'}))
+  await user.click(within(section).getByRole('link',{name:'查看全部 →'}))
   expect(screen.getByText(/哔哩哔哩官方榜/)).toBeVisible()
   expect(container.querySelector('.kb-rank')).toHaveTextContent('7')
 })

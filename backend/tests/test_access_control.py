@@ -67,23 +67,22 @@ def _add(c, headers, item=None):
 
 
 def _login(client, monkeypatch, vid=VID_A, mid=1, name='站长'):
-    """完整身份登录流程，返回测试客户端 Cookie 中的 token。"""
-    monkeypatch.setattr(app_module, 'check_login_status',
-                        lambda key, save=True: {
-                            'success': True, 'status': 'success', 'message': '登录成功',
-                            'user_mid': mid,
-                            'cookies': {'SESSDATA': 'S', 'bili_jct': 'J', 'DedeUserID': str(mid)},
-                        })
-    monkeypatch.setattr(app_module, 'get_user_info_with_cookie',
-                        lambda cs: {'mid': mid, 'name': name, 'face': ''})
-    res = client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': vid})
-    assert res.status_code == 200, '二维码生成对访客开放'
-    res = client.get(f'/api/bili-auth/check?key={QR_KEY}', headers={'X-Visitor-Id': vid})
-    body = res.get_json()
-    assert res.status_code == 200 and body.get('success'), f'登录失败：{body}'
-    cookie = client.get_cookie(app_module.SESSION_COOKIE_NAME)
-    assert cookie is not None, '登录成功必须写入会话 Cookie'
-    return cookie.value
+    """Inject a verified identity to isolate favorites ownership policy from QR login.
+
+    Production session retirement is exercised separately without this stub.
+    """
+    token = auth_store.create_session(vid, mid, name, '', {})
+    from flask import request
+    def policy_identity():
+        session = auth_store.get_session(request.cookies.get(app_module.SESSION_COOKIE_NAME, ''))
+        is_token_admin = request.headers.get('X-Write-Token') == ADMIN_TOKEN
+        user = {k: session[k] for k in ('mid', 'name', 'face')} if session else None
+        return {'admin': is_token_admin or bool(session and auth_store.is_admin_mid(session['mid'])),
+                'via': 'write_token' if is_token_admin else 'session' if session else None,
+                'user': user, 'visitor_id': request.headers.get('X-Visitor-Id')}
+    monkeypatch.setattr(app_module, '_current_identity', policy_identity)
+    client.set_cookie(app_module.SESSION_COOKIE_NAME, token)
+    return token
 
 
 def _use_session(client, token, headers=None):
@@ -217,29 +216,28 @@ class TestLegacyClaim:
 
 class TestBiliAuthGuard:
 
-    def test_qrcode_open_to_visitor(self, client):
-        """身份登录二维码对访客开放（登录自己的B站账号，不碰采集 Cookie）"""
-        res = client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': VID_A})
-        assert res.status_code == 200
-        assert res.get_json()['success'] is True
+    def test_qrcode_retired_for_visitor(self, client):
+        response = client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': VID_A})
+        assert response.status_code == 410
+        assert response.get_json()['success'] is False
 
     def test_qrcode_requires_visitor_id(self, client):
         res = client.get('/api/bili-auth/qrcode')
-        assert res.status_code == 401
+        assert res.status_code == 410
 
     def test_check_requires_registered_key(self, client):
         """未注册的 key → 404（防 key 伪造）"""
         res = client.get('/api/bili-auth/check?key=never-issued', headers={'X-Visitor-Id': VID_A})
-        assert res.status_code == 404
+        assert res.status_code == 410
 
     def test_collect_login_requires_admin(self, client):
         """采集账号登录入口对访客关闭（防扫码顶替爬虫 Cookie）"""
         res = client.get('/api/bili-auth/collect-login')
-        assert res.status_code == 403
+        assert res.status_code == 410
 
     def test_collect_check_requires_admin(self, client):
         res = client.get('/api/bili-auth/collect-check?key=x')
-        assert res.status_code == 403
+        assert res.status_code == 410
 
     def test_collect_logout_blocked_for_visitor(self, client):
         """采集登出是 POST：无管理员凭证被全局写口令拦截（401）"""
@@ -262,17 +260,12 @@ class TestBiliAuthGuard:
         res = client.post('/api/bili-auth/logout')
         assert res.status_code == 401
 
-    def test_login_success_no_cookie_leak(self, client):
-        """凭证与会话 token 只留服务器，响应体不得泄露。"""
-        client.get('/api/bili-auth/qrcode', headers={'X-Visitor-Id': VID_A})
-        res = client.get(f'/api/bili-auth/check?key={QR_KEY}', headers={'X-Visitor-Id': VID_A})
-        assert res.status_code == 200
-        body = res.get_json()
-        assert 'cookies' not in body, 'SESSDATA/bili_jct 不得回传浏览器'
-        assert 'SESSDATA' not in str(body)
-        assert body['success'] is True and body['status'] == 'success'
-        assert 'session_token' not in body
-        assert client.get_cookie(app_module.SESSION_COOKIE_NAME) is not None
+    def test_retired_login_has_no_cookie_leak(self, client):
+        response = client.get('/api/bili-auth/check?key=old', headers={'X-Visitor-Id': VID_A})
+        assert response.status_code == 410
+        assert 'cookies' not in response.get_json()
+        assert 'SESSDATA' not in response.get_data(as_text=True)
+        assert 'Set-Cookie' not in response.headers
 
 
 # ==================== 管理员验证入口 ====================

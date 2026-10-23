@@ -75,3 +75,13 @@ it('shows missing reasons and draws a real zero at the center without filling mi
   expect(screen.getByRole('dialog')).toHaveTextContent('参考样本不足')
   expect(screen.getByText('相对站内观测样本')).toBeVisible()
 })
+
+it('scales the chart and axis hit areas together for a larger demo preview', () => {
+  render(<VideoRadar radar={v2} size={280} />)
+  const chart = screen.getByRole('img', { name: '视频数据雷达图' })
+  expect(chart).toHaveStyle({ height: '280px' })
+  const hit = screen.getByRole('button', { name: '播放规模详情' })
+  expect(parseFloat(hit.style.top)).toBeCloseTo(14 / 164 * 280)
+  fireEvent.click(hit)
+  expect(screen.getByRole('dialog', { name: '播放规模' })).toBeVisible()
+})
