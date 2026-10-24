@@ -209,9 +209,9 @@ def explain_word(word, scope):
     if scope == 'danmaku':
         return explain_danmaku_word(word)
 
-    from collectors.bilibili import explain_tag_rule, explain_meme_rule
+    from collectors.bilibili import explain_tag_rule, explain_hot_meme_rule
     if scope == 'tag':
         return explain_tag_rule(word)
     if scope == 'meme':
-        return explain_meme_rule(word)
+        return explain_hot_meme_rule(word)
     raise ValueError('scope must be danmaku, tag or meme')

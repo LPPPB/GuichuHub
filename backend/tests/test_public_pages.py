@@ -31,6 +31,36 @@ def test_global_clock_and_private_fields_do_not_change_content_version():
     assert first['sections']['memes']['content_version'] != build_public_sections(data, None)['sections']['memes']['content_version']
 
 
+def test_hot_meme_identity_and_match_evidence_survive_public_projection():
+    data = {'hot_memes': [{
+        'keyword': '哈基米', 'meme_id': 'meme_hajimi', 'aliases': ['哈 基 米', 'Hachimi'],
+        'related_videos': [{**VIDEO, 'matched_keywords': ['Hachimi'], 'token': 'private-token'}],
+    }]}
+    before = deepcopy(data)
+    projected = build_public_sections(data, None)['sections']['memes']['data']['hot_memes'][0]
+    assert projected['meme_id'] == 'meme_hajimi'
+    assert projected['aliases'] == ['哈 基 米', 'Hachimi']
+    assert projected['related_videos'][0]['matched_keywords'] == ['Hachimi']
+    assert projected['related_videos'][0]['title'] == VIDEO['title']
+    assert 'private-' not in json.dumps(projected)
+    assert data == before
+
+
+def test_hot_meme_public_alias_lists_are_bounded_and_affect_content_version():
+    data = {'hot_memes': [{
+        'keyword': '公开热梗', 'meme_id': 'meme_example', 'aliases': ['A' * 600] * 21,
+        'related_videos': [{**VIDEO, 'matched_keywords': ['B' * 600] * 21}],
+    }]}
+    first = build_public_sections(data, None)['sections']['memes']
+    row = first['data']['hot_memes'][0]
+    assert len(row['aliases']) == 20
+    assert len(row['aliases'][0]) == 500
+    assert len(row['related_videos'][0]['matched_keywords']) == 20
+    assert len(row['related_videos'][0]['matched_keywords'][0]) == 500
+    data['hot_memes'][0]['aliases'] = ['新写法']
+    assert first['content_version'] != build_public_sections(data, None)['sections']['memes']['content_version']
+
+
 def test_material_related_songs_are_bounded_public_rows_and_affect_version():
     song = {'bvid': VIDEO['bvid'], 'name': '公开关联 BGM', 'plays': 10, 'cookie': 'private-cookie'}
     data = {'meme_materials': [{'name': '公开素材', 'related_songs': [song] * 21}]}

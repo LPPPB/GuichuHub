@@ -63,12 +63,28 @@ def _rows(value, project, limit=200):
     return result
 
 
+def _meme_strings(value):
+    return [word[:500] for word in value[:20] if isinstance(word, str)] if isinstance(value, list) else []
+
+
+def _meme_video(value):
+    row = _video(value)
+    if row is not None and isinstance(value.get('matched_keywords'), list):
+        row['matched_keywords'] = _meme_strings(value['matched_keywords'])
+    return row
+
+
 def _meme(value):
     if not isinstance(value, dict) or not _text(value.get('keyword'), 500):
         return None
-    return {'keyword': _text(value['keyword'], 500), 'heat': _number(value.get('heat')),
-            'trend_label': _text(value.get('trend_label')),
-            'related_videos': _rows(value.get('related_videos'), _video, 20)}
+    row = {'keyword': _text(value['keyword'], 500), 'heat': _number(value.get('heat')),
+           'trend_label': _text(value.get('trend_label')),
+           'related_videos': _rows(value.get('related_videos'), _meme_video, 20)}
+    if _text(value.get('meme_id'), 120):
+        row['meme_id'] = _text(value['meme_id'], 120)
+    if isinstance(value.get('aliases'), list):
+        row['aliases'] = _meme_strings(value['aliases'])
+    return row
 
 
 def _material(value):

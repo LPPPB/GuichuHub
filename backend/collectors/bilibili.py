@@ -1364,8 +1364,45 @@ def explain_meme_rule(kw, *, stopwords=None, seed_words=None, apply_tag_rules=Tr
 
 # ==================== 以上为共享关键词过滤 ====================
 
+
+def _hot_meme_rule_context():
+    """Read and normalize one rule snapshot for collection or operator preview."""
+    from utils.meme_aliases import load_meme_aliases
+
+    aliases = load_meme_aliases()
+    seeds = set(load_meme_seed_words())
+    tags = _get_tag_filters()
+    allowed = {aliases.resolve(word)[0] for word in tags['allowed_two_char']}
+    blocked = {aliases.resolve(word)[0] for word in tags['stop_set']} - allowed
+    return {
+        'aliases': aliases,
+        'seed_words': seeds,
+        'seed_ids': {aliases.resolve(word)[0] for word in seeds},
+        'stopwords': {category: [aliases.resolve(word)[1] for word in words]
+                      for category, words in load_meme_stopwords().items()},
+        'blocked_tag_ids': blocked,
+    }
+
+
+def explain_hot_meme_rule(word, *, context=None):
+    """Apply hot-meme identity rules without changing material candidate policy."""
+    context = _hot_meme_rule_context() if context is None else context
+    identifier, name = context['aliases'].resolve(str(word or '').strip())
+    seeded = identifier in context['seed_ids']
+    if identifier in context['blocked_tag_ids'] and not seeded:
+        decision = {'accepted': False, 'layer': 'tag', 'category': '标签别名停用词', 'match': 'exact'}
+    else:
+        decision = explain_meme_rule(name, stopwords=context['stopwords'],
+                                     seed_words={name} if seeded else set())
+    return {**decision, 'meme_id': identifier, 'canonical_keyword': name}
+
+
 def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     """Aggregate title/tag mentions; require at least two independent BVs."""
+    from utils.meme_aliases import (
+        normalize_meme_key, normalize_meme_text_with_spans, is_meme_word_character,
+    )
+
     print('正在提取热梗...')
     all_videos = _deduplicate_by_bvid(kichu_videos + music_videos + funny_videos + popular_videos)
     meme_dict = {}
@@ -1373,12 +1410,13 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
     # 种子热梗词豁免：显式声明要收录的梗优先级最高，即使被停用词表误伤也强制保留
     # （与 get_meme_materials 的 seed_words 语义一致，避免两边配置行为打架）。
-    stopwords = load_meme_stopwords()
-    seed_words = set(load_meme_seed_words())
+    rules = _hot_meme_rule_context()
+    alias_index = rules['aliases']
+    seed_words = rules['seed_words']
 
     # Gather the whole candidate pool first so plain-title evidence is independent
     # of whether the video carrying the explicit tag came before or after it.
-    candidates = set(seed_words)
+    candidates = set(seed_words) | set(alias_index.terms())
     video_keywords = []
     for video in all_videos:
         title = video['title']
@@ -1389,20 +1427,48 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
         candidates.update(all_keywords)
         video_keywords.append((video, all_keywords))
 
-    candidates = {kw for kw in candidates
-                  if explain_meme_rule(kw, stopwords=stopwords, seed_words=seed_words)['accepted']}
+    # Both declared aliases and cosmetic variants share an identity before the
+    # evidence gate. Unlisted words retain automatic discovery and stable keys.
+    groups = {}
+    for spelling in sorted(candidates):
+        identifier, name = alias_index.resolve(spelling)
+        group = groups.setdefault(identifier, {'name': name, 'forms': set(), 'aliases': set()})
+        group['name'] = min(group['name'], name)
+        group['forms'].add(normalize_meme_key(spelling))
+        group['aliases'].add(spelling)
+    groups = {identifier: group for identifier, group in groups.items()
+              if explain_hot_meme_rule(group['name'], context=rules)['accepted']}
     title_patterns = {
-        kw: re.compile(r'(?<![a-z0-9])' + re.escape(kw) + r'(?![a-z0-9])', re.IGNORECASE)
-        if kw.isascii() else re.compile(re.escape(kw), re.IGNORECASE)
-        for kw in candidates
+        identifier: {form: re.compile(re.escape(form))
+                     for form in group['forms']}
+        for identifier, group in groups.items()
     }
     for video, direct_keywords in video_keywords:
-        all_keywords = {kw for kw, pattern in title_patterns.items()
-                        if kw in direct_keywords or pattern.search(video['title'])}
-        for kw in all_keywords:
-            if kw not in meme_dict:
-                meme_dict[kw] = {
-                    'keyword': kw,
+        mentions = {}
+        for spelling in direct_keywords:
+            identifier, _ = alias_index.resolve(spelling)
+            if identifier in groups:
+                mentions.setdefault(identifier, set()).add(spelling)
+        title_key, title_spans = normalize_meme_text_with_spans(video['title'])
+        for identifier, patterns in title_patterns.items():
+            matches = set()
+            for form, pattern in patterns.items():
+                for match in pattern.finditer(title_key):
+                    start, end = match.span()
+                    if form.isascii() and (
+                            (start > 0 and is_meme_word_character(title_key[start - 1])) or
+                            (end < len(title_key) and is_meme_word_character(title_key[end]))):
+                        continue
+                    source = title_spans[start:end]
+                    matches.add(video['title'][min(s[0] for s in source):max(s[1] for s in source)])
+            if matches:
+                mentions.setdefault(identifier, set()).update(matches)
+        for identifier, matched_keywords in mentions.items():
+            if identifier not in meme_dict:
+                meme_dict[identifier] = {
+                    'meme_id': identifier,
+                    'keyword': groups[identifier]['name'],
+                    'aliases': sorted(groups[identifier]['aliases']),
                     'related_videos': [],
                     'video_count': 0,
                     'total_views': 0,
@@ -1410,7 +1476,7 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
                     'trend_avg_score': 0,
                 }
 
-            entry = meme_dict[kw]
+            entry = meme_dict[identifier]
             entry['video_count'] += 1
             entry['total_views'] += video['views']
             entry['total_engagement'] += video['likes'] + video['coins'] + video['favorites'] + video['shares']
@@ -1422,6 +1488,7 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
                     'bvid': video['bvid'],
                     'author': video['author'],
                     'views': video['views'],
+                    'matched_keywords': sorted(matched_keywords),
                 })
 
     results = []
@@ -1434,23 +1501,9 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
             del entry['trend_avg_score']
             results.append(entry)
 
-    results.sort(key=lambda x: x['heat'], reverse=True)
-
-    filtered = []
-    seen_keywords = set()
-    for r in results:
-        kw = r['keyword'].lower()
-        is_duplicate = False
-        for seen in seen_keywords:
-            if kw in seen or seen in kw:
-                is_duplicate = True
-                break
-        if not is_duplicate:
-            seen_keywords.add(kw)
-            filtered.append(r)
-
-    print(f'提取出 {len(filtered)} 个热梗')
-    return filtered[:30]
+    results.sort(key=lambda x: (-x['heat'], x['meme_id']))
+    print(f'提取出 {len(results)} 个热梗')
+    return results[:30]
 
 def get_hot_songs(music_videos, kichu_videos):
     print('正在整理热门BGM...')
