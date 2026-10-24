@@ -1339,6 +1339,29 @@ def is_useless_tag(kw):
     """兼容旧调用；实际判定统一由 ``explain_tag_rule`` 完成。"""
     return not explain_tag_rule(kw)['accepted']
 
+
+def explain_meme_rule(kw, *, stopwords=None, seed_words=None, apply_tag_rules=True):
+    """Share conservative noise checks; hot memes retain their legacy tag gate."""
+    from utils.meme_filters import is_meme_noise
+
+    raw = str(kw or '').strip()
+    if seed_words is None:
+        seed_words = set(load_meme_seed_words())
+    if raw in seed_words:
+        return {'accepted': True, 'layer': 'meme_allow', 'category': '种子热梗词', 'match': 'exact'}
+    if apply_tag_rules:
+        tag_result = explain_tag_rule(raw)
+        if not tag_result['accepted']:
+            return tag_result
+    if is_meme_noise(raw, allowed_words=_get_tag_filters()['allowed_two_char']):
+        return {'accepted': False, 'layer': 'meme', 'category': '公共噪声词或不完整词', 'match': 'format_or_exact'}
+    if stopwords is None:
+        stopwords = load_meme_stopwords()
+    for category, words in stopwords.items():
+        if raw.casefold() in {w.strip().casefold() for w in words}:
+            return {'accepted': False, 'layer': 'meme', 'category': category, 'match': 'exact'}
+    return {'accepted': True, 'layer': 'none', 'category': '未命中过滤规则', 'match': None}
+
 # ==================== 以上为共享关键词过滤 ====================
 
 def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
@@ -1349,9 +1372,7 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
     # 种子热梗词豁免：显式声明要收录的梗优先级最高，即使被停用词表误伤也强制保留
     # （与 get_meme_materials 的 seed_words 语义一致，避免两边配置行为打架）。
-    stopwords = set()
-    for words in load_meme_stopwords().values():
-        stopwords.update(words)
+    stopwords = load_meme_stopwords()
     seed_words = set(load_meme_seed_words())
 
     for video in all_videos:
@@ -1359,13 +1380,10 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
         tags = video.get('tags', [])
         extracted = extract_keywords_from_title(title)
 
-        all_keywords = list(set(extracted + tags))
+        all_keywords = {kw.strip() for kw in extracted + tags if isinstance(kw, str)}
 
         for kw in all_keywords:
-            if is_useless_tag(kw):
-                continue
-            # 命中梗素材库停用词表 → 剔除（种子热梗词豁免）
-            if kw in stopwords and kw not in seed_words:
+            if not explain_meme_rule(kw, stopwords=stopwords, seed_words=seed_words)['accepted']:
                 continue
 
             if kw not in meme_dict:
@@ -1480,12 +1498,10 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
 
     # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
     # 与种子不同，停用词表是"排除已知非梗词"，不需要随热点更新
-    stopwords = set()
-    for words in load_meme_stopwords().values():
-        stopwords.update(words)
+    stopwords = load_meme_stopwords()
 
     # 种子热梗词：即使被停用词表误伤也强制保留（显式声明要收录的梗优先级最高）
-    seed_words = [w for w in (seed_words or []) if w and w.strip()]
+    seed_words = {w.strip() for w in (seed_words or []) if w and w.strip()}
 
     # 1. 提取标题高频词，记录每个词命中的视频
     word_videos = {}  # word -> [video, ...]
@@ -1502,10 +1518,10 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
         words = jieba.cut(title, HMM=False)  # 精确模式，配合自定义词典整词匹配，避免 HMM 碎片
         for w in words:
             w = w.strip()
-            if (len(w) >= 2 and
-                    w not in stopwords and
-                    not w.isdigit() and
-                    not w.startswith('【')):
+            # Materials retain full person/work names (丁真/小苹果); the tag
+            # scene's two-character allowlist and brand substrings are stricter.
+            if explain_meme_rule(w, stopwords=stopwords, seed_words=seed_words,
+                                 apply_tag_rules=False)['accepted']:
                 seen_in_title.add(w)
         for w in seen_in_title:
             word_counter[w] += 1
