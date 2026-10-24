@@ -40,6 +40,11 @@ def _video(bvid, title, tid, views=100000, likes=1000, coins=100,
     }
 
 
+def _two_video_evidence(videos):
+    """Give every filtering candidate two BVs so the count gate cannot mask it."""
+    return videos + [dict(v, bvid=v['bvid'] + '_second') for v in videos]
+
+
 # ────────────── get_hot_songs 白名单分区过滤 ──────────────
 
 def test_hot_songs_only_music_tids():
@@ -63,12 +68,15 @@ def test_hot_memes_uses_config_threshold():
     assert HOT_MEME_VIEWS_MIN == 300000  # 默认值与历史硬编码一致
 
     # 恰好等于阈值 → 不入选（语义是严格大于）
-    videos = [_video('BV1', '【哈基米】真可爱', 22, views=HOT_MEME_VIEWS_MIN)]
+    half = HOT_MEME_VIEWS_MIN // 2
+    videos = [_video('BV1', '【哈基米】真可爱', 22, views=half),
+              _video('BV2', '【哈基米】真可爱', 22, views=HOT_MEME_VIEWS_MIN - half)]
     results = get_hot_memes(videos, [], [], [])
     assert results == [], '总播放量等于阈值不应入选'
 
     # 超过阈值 → 入选
-    videos = [_video('BV2', '【哈基米】真可爱', 22, views=HOT_MEME_VIEWS_MIN + 1)]
+    videos = [_video('BV1', '【哈基米】真可爱', 22, views=half),
+              _video('BV2', '【哈基米】真可爱', 22, views=HOT_MEME_VIEWS_MIN - half + 1)]
     results = get_hot_memes(videos, [], [], [])
     assert any(r['keyword'] == '哈基米' for r in results)
 
@@ -80,7 +88,7 @@ def test_hot_memes_removes_useless_keywords():
         _video('BV2', '【美团外卖】洗脑神曲', 22, views=500000),
         _video('BV3', '【哈基米】真可爱', 22, views=500000),
     ]
-    results = get_hot_memes(videos, [], [], [])
+    results = get_hot_memes(_two_video_evidence(videos), [], [], [])
     keywords = [r['keyword'] for r in results]
     assert '瑞幸咖啡' not in keywords
     assert '美团外卖' not in keywords
@@ -97,7 +105,7 @@ def test_hot_memes_uses_meme_stopwords(monkeypatch):
         _video('BV2', '【本家投稿】串烧', 22, views=500000, tags=['本家投稿']),
         _video('BV3', '【哈基米】真可爱', 22, views=500000, tags=['哈基米']),
     ]
-    results = get_hot_memes(videos, [], [], [])
+    results = get_hot_memes(_two_video_evidence(videos), [], [], [])
     keywords = [r['keyword'] for r in results]
     assert '原创曲' not in keywords
     assert '本家投稿' not in keywords
@@ -112,7 +120,7 @@ def test_hot_memes_seed_words_exempt_from_stopwords(monkeypatch):
         _video('BV1', '【哈基米】真可爱', 22, views=500000, tags=['哈基米']),
         _video('BV2', '【无关词】内容', 22, views=500000, tags=['无关词']),
     ]
-    results = get_hot_memes(videos, [], [], [])
+    results = get_hot_memes(_two_video_evidence(videos), [], [], [])
     keywords = [r['keyword'] for r in results]
     assert '哈基米' in keywords, '种子热梗词应豁免停用词表'
 
@@ -123,7 +131,7 @@ def test_hot_memes_ad_brand_substring_filtered():
         _video('BV1', '【广告】演示', 22, views=500000, tags=['友望自动集尘吸尘器']),
         _video('BV2', '【哈基米】真可爱', 22, views=500000),
     ]
-    results = get_hot_memes(videos, [], [], [])
+    results = get_hot_memes(_two_video_evidence(videos), [], [], [])
     keywords = [r['keyword'] for r in results]
     assert '友望自动集尘吸尘器' not in keywords
     assert '哈基米' in keywords

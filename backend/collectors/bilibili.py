@@ -1365,6 +1365,7 @@ def explain_meme_rule(kw, *, stopwords=None, seed_words=None, apply_tag_rules=Tr
 # ==================== 以上为共享关键词过滤 ====================
 
 def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
+    """Aggregate title/tag mentions; require at least two independent BVs."""
     print('正在提取热梗...')
     all_videos = _deduplicate_by_bvid(kichu_videos + music_videos + funny_videos + popular_videos)
     meme_dict = {}
@@ -1375,17 +1376,30 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     stopwords = load_meme_stopwords()
     seed_words = set(load_meme_seed_words())
 
+    # Gather the whole candidate pool first so plain-title evidence is independent
+    # of whether the video carrying the explicit tag came before or after it.
+    candidates = set(seed_words)
+    video_keywords = []
     for video in all_videos:
         title = video['title']
         tags = video.get('tags', [])
         extracted = extract_keywords_from_title(title)
 
         all_keywords = {kw.strip() for kw in extracted + tags if isinstance(kw, str)}
+        candidates.update(all_keywords)
+        video_keywords.append((video, all_keywords))
 
+    candidates = {kw for kw in candidates
+                  if explain_meme_rule(kw, stopwords=stopwords, seed_words=seed_words)['accepted']}
+    title_patterns = {
+        kw: re.compile(r'(?<![a-z0-9])' + re.escape(kw) + r'(?![a-z0-9])', re.IGNORECASE)
+        if kw.isascii() else re.compile(re.escape(kw), re.IGNORECASE)
+        for kw in candidates
+    }
+    for video, direct_keywords in video_keywords:
+        all_keywords = {kw for kw, pattern in title_patterns.items()
+                        if kw in direct_keywords or pattern.search(video['title'])}
         for kw in all_keywords:
-            if not explain_meme_rule(kw, stopwords=stopwords, seed_words=seed_words)['accepted']:
-                continue
-
             if kw not in meme_dict:
                 meme_dict[kw] = {
                     'keyword': kw,
@@ -1412,8 +1426,8 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
 
     results = []
     for kw, entry in meme_dict.items():
-        # 热梗门槛：至少 1 个视频且聚合总播放量达标（阈值 config.HOT_MEME_VIEWS_MIN 可调）
-        if entry['video_count'] >= 1 and entry['total_views'] > HOT_MEME_VIEWS_MIN:
+        # 种子词只豁免词表过滤，不豁免多视频证据；同一 BV 跨源/标题/标签仅计一次。
+        if entry['video_count'] >= 2 and entry['total_views'] > HOT_MEME_VIEWS_MIN:
             entry['trend_score'] = round(entry['trend_avg_score'] / entry['video_count'], 1)
             entry['trend_label'] = get_trend_label(entry['trend_score'])
             entry['heat'] = calc_meme_heat(entry['total_views'], entry['video_count'], entry['total_engagement'])

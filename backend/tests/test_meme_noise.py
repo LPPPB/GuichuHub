@@ -26,7 +26,8 @@ def test_materials_reject_obvious_noise_before_assignment(word):
     '音乐推荐', '音乐电台', '音乐资讯', '无损音质', '循环歌曲',
 ])
 def test_hot_memes_reject_generic_music_tags(word):
-    assert bili.get_hot_memes([video('BV1', '演示', [word])], [], [], []) == []
+    rows = [video(f'BV{i}', '演示', [word]) for i in range(2)]
+    assert bili.get_hot_memes(rows, [], [], []) == []
 
 
 @pytest.mark.parametrize('word', ['哈基米', '叮咚鸡', '面筋哥', '生命线の小曲', '音乐之王'])
@@ -46,7 +47,8 @@ def test_runtime_override_does_not_disable_common_noise_filter(monkeypatch):
     monkeypatch.setattr(bili, 'load_meme_stopwords', lambda: {'自定义': ['自定义噪声']})
     rows = [video(f'BV{i}', '自己 音乐推荐') for i in range(3)]
     assert bili.get_meme_materials(rows, []) == []
-    assert bili.get_hot_memes([video('BV4', '演示', ['音乐推荐'])], [], [], []) == []
+    noise_rows = [video(f'BV{i}', '演示', ['音乐推荐']) for i in range(2)]
+    assert bili.get_hot_memes(noise_rows, [], [], []) == []
 
 
 def test_title_suffix_does_not_capture_across_book_title_boundary():
@@ -59,7 +61,8 @@ def test_title_suffix_does_not_capture_across_book_title_boundary():
     '[面筋哥', '面筋哥]', '{面筋哥', '面筋哥}',
 ])
 def test_unbalanced_title_fragments_are_not_hot_memes(fragment):
-    assert bili.get_hot_memes([video('BV1', '演示', [fragment])], [], [], []) == []
+    rows = [video(f'BV{i}', '演示', [fragment]) for i in range(2)]
+    assert bili.get_hot_memes(rows, [], [], []) == []
 
 
 def test_intact_bracketed_and_suffix_names_still_extract():
@@ -75,7 +78,7 @@ def test_rule_preview_explains_same_noise_as_aggregators(word):
 def test_explicit_two_char_seed_remains_eligible_in_hot_memes(monkeypatch):
     monkeypatch.setattr(bili, 'load_meme_seed_words', lambda: ['电棍'])
     assert [m['keyword'] for m in bili.get_hot_memes(
-        [video('BV1', '【电棍】', ['电棍'])], [], [], [],
+        [video('BV1', '【电棍】', ['电棍']), video('BV2', '电棍的新作')], [], [], [],
     )] == ['电棍']
 
 
