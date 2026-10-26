@@ -265,6 +265,7 @@ export default function DevPanel() {
     }
     setSaving(false)
     if (savedRes?.success) {
+      window.dispatchEvent(new Event('kichu:word-rules-changed'))
       api.getWordRulesOverview().then((next) => {
         if (next.success) setOverview(next.data || null)
       }).catch(() => {})
@@ -300,7 +301,7 @@ export default function DevPanel() {
 
   const editableTab = ['stopwords', 'seedwords', 'tagfilters', 'danmaku'].includes(tab)
   const effectText = {
-    stopwords: '下次全量抓取生效',
+    stopwords: '保存后立即隐藏命中内容，无需重新抓取',
     seedwords: '下次全量抓取生效',
     tagfilters: '标签热度立即生效；素材结果下次抓取更新',
     danmaku: '词云与升温榜立即生效',
@@ -615,7 +616,7 @@ export default function DevPanel() {
               items={[
                 '管：抓取时主动搜索的热梗词（不是过滤）',
                 '保证哈基米/叮咚鸡等常驻热梗不被"频次≥3"门槛过滤',
-                '优先级最高，即使被停用词表误伤也保留',
+                '用于主动搜索；命中素材/热梗黑名单的内容仍会隐藏',
               ]}
             />
             <div className="bg-white rounded-lg p-3 border border-slate-200 max-h-[50vh] overflow-y-auto pr-1">

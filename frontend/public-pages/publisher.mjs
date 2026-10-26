@@ -38,7 +38,7 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
     restored=true
   }
   async function run() {
-    const result={changedPaths:[],retainedPaths:[],failures:[]}
+    const result={changedPaths:[],retainedPaths:[],failures:[],validatedTabs:[]}
     try { await restore() } catch { result.failures.push('restore') }
     const controller=new AbortController()
     let timer
@@ -54,7 +54,10 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
     for (const [tab,section] of Object.entries(input.sections)) {
       const route=routeForTab(tab)
       if (!route || tab==='dashboard' || !['ready','empty'].includes(section?.status)) continue
-      if (sections[tab]?.content_version===section.content_version && pages.has(route.path)) continue
+      if (sections[tab]?.content_version===section.content_version && pages.has(route.path)) {
+        result.validatedTabs.push(tab)
+        continue
+      }
       const nextSections={...sections,[tab]:section}
       const nextConfirmed={...confirmed,[tab]:sections[tab]?.content_version===section.content_version?confirmed[tab]:clock()}
       try {
@@ -64,17 +67,18 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
         await cache.commitBatch(candidate)
         pages=candidate;sections=nextSections;confirmed=nextConfirmed
         result.changedPaths.push(route.path,'/')
+        result.validatedTabs.push(tab)
       } catch { result.failures.push(tab) }
     }
     result.changedPaths=[...new Set(result.changedPaths)]
     result.retainedPaths=[...pages.keys()].filter(path=>!result.changedPaths.includes(path))
     return result
   }
-  return {
-    snapshot:()=>new Map(pages),
-    refresh() {
-      if (!inFlight) inFlight=run().finally(()=>{inFlight=null})
-      return inFlight
-    },
+  function refresh({afterCurrent=false}={}) {
+    // An older poll may already have read the rules before this request began.
+    if(afterCurrent && inFlight)return inFlight.then(()=>refresh())
+    if (!inFlight) inFlight=run().finally(()=>{inFlight=null})
+    return inFlight
   }
+  return {snapshot:()=>new Map(pages),refresh}
 }

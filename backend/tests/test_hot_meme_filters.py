@@ -112,8 +112,8 @@ def test_hot_memes_uses_meme_stopwords(monkeypatch):
     assert '哈基米' in keywords
 
 
-def test_hot_memes_seed_words_exempt_from_stopwords(monkeypatch):
-    """种子热梗词即使被停用词表误伤也保留（与 get_meme_materials 语义一致）"""
+def test_hot_memes_explicit_stopwords_override_seed_words(monkeypatch):
+    """明确停用词不能被种子热梗收录规则重新放回榜单。"""
     monkeypatch.setattr(bilibili, 'load_meme_stopwords', lambda: {'测试分类': ['哈基米']})
     monkeypatch.setattr(bilibili, 'load_meme_seed_words', lambda: ['哈基米'])
     videos = [
@@ -122,7 +122,7 @@ def test_hot_memes_seed_words_exempt_from_stopwords(monkeypatch):
     ]
     results = get_hot_memes(_two_video_evidence(videos), [], [], [])
     keywords = [r['keyword'] for r in results]
-    assert '哈基米' in keywords, '种子热梗词应豁免停用词表'
+    assert '哈基米' not in keywords, '明确黑名单优先于种子词'
 
 
 def test_hot_memes_ad_brand_substring_filtered():

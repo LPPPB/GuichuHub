@@ -65,6 +65,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const crawlingRef = useRef(false)
   const dashboardRevisionRef = useRef(null)
   const dashboardRequestRef = useRef(0)
+  const rulesReloadPendingRef = useRef(false)
   const [breakerTrend, setBreakerTrend] = useState([])
   const [breakerThreshold, setBreakerThreshold] = useState(3)
   const [isLive, setIsLive] = useState(false)
@@ -95,6 +96,15 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       await verifyAdminSilent()
       await refreshIdentity()
     })()
+  }, [])
+
+  useEffect(() => {
+    const refreshRules = () => {
+      rulesReloadPendingRef.current = true
+      loadData({ background: true })
+    }
+    window.addEventListener('kichu:word-rules-changed', refreshRules)
+    return () => window.removeEventListener('kichu:word-rules-changed', refreshRules)
   }, [])
 
   useEffect(() => {
@@ -129,10 +139,11 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
         if (res.success && res.data) {
           const isCrawling = !!res.data.crawling
           const revision = JSON.stringify([res.data.last_updated, res.data.data_source,
-            res.data.observation_revision, Math.floor(Date.now() / 60000)])
+            res.data.observation_revision, res.data.meme_rules_version, Math.floor(Date.now() / 60000)])
           const changed = dashboardRevisionRef.current != null && dashboardRevisionRef.current !== revision
-          dashboardRevisionRef.current = revision
-          if ((crawlingRef.current && !isCrawling) || changed) loadData({ background: true })
+          if ((crawlingRef.current && !isCrawling) || changed || rulesReloadPendingRef.current) {
+            if (await loadData({ background: true })) dashboardRevisionRef.current = revision
+          } else if (dashboardRevisionRef.current == null) dashboardRevisionRef.current = revision
           crawlingRef.current = isCrawling
           startTransition(() => {
             setCrawling(isCrawling)
@@ -184,7 +195,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
     if (!background) setLoading(!hasPublicData.current)
     try {
     const res = await api.getDashboard()
-    if (requestId !== dashboardRequestRef.current) return
+    if (requestId !== dashboardRequestRef.current) return false
     if (res.success && res.data) {
       for (const [tab,field] of Object.entries(PUBLIC_FIELDS)) if (Array.isArray(res.data[field])) availableTabs.current.add(tab)
       if (Object.values(PUBLIC_FIELDS).every(field=>Array.isArray(res.data[field]))) availableTabs.current.add('dashboard')
@@ -198,8 +209,11 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       if (newIsLive) {
         liveExpiryTimer.current = setTimeout(() => { setLiveExpired(true); liveExpiryTimer.current = null }, 10 * 60 * 1000)
       }
+      rulesReloadPendingRef.current = false
+      return true
     }
-    } catch { /* Retain the last successful public snapshot when offline. */ }
+    return false
+    } catch { return false /* Retain the last successful public snapshot when offline. */ }
     finally { if (requestId === dashboardRequestRef.current) startTransition(() => setLoading(false)) }
   }
   const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) startTransition(() => setFavorites(res.data || [])) }

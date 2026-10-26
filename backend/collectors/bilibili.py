@@ -1388,6 +1388,10 @@ def explain_hot_meme_rule(word, *, context=None):
     """Apply hot-meme identity rules without changing material candidate policy."""
     context = _hot_meme_rule_context() if context is None else context
     identifier, name = context['aliases'].resolve(str(word or '').strip())
+    for category, words in context['stopwords'].items():
+        if name.casefold() in {w.strip().casefold() for w in words}:
+            return {'accepted': False, 'layer': 'meme', 'category': category,
+                    'match': 'exact', 'meme_id': identifier, 'canonical_keyword': name}
     seeded = identifier in context['seed_ids']
     if identifier in context['blocked_tag_ids'] and not seeded:
         decision = {'accepted': False, 'layer': 'tag', 'category': '标签别名停用词', 'match': 'exact'}
@@ -1408,8 +1412,7 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
     meme_dict = {}
 
     # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
-    # 种子热梗词豁免：显式声明要收录的梗优先级最高，即使被停用词表误伤也强制保留
-    # （与 get_meme_materials 的 seed_words 语义一致，避免两边配置行为打架）。
+    # 明确停用词优先于种子收录；两者按相同别名身份解释。
     rules = _hot_meme_rule_context()
     alias_index = rules['aliases']
     seed_words = rules['seed_words']

@@ -185,14 +185,17 @@ def _section(data, source_updated_at=None):
 
 
 def build_public_sections(dashboard: dict, up_analysis: dict | None) -> dict:
+    from services.meme_visibility import filter_meme_sections
     sections = {tab: _unavailable() for tab in TABS}
-    dashboard = dashboard if isinstance(dashboard, dict) else {}
+    dashboard = filter_meme_sections(dashboard if isinstance(dashboard, dict) else {})
     for tab, field, project in (('kichu-rank', 'kichu_rank', _video), ('videos', 'hot_videos', _video), ('memes', 'hot_memes', _meme),
                                 ('meme-materials', 'meme_materials', _material), ('songs', 'hot_songs', _song),
                                 ('materials', 'material_candidates', _video)):
         rows = _rows(dashboard.get(field), project)
         if rows:
             sections[tab] = _section({field: rows})
+        elif field in ('hot_memes', 'meme_materials') and isinstance(dashboard.get(field), list):
+            sections[tab] = {**_section({field: []}), 'status': 'empty'}
     words = _rows(dashboard.get('danmaku_words'), _word)
     comments = _rows(dashboard.get('comments_gold'), _comment)
     if words or comments:

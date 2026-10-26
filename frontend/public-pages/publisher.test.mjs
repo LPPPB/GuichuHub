@@ -3,6 +3,26 @@ import assert from 'node:assert/strict'
 import { createPublisher } from './publisher.mjs'
 
 const section = (v, field='kichu_rank') => ({status:'ready',content_version:v,source_updated_at:null,data:{[field]:[{title:v,bvid:'BV1HYp16oE8v'}]}})
+
+test('a request after a rule save waits for a new read after an older in-flight poll',async()=>{
+  let finish,requests=0
+  const publisher=createPublisher({buildId:'build1',
+    fetchSections:()=>{
+      requests++
+      if(requests===1)return new Promise(resolve=>{finish=resolve})
+      return Promise.resolve({schema_version:1,sections:{memes:{status:'empty',content_version:'blocked',source_updated_at:null,data:{hot_memes:[]}}}})
+    },renderPage:async({bootstrap})=>JSON.stringify(bootstrap),
+    cache:{load:async()=>new Map(),commitBatch:async()=>{}},
+  })
+  const old=publisher.refresh()
+  await new Promise(resolve=>setImmediate(resolve))
+  const fresh=publisher.refresh({afterCurrent:true})
+  finish({schema_version:1,sections:{memes:section('old blocked meme','hot_memes')}})
+  await Promise.all([old,fresh])
+  assert.equal(requests,2)
+  assert.equal(publisher.snapshot().get('/memes').bootstrap.sections.memes.status,'empty')
+})
+
 function harness() {
   let input={schema_version:1,sections:{'kichu-rank':section('one')}}
   let calls=0, failRender=false, failDisk=false, saved=new Map()
@@ -13,6 +33,15 @@ function harness() {
   })
   return {publisher,setInput:v=>{input=v},calls:()=>calls,failRender:()=>{failRender=true},failDisk:()=>{failDisk=true}}
 }
+
+test('only sources confirmed in this refresh can authorize cached meme documents',async()=>{
+  const h=harness()
+  h.setInput({schema_version:1,sections:{memes:section('blocked','hot_memes')}})
+  assert.deepEqual((await h.publisher.refresh()).validatedTabs,['memes'])
+  assert.deepEqual((await h.publisher.refresh()).validatedTabs,['memes'])
+  h.setInput({schema_version:1,sections:{memes:{status:'unavailable',data:{}}}})
+  assert.deepEqual((await h.publisher.refresh()).validatedTabs,[])
+})
 test('publishes changed content and leaves timestamps and ETag unchanged for equal versions', async()=>{
   const h=harness();await h.publisher.refresh()
   const before=h.publisher.snapshot().get('/rankings/kichu');const calls=h.calls()
