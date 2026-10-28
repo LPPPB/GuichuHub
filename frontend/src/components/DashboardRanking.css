@@ -14,7 +14,7 @@
   grid-template-areas: "cover heading" "meta meta" "description description" "metrics metrics" "reasons trend";
 }
 .video-card--dashboard .video-card-reasons { grid-area: reasons; align-self: end; }
-.video-card--dashboard .video-card-reasons .kb-chip { font-size: 10px; padding: 2px 6px; line-height: 1.5; gap: 3px; }
+.video-card--dashboard .video-card-reasons .kb-label { font-size: 11px; line-height: 1.5; gap: 3px; }
 .video-card--dashboard .video-card-inline-action { grid-area: trend; justify-self: end; align-self: end; }
 .video-card--dashboard .video-card-inline-action .video-card-action { min-height: 44px; }
 
@@ -23,7 +23,6 @@
     grid-template-columns: 188px minmax(0, 1fr) auto;
     grid-template-areas: "cover heading heading" "cover meta meta" "cover description description" "reasons metrics trend";
   }
-  .video-card--dashboard .video-card-reasons .kb-chip { font-size: 11px; padding: 2px 8px; }
   .video-card--dashboard .video-card-secondary-metrics { gap: 6px 12px; }
   .video-card--dashboard .video-card-primary-metrics { gap: 10px 18px; }
 }

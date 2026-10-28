@@ -1,4 +1,5 @@
 import { BookmarkPlus, Bookmark, TrendingUp } from 'lucide-react'
+import './ContentLabels.css'
 
 export default function MemeCard({
   meme, index, trendColor, formatNumber,
@@ -8,11 +9,10 @@ export default function MemeCard({
 
   const chipCls = (label) => {
     const L = (label || '').trim()
-    if (/爆|爆发|飙升/.test(L)) return 'kb-chip kb-chip--rose'
-    if (/热|崛起|上升|涨/.test(L)) return 'kb-chip kb-chip--pink'
-    if (/稳|持平/.test(L)) return 'kb-chip kb-chip--ghost'
-    if (/凉|跌|下降/.test(L)) return 'kb-chip kb-chip--cyan'
-    return 'kb-chip kb-chip--ghost'
+    if (/爆|爆发|飙升/.test(L)) return 'kb-label kb-label--status kb-label--rose'
+    if (/热|崛起|上升|涨/.test(L)) return 'kb-label kb-label--status kb-label--pink'
+    if (/凉|跌|下降/.test(L)) return 'kb-label kb-label--status kb-label--cyan'
+    return 'kb-label kb-label--status'
   }
 
   return (
@@ -31,7 +31,7 @@ export default function MemeCard({
             <div className="min-w-0">
               <h3 className="font-bold text-haze-50 text-[1.02rem]">{meme.keyword}</h3>
               <div className="mt-1.5">
-                <span className={chipCls(meme.trend_label)}>{meme.trend_label}</span>
+                {meme.trend_label?.trim() && <span className={chipCls(meme.trend_label)}>{meme.trend_label}</span>}
               </div>
             </div>
           </div>
