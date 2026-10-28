@@ -4,6 +4,7 @@ import { proxyImage } from '../utils/image'
 import { formatVideoPublishTime, videoRate } from '../utils/videoCardMeta'
 import VideoRadar from './VideoRadar'
 import { observationTime } from './RadarDetails'
+import './ContentLabels.css'
 
 const ObsTrendChart = lazy(() => import('./ObsTrendChart'))
 const AiSummary = lazy(() => import('./AiSummary'))
@@ -25,15 +26,15 @@ export default function VideoCard({ video, index, displayRank, formatNumber, onF
   const duration = Number(video.duration)
   const durationText = duration > 0 ? `${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')}` : '--:--'
   const label = (video.trend_label || '').trim()
-  const statusClass = /爆|飙/.test(label) ? 'kb-chip--rose' : /热|涨|上升|崛起/.test(label) ? 'kb-chip--pink' : /凉|跌|下降/.test(label) ? 'kb-chip--cyan' : 'kb-chip--ghost'
+  const statusClass = /爆|飙/.test(label) ? 'kb-label--rose' : /热|涨|上升|崛起/.test(label) ? 'kb-label--pink' : /凉|跌|下降/.test(label) ? 'kb-label--cyan' : ''
   const hasRadar = showRadar && Boolean(video.radar)
   const observedOnline = video.online_observation
   const isV2 = video.radar?.algorithm_version === 'radar-v2'
   const isDashboard = variant === 'dashboard'
   const reasons = (
     <div className="video-card-reasons">
-      {video.potential_score != null && <span className="kb-chip kb-chip--rose">潜力 <b>{video.potential_score}</b><span>· {video.potential_reason || '综合潜力'}</span></span>}
-      {video.material_score != null && <span className="kb-chip kb-chip--cyan">素材 <b>{video.material_score}</b><span>· {video.material_reason || '素材价值'}</span></span>}
+      {video.potential_score != null && <span className="kb-label kb-label--rose">潜力 <b>{video.potential_score}</b><span>· {video.potential_reason || '综合潜力'}</span></span>}
+      {video.material_score != null && <span className="kb-label kb-label--cyan">素材 <b>{video.material_score}</b><span>· {video.material_reason || '素材价值'}</span></span>}
     </div>
   )
   const trendButton = (
@@ -57,7 +58,7 @@ export default function VideoCard({ video, index, displayRank, formatNumber, onF
               {rank != null && <span className={`kb-rank shrink-0 ${rank <= 3 ? `kb-rank--${rank}` : 'kb-rank--n'}`}>{rank}</span>}
               <h4><a href={videoUrl} target="_blank" rel="noopener noreferrer" title={video.title}>{video.title}</a></h4>
             </div>
-            {label && <span className={`kb-chip video-card-status ${statusClass}`}>{label}</span>}
+            {label && <span className={`kb-label kb-label--status video-card-status ${statusClass}`}>{label}</span>}
           </div>
 
           <div className="video-card-meta">

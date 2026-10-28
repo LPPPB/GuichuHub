@@ -1,5 +1,6 @@
 import { ThumbsUp, Quote, ExternalLink, MessageSquare, MapPin, BadgeCheck, Heart } from 'lucide-react'
 import { proxyImage } from '../utils/image'
+import './ContentLabels.css'
 
 export default function CommentList({ comments = [], formatNumber, compact = false }) {
   return (
@@ -117,18 +118,18 @@ function CommentContent({ comment, formatNumber, link, compact = false }) {
     <div className="flex gap-3">
       <Quote className="text-neon-amber flex-shrink-0 mt-1" size={18} />
       <div className="flex-1 min-w-0">
-        {/* 徽章行：官方热门 + UP主觉得很赞 */}
+        {/* 来源与认可：图标配文字 */}
         {(comment.is_hot || comment.up_liked) && (
-          <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5">
             {comment.is_hot && (
-              <span className="kb-chip kb-chip--rose">
-                <BadgeCheck size={10} />
+              <span className="kb-label kb-label--rose">
+                <BadgeCheck size={12} aria-hidden="true" />
                 官方热门
               </span>
             )}
             {comment.up_liked && (
-              <span className="kb-chip kb-chip--amber">
-                <Heart size={10} />
+              <span className="kb-label kb-label--amber">
+                <Heart size={12} aria-hidden="true" />
                 UP主觉得很赞
               </span>
             )}

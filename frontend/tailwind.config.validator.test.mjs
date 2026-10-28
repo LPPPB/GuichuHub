@@ -1180,14 +1180,16 @@ describe('[CommentList UI] 神评论精选统一到 kb 深色主题', () => {
     ).toBe(true)
   })
 
-  it('3. 列表分隔线/弱化边框必须用 white/5（与其他板块 border-white/5 一致），徽章必须用 kb-chip--* 变体', () => {
+  it('3. 列表分隔线使用 white/5，来源与认可使用无框主题文字标签', () => {
     const hasWhiteBorder = /border-white\/5|divide-white\/5/.test(commentJsx)
-    const hasKbChip = /kb-chip--(rose|pink|amber|violet|cyan|emerald|ghost)/.test(commentJsx)
+    const hasThemeLabels = /kb-label--rose/.test(commentJsx) && /kb-label--amber/.test(commentJsx)
+    const hasBoxedChip = /\bkb-chip\b/.test(commentJsx)
     expect(
-      hasWhiteBorder && hasKbChip,
-      `CommentList 分隔/徽章未统一：\n`
+      hasWhiteBorder && hasThemeLabels && !hasBoxedChip,
+      `CommentList 分隔/文字标签未统一：\n`
       + `  用 border/divide-white/5: ${hasWhiteBorder}\n`
-      + `  徽章用 kb-chip--*     : ${hasKbChip}`,
+      + `  使用主题文字标签       : ${hasThemeLabels}\n`
+      + `  残留圆角徽章           : ${hasBoxedChip}`,
     ).toBe(true)
   })
 })

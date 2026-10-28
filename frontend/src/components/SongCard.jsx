@@ -1,6 +1,7 @@
 import { BookmarkPlus, Bookmark, Music, Play, Pause } from 'lucide-react'
 import { usePlayer } from '../utils/player'
 import { proxyImage } from '../utils/image'
+import './ContentLabels.css'
 
 export default function SongCard({
   song, index, trendColor, formatNumber,
@@ -18,10 +19,10 @@ export default function SongCard({
 
   const chipCls = (label) => {
     const L = (label || '').trim()
-    if (/爆|热|涨/.test(L)) return 'kb-chip kb-chip--pink'
-    if (/崛起|爆发/.test(L)) return 'kb-chip kb-chip--rose'
-    if (/凉|跌/.test(L)) return 'kb-chip kb-chip--cyan'
-    return 'kb-chip kb-chip--ghost'
+    if (/爆|热|涨/.test(L)) return 'kb-label kb-label--status kb-label--pink'
+    if (/崛起|爆发/.test(L)) return 'kb-label kb-label--status kb-label--rose'
+    if (/凉|跌/.test(L)) return 'kb-label kb-label--status kb-label--cyan'
+    return 'kb-label kb-label--status'
   }
 
   return (
@@ -89,7 +90,7 @@ export default function SongCard({
         }>{song.name}</h4>
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span className="text-xs text-haze-400 truncate max-w-[140px]">{song.author}</span>
-          <span className={chipCls(song.trend_label)}>{song.trend_label}</span>
+          {song.trend_label?.trim() && <span className={chipCls(song.trend_label)}>{song.trend_label}</span>}
           {isCurrent && (
             <span className="text-[11px] font-medium text-primary-500 inline-flex items-center gap-1">
               <span className="w-1 h-1 rounded-full bg-primary-500 animate-pulse-dot" />
