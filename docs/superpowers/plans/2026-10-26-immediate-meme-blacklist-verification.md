@@ -1,6 +1,8 @@
 # 黑名单立即生效：验证记录
 
-状态：本地实现和验证完成，尚未上线。分支 codex/immediate-meme-blacklist-20261025，基于 c8b7313；生产只能使用增量补丁。
+本文件记录 2026-10-26 的上线前验证。2026-10-28 已完成生产发布，后续结果见 2026-10-28-immediate-meme-blacklist-deployment.md。
+
+当时状态：本地实现和验证完成，尚未上线。分支 codex/immediate-meme-blacklist-20261025，基于 c8b7313；生产只能使用增量补丁。
 
 ## 行为
 
