@@ -108,7 +108,9 @@ def generate_collection(*,context,official_snapshot,pending,mode):
         comments=bili.get_golden_comments(kichu[:10])
 
         found={}
-        all_inputs=[v for lane in discovery.lanes.values() for v in lane]+music+funny+seeds
+        # Legacy rankings may contain videos older than the strict discovery window.
+        # Register their parents too, so later lightweight observations can satisfy the FK.
+        all_inputs=[v for lane in discovery.lanes.values() for v in lane]+legacy_pool+seeds
         all_inputs+=list((official_snapshot or {}).get('items',[]))+strict.evaluated
         for video in all_inputs:
             bvid=video['bvid']
