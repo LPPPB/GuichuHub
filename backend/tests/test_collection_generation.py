@@ -40,6 +40,22 @@ def test_shadow_keeps_legacy_results_separate_from_strict(derived_io):
     assert 'potential_score' not in next(v for v in result['_all_videos'] if v['bvid']==rows[-1]['bvid'])
 
 
+def test_collection_generation_uses_video_tags_for_materials(monkeypatch):
+    import collectors.bilibili as bili
+
+    monkeypatch.setattr(bili, '_smooth_online', lambda bvid, views: views)
+    monkeypatch.setattr(bili, 'get_real_danmaku_words', lambda *args, **kwargs: [])
+    monkeypatch.setattr(bili, 'get_golden_comments', lambda *args: [])
+    rows = [raw_video(f'BV{i:010d}', tid=22, title=f'第{i}集') for i in range(2)]
+    round_context = context(rows)
+    round_context.loaders['tags'] = lambda bvid: ['华强买瓜']
+
+    result = bili.run_all_crawlers(context=round_context, mode='shadow')
+
+    assert [row['name'] for row in result['meme_materials']] == ['华强买瓜']
+    assert result['meme_materials'][0]['video_count'] == 2
+
+
 def test_shadow_preserves_historical_over_cap_score(derived_io,monkeypatch):
     import collectors.bilibili as bili
     monkeypatch.setattr(bili,'_smooth_online',lambda b,v:500)

@@ -1543,25 +1543,11 @@ def get_hot_songs(music_videos, kichu_videos):
     print(f'整理出 {len(results)} 首热门BGM')
     return results[:25]
 
-# 梗素材库已改为自动发现高频词（见 get_meme_materials），不再使用硬编码种子。
-# 旧版 meme_material_seeds 已移除：硬编码种子需人工维护且易过时（8个种子5个失效），
-# 改用 jieba 提取标题高频词 + 贪心去重聚合，自动跟上当前热点。
-
 def get_meme_materials(all_videos, hot_songs, seed_words=None):
-    """自动发现高频词并聚合为梗素材。
-
-    设计：用 jieba 提取视频标题高频词，按词聚合相关视频，取 TOP 10 作为当前热门梗素材。
-    优点：自动跟上热点，无需人工维护种子列表。
-    去重：贪心策略——按频次降序处理，每个视频只分配给第一个匹配的高频词，避免重复展示。
-
-    seed_words: 种子热梗词列表（如 哈基米/叮咚鸡/大狗叫）。候选池来自 4 路制作类词搜索，
-    常驻热梗可能在候选池中频次不足 3 被过滤，这里按种子词直接统计（标题含该词即计入，
-    不依赖 jieba 分词），确保热梗不丢。
-    """
+    """优先收录至少两部鬼畜作品共用的标签，再用种子词和标题高频词补位。"""
     print(f'正在整理梗素材库... (待分析视频 {len(all_videos)} 条, BGM {len(hot_songs)} 首, 种子词 {len(seed_words or [])} 个)')
 
     import jieba
-    from collections import Counter
     from utils.stopwords import ensure_kichu_dict
 
     ensure_kichu_dict()  # 加载鬼畜梗自定义词典（哈基米等整词，幂等）
@@ -1570,13 +1556,25 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
     # 与种子不同，停用词表是"排除已知非梗词"，不需要随热点更新
     stopwords = load_meme_stopwords()
 
-    # 种子热梗词：即使被停用词表误伤也强制保留（显式声明要收录的梗优先级最高）
+    # 标题补位保留现有种子词优先级和过滤豁免。
     seed_words = {w.strip() for w in (seed_words or []) if w and w.strip()}
 
-    # 1. 提取标题高频词，记录每个词命中的视频
-    word_videos = {}  # word -> [video, ...]
-    word_counter = Counter()
+    # 同一 BV 可能从多路返回。汇总各来源提供的标签，每个标签下同一 BV 只算一次。
+    tag_videos = {}
     for video in all_videos:
+        bvid = video.get('bvid')
+        if not bvid or video.get('tid') not in KICHU_TIDS_WITH_PARENT:
+            continue
+        for tag in video.get('tags') or []:
+            if not isinstance(tag, str):
+                continue
+            word = tag.strip()
+            if explain_meme_rule(word, stopwords=stopwords, seed_words=())['accepted']:
+                tag_videos.setdefault(word, {}).setdefault(bvid, video)
+
+    # 标题候选延续原有频次和种子词规则。
+    word_videos = {}
+    for video in _deduplicate_by_bvid(all_videos):
         title = video.get('title', '')
         seen_in_title = set()
 
@@ -1594,35 +1592,33 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
                                  apply_tag_rules=False)['accepted']:
                 seen_in_title.add(w)
         for w in seen_in_title:
-            word_counter[w] += 1
-            if w not in word_videos:
-                word_videos[w] = []
-            word_videos[w].append(video)
+            word_videos.setdefault(w, []).append(video)
 
-    # 2. 过滤高频词：普通词频次≥3 入选；种子热梗词放宽到 ≥1（主动声明要收录的梗，不因频次不足丢失）
-    candidates = [(w, c) for w, c in word_counter.most_common()
-                  if c >= 3 or w in seed_words]
-    # 种子词优先分配：排到候选最前，保证其视频不被高频词（如"空耳"）先抢走
-    seed_candidates = [c for c in candidates if c[0] in seed_words]
-    auto_candidates = [c for c in candidates if c[0] not in seed_words]
-    candidates = seed_candidates + auto_candidates
-    print(f'  提取到 {len(candidates)} 个候选词(普通词≥3次, 种子词≥1次, 种子词优先)')
+    tag_candidates = sorted(
+        ((word, matches.values()) for word, matches in tag_videos.items() if len(matches) >= 2),
+        key=lambda item: (-len(item[1]), item[0]),
+    )
+    title_candidates = sorted(
+        ((word, matches) for word, matches in word_videos.items()
+         if len(matches) >= 3 or word in seed_words),
+        key=lambda item: (item[0] not in seed_words, -len(item[1]), item[0]),
+    )
+    candidates = [(word, matches, True) for word, matches in tag_candidates]
+    candidates.extend((word, matches, False) for word, matches in title_candidates)
 
-    # 3. 贪心去重：按频次降序处理，每个视频只分配给第一个匹配的高频词
-    #    避免同一视频在多个梗下重复出现（如"哈基米"视频不会被重复归到"空耳"）
+    # 优先给标签分配关联作品，再由标题补位。同一个梗名和 BV 均只展示一次。
     assigned_bvids = set()
+    selected_words = set()
     results = []
-    for word, cnt in candidates:
-        related_videos = [v for v in word_videos[word]
-                          if v.get('bvid') not in assigned_bvids]
-        # 展示下限：普通词需去重后≥2条；种子词放宽到≥1条（显式声明要收录的热梗）
-        min_videos = 1 if word in seed_words else 2
+    for word, matches, from_tag in candidates:
+        if word in selected_words:
+            continue
+        related_videos = [v for v in matches if v['bvid'] not in assigned_bvids]
+        min_videos = 1 if not from_tag and word in seed_words else 2
         if len(related_videos) < min_videos:
-            continue  # 去重后视频不足，不作为梗素材
-        for v in related_videos:
-            bvid = v.get('bvid')
-            if bvid:
-                assigned_bvids.add(bvid)
+            continue
+        selected_words.add(word)
+        assigned_bvids.update(v['bvid'] for v in related_videos)
 
         related_videos.sort(key=lambda x: x.get('views', 0), reverse=True)
         total_views = sum(v.get('views', 0) for v in related_videos)
@@ -1635,7 +1631,7 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
         top_titles = [v['title'][:20] for v in related_videos[:3]]
         desc = '相关视频: ' + ' / '.join(top_titles)
 
-        results.append({
+        results.append((from_tag, {
             'name': word,
             'description': desc,
             'aliases': [word],
@@ -1654,12 +1650,13 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
             'total_views': total_views,
             'video_count': len(related_videos),
             'heat': total_views + len(related_songs) * 100000,
-        })
+        }))
 
         if len(results) >= 10:
             break
 
-    results.sort(key=lambda x: x['heat'], reverse=True)
+    results.sort(key=lambda entry: (entry[0], entry[1]['heat']), reverse=True)
+    results = [row for _, row in results]
     print(f'整理出 {len(results)} 个梗素材')
     for r in results:
         print(f'  {r["name"]}: {r["video_count"]}条视频, 热度{r["heat"]}')
@@ -2297,7 +2294,8 @@ def run_all_crawlers(*, context=None, official_snapshot=None, pending=None, mode
     # 按种子热梗词主动搜索鬼畜区补足候选池,保证热梗不丢
     meme_seed_videos = fetch_meme_seed_videos()
     meme_materials = get_meme_materials(
-        unique_potential + meme_seed_videos, hot_songs, seed_words=load_meme_seed_words())
+        kichu_videos + kichu_newest + music_videos + funny_videos + popular_videos + meme_seed_videos,
+        hot_songs, seed_words=load_meme_seed_words())
     # 真实弹幕热词:抓取鬼畜榜+潜力视频+素材发掘的弹幕,jieba分词统计
     danmaku_words = get_real_danmaku_words(kichu_videos[:20] + hot_videos[:30] + material_candidates[:20])
     golden_comments = get_golden_comments(kichu_videos[:10])

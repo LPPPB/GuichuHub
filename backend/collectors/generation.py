@@ -96,7 +96,7 @@ def generate_collection(*,context,official_snapshot,pending,mode):
         hot_memes=bili.get_hot_memes(kichu,music,funny,popular)
         hot_songs=bili.get_hot_songs(music,kichu)
         seeds=[_legacy_video(v,now) for v in discovery.attempt.get('seed_rows',[])]
-        meme_materials=bili.get_meme_materials(bili._deduplicate_by_bvid(legacy_pool+seeds),hot_songs,
+        meme_materials=bili.get_meme_materials(kichu+newest+music+funny+popular+seeds,hot_songs,
                                              seed_words=discovery.attempt.get('seed_words',[]))
         active_hot=(strict.snapshot or {}).get('items',[]) if mode=='official' else legacy_hot
         def bounded_detail(bvid):
