@@ -80,3 +80,22 @@ browser_sessions = auth_table("browser_sessions", Column("token", String(128), p
 Index("idx_browser_sessions_visitor", browser_sessions.c.visitor_id)
 Index("idx_browser_sessions_mid", browser_sessions.c.mid)
 collector_credential_handoffs = auth_table("collector_credential_handoffs", Column("id", BigInteger, primary_key=True, autoincrement=True), Column("action", String(16), nullable=False), Column("payload", JSONB, nullable=False, server_default="{}"), Column("requested_by", String(128), nullable=False), Column("requested_at", BigInteger, nullable=False), CheckConstraint("action IN ('replace', 'delete')", name="ck_handoff_action"))
+
+# Review-owned documents never cascade into shared observation or favorite tables.
+meme_review_state = app_table('meme_review_state',
+    Column('id', Integer, primary_key=True), Column('revision', BigInteger, nullable=False),
+    Column('payload', JSONB, nullable=False), Column('updated_at', BigInteger, nullable=False))
+meme_review_runs = app_table('meme_review_runs',
+    Column('id', String(80), primary_key=True), Column('finished_at', BigInteger, nullable=False),
+    Column('boards', JSONB, nullable=False), Column('context', JSONB, nullable=False))
+meme_review_drafts = app_table('meme_review_drafts',
+    Column('owner', String(128), primary_key=True), Column('revision', BigInteger, nullable=False),
+    Column('edited_at', BigInteger, nullable=False), Column('payload', JSONB, nullable=False))
+meme_review_publications = app_table('meme_review_publications',
+    Column('id', String(80), primary_key=True), Column('created_at', BigInteger, nullable=False),
+    Column('superseded_at', BigInteger), Column('expires_at', BigInteger),
+    Column('payload', JSONB, nullable=False))
+meme_review_operations = app_table('meme_review_operations',
+    Column('id', String(80), primary_key=True), Column('owner', String(128), nullable=False),
+    Column('created_at', BigInteger, nullable=False), Column('retain_until', BigInteger),
+    Column('payload', JSONB, nullable=False))

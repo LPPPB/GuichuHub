@@ -55,6 +55,8 @@ def configure_postgres_runtime(role: str, env: Mapping[str, str] | None = None) 
         collection_lock=CollectionLock(sessions.kw['bind']),
         collection_state=CollectionStateRepository(StateRepository(sessions),business),
     )
+    from services.meme_publication import configure_meme_review
+    configure_meme_review(sessions)
     db.configure_business_repository(runtime.business)
     configure_analysis_repository(runtime.analysis_jobs)
     auth_store.configure_auth_repository(runtime.auth)

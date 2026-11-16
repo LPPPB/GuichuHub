@@ -90,3 +90,9 @@ test('an unrelated source failure does not block a safely confirmed meme page',a
   assert.equal(response.status,200)
   assert.equal(await response.text(),'safe empty list')
 })
+
+test('an adjustment that expires during refresh cannot serve stale HTML',async t=>{
+  const pages=new Map([['/memes',{html:'expired override',etag:'"old"',bootstrap:{sections:{memes:{expires_at:1}}}}]])
+  const base=await server(t,pages)
+  assert.equal((await fetch(base+'/memes')).status,503)
+})

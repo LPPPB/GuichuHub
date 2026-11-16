@@ -126,5 +126,10 @@ def setup_scheduler():
 
     scheduler.add_job(run_radar_baseline_job, 'cron', day_of_week='mon', hour=0, minute=0,
                       id='radar_baseline', name='雷达参考基线 每周一 00:00')
+    from jobs.meme_review_jobs import refresh_meme_publication, preview_meme_cleanup
+    scheduler.add_job(refresh_meme_publication, 'interval', minutes=1, id='meme_review_expiry', name='梗库人工调整到期刷新',
+                      max_instances=1, coalesce=True)
+    scheduler.add_job(preview_meme_cleanup, 'cron', hour=4, minute=20, id='meme_review_cleanup_preview', name='梗库过期数据统计',
+                      max_instances=1, coalesce=True)
     scheduler.start()
     return scheduler

@@ -84,6 +84,8 @@ def _meme(value):
         row['meme_id'] = _text(value['meme_id'], 120)
     if isinstance(value.get('aliases'), list):
         row['aliases'] = _meme_strings(value['aliases'])
+    row['manual'] = value.get('manual') is True
+    row['manual_position'] = _number(value.get('manual_position'))
     return row
 
 
@@ -91,6 +93,8 @@ def _material(value):
     if not isinstance(value, dict) or not _text(value.get('name'), 500):
         return None
     return {'name': _text(value['name'], 500), 'description': _text(value.get('description'), 4000),
+            'meme_id': _text(value.get('meme_id'), 200), 'manual': value.get('manual') is True,
+            'manual_position': _number(value.get('manual_position')),
             'aliases': [s[:500] for s in (value.get('aliases') or [])[:20] if isinstance(s, str)] if isinstance(value.get('aliases'), list) else [],
             'video_count': _number(value.get('video_count')), 'total_views': _number(value.get('total_views')),
             'related_videos': _rows(value.get('related_videos'), _video, 20),
@@ -196,6 +200,13 @@ def build_public_sections(dashboard: dict, up_analysis: dict | None) -> dict:
             sections[tab] = _section({field: rows})
         elif field in ('hot_memes', 'meme_materials') and isinstance(dashboard.get(field), list):
             sections[tab] = {**_section({field: []}), 'status': 'empty'}
+        if field in ('hot_memes', 'meme_materials') and dashboard.get('meme_publication'):
+            meta = dashboard['meme_publication']
+            sections[tab]['publication_id'] = meta['id']
+            sections[tab]['expires_at'] = meta['expires_at']
+            sections[tab]['source_updated_at'] = meta['source_times'].get(field)
+            sections[tab]['data']['meme_publication'] = meta
+            sections[tab]['content_version'] = hashlib.sha256(json.dumps(sections[tab]['data'], sort_keys=True).encode()).hexdigest()
     words = _rows(dashboard.get('danmaku_words'), _word)
     comments = _rows(dashboard.get('comments_gold'), _comment)
     if words or comments:

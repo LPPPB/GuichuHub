@@ -19,7 +19,7 @@ def derived_io(monkeypatch):
     import collectors.bilibili as bili
     samples={}
     monkeypatch.setattr(bili,'_smooth_online',lambda b,v:v)
-    monkeypatch.setattr(bili,'get_hot_memes',lambda *a:[])
+    monkeypatch.setattr(bili,'get_hot_memes',lambda *a,**kw:[])
     monkeypatch.setattr(bili,'get_hot_songs',lambda *a:[])
     monkeypatch.setattr(bili,'get_meme_materials',lambda *a,**k:[])
     def capture(name,rows):

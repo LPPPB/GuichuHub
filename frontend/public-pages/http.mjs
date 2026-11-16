@@ -28,6 +28,9 @@ export function createPublicPageHandler({publisher,buildId}) {
     }
     const page=publisher.snapshot().get(path)
     if(!page)return send(503,'<h1>公开数据暂不可用</h1>',{'Retry-After':'60','X-Robots-Tag':'noindex'})
+    if(['/', '/memes', '/meme-materials'].includes(path) &&
+       Object.values(page.bootstrap?.sections || {}).some(section=>section.expires_at!=null && Date.now()>=section.expires_at*1000))
+      return send(503,'<h1>榜单正在更新，请稍后重试</h1>',{'Retry-After':'1','X-Robots-Tag':'noindex'})
     const conditions=(request.headers['if-none-match'] || '').split(',').map(v=>v.trim().replace(/^W\//,''))
     if(conditions.includes('*') || conditions.includes(page.etag))return send(304,'',{ETag:page.etag})
     return send(200,page.html,{ETag:page.etag})

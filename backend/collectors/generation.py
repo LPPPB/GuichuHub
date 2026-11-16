@@ -93,11 +93,16 @@ def generate_collection(*,context,official_snapshot,pending,mode):
                     response=context.call('tags',video['bvid'],kind='tags')
                     if response.outcome=='success' and isinstance(response.value,list):
                         video['tags']=[t for t in response.value if isinstance(t,str)]
-        hot_memes=bili.get_hot_memes(kichu,music,funny,popular)
+        from collectors.meme_review_context import source_health
+        review_health={'hot_memes': source_health(context, board='hot_memes')}
+        review_evidence={'hot_memes': [], 'meme_materials': []}
+        hot_memes=bili.get_hot_memes(kichu,music,funny,popular,evidence=review_evidence['hot_memes'])
         hot_songs=bili.get_hot_songs(music,kichu)
         seeds=[_legacy_video(v,now) for v in discovery.attempt.get('seed_rows',[])]
+        review_health['meme_materials']=source_health(context)
         meme_materials=bili.get_meme_materials(kichu+newest+music+funny+popular+seeds,hot_songs,
-                                             seed_words=discovery.attempt.get('seed_words',[]))
+                                             seed_words=discovery.attempt.get('seed_words',[]),
+                                             evidence=review_evidence['meme_materials'])
         active_hot=(strict.snapshot or {}).get('items',[]) if mode=='official' else legacy_hot
         def bounded_detail(bvid):
             response=context.call('detail',bvid,kind='detail')
@@ -134,4 +139,5 @@ def generate_collection(*,context,official_snapshot,pending,mode):
                     material_candidates=material,meme_materials=meme_materials,danmaku_words=danmaku,
                     comments_gold=comments,potential_v2_snapshot=strict.snapshot,
                     potential_v2_attempt=strict.attempt,potential_pending=strict.pending,
+                    _meme_review_evidence=review_evidence,_meme_review_health=review_health,
                     _potential_result=strict,_all_videos=list(found.values()),_collection_summary=summary)

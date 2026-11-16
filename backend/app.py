@@ -1257,24 +1257,29 @@ def route_get_meme_seed_words():
     guard = _require_admin()
     if guard:
         return guard
-    from collectors.bilibili import load_meme_seed_words
-    words = load_meme_seed_words()
-    return jsonify({'success': True, 'data': {'words': words, 'count': len(words)}})
+    from services.meme_publication import get_meme_review_service
+    data = get_meme_review_service().seed_snapshot()
+    return jsonify(success=True, data=dict(data, count=len(data['words'])))
 
 
 @app.route('/api/config/meme-seed-words', methods=['PUT'])
 def route_save_meme_seed_words():
-    """保存梗素材库种子热梗词列表（下次抓取生效）。"""
-    from collectors.bilibili import save_meme_seed_words
+    guard = _require_admin()
+    if guard:
+        return guard
+    from services.meme_publication import get_meme_review_service, ReviewConflict
     payload = request.get_json(silent=True) or {}
-    words = payload.get('words')
-    if not isinstance(words, list):
-        return jsonify({'success': False, 'message': '参数错误：缺少 words'}), 400
-    cleaned = [str(w).strip() for w in words if str(w).strip()]
-    save_meme_seed_words(cleaned)
-    return jsonify({'success': True,
-                    'message': f'已保存 {len(cleaned)} 个种子热梗词；将在下次全量抓取时用于主动发现',
-                    'effective': 'next_crawl'})
+    if not isinstance(payload, dict):
+        return jsonify(success=False, message='invalid payload'), 400
+    if 'version' not in payload:
+        return jsonify(success=False, message='请刷新审核中心后再保存种子词'), 428
+    try:
+        data = get_meme_review_service().save_seeds(payload.get('words'), payload.get('links'), payload['version'], int(time.time()))
+        return jsonify(success=True, data=data, effective='next_crawl', message='已保存采集设置，下次全量抓取生效')
+    except ReviewConflict as error:
+        return jsonify(success=False, message=str(error)), 409
+    except ValueError as error:
+        return jsonify(success=False, message=str(error)), 400
 
 
 @app.route('/api/config/word-rules/overview', methods=['GET'])
@@ -2077,6 +2082,9 @@ def route_up_trends():
 
 
 # ==================== 入口 ====================
+
+from routes.meme_review import register_meme_review_routes
+register_meme_review_routes(app, _require_admin, _request_actor)
 
 if __name__ == '__main__':
     setup_logging()

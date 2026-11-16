@@ -4,6 +4,7 @@ import time
 import re
 import os
 import html
+from collectors.meme_review_context import capture_meme_round, frozen_seeds, record_source, frozen_aliases, source_health
 from collectors.collection_context import record_http_attempt
 from datetime import datetime, timezone, timedelta
 from config import (
@@ -100,6 +101,9 @@ _DEFAULT_MEME_SEED_WORDS = list(MEME_SEED_WORDS)
 def load_meme_seed_words():
     """读取 PostgreSQL 种子词覆盖值，未配置时使用版本默认值。"""
     from storage.runtime_settings import load_runtime_setting
+    snapshot = frozen_seeds()
+    if snapshot is not None:
+        return snapshot
     words = load_runtime_setting('meme_seed_words', _DEFAULT_MEME_SEED_WORDS)
     return [str(word).strip() for word in words if isinstance(word, str) and word.strip()]
 
@@ -136,7 +140,7 @@ def get_headers():
     return headers
 
 
-def safe_get(url, params=None, max_retries=2, return_error_code=False):
+def _safe_get(url, params=None, max_retries=2, return_error_code=False):
     for i in range(max_retries + 1):
         try:
             record_http_attempt()
@@ -164,6 +168,12 @@ def safe_get(url, params=None, max_retries=2, return_error_code=False):
             else:
                 print(f'请求失败 {url}: {e}')
     return None
+
+def safe_get(url, params=None, max_retries=2, return_error_code=False):
+    result = _safe_get(url, params, max_retries, return_error_code)
+    record_source(url, result)
+    return result
+
 
 def _normalize_url(url):
     """补全协议相对URL，如 //host/path → https://host/path"""
@@ -1365,11 +1375,11 @@ def explain_meme_rule(kw, *, stopwords=None, seed_words=None, apply_tag_rules=Tr
 # ==================== 以上为共享关键词过滤 ====================
 
 
-def _hot_meme_rule_context():
+def _hot_meme_rule_context(*, review=False):
     """Read and normalize one rule snapshot for collection or operator preview."""
     from utils.meme_aliases import load_meme_aliases
 
-    aliases = load_meme_aliases()
+    aliases = frozen_aliases() if review else load_meme_aliases()
     seeds = set(load_meme_seed_words())
     tags = _get_tag_filters()
     allowed = {aliases.resolve(word)[0] for word in tags['allowed_two_char']}
@@ -1401,19 +1411,33 @@ def explain_hot_meme_rule(word, *, context=None):
     return {**decision, 'meme_id': identifier, 'canonical_keyword': name}
 
 
-def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
+def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos, *, evidence=None, review_aliases=False):
     """Aggregate title/tag mentions; require at least two independent BVs."""
     from utils.meme_aliases import (
-        normalize_meme_key, normalize_meme_text_with_spans, is_meme_word_character,
+        normalize_meme_key, normalize_meme_text_with_spans, is_meme_word_character, load_meme_aliases,
     )
 
+    if evidence is not None and not review_aliases and frozen_aliases() is not load_meme_aliases():
+        # Collect dictionary-aware title matches for review while retaining the
+        # unchanged legacy projection during shadow validation.
+        get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos,
+                      evidence=evidence, review_aliases=True)
+        evidence = None
+
     print('正在提取热梗...')
-    all_videos = _deduplicate_by_bvid(kichu_videos + music_videos + funny_videos + popular_videos)
+    from copy import deepcopy
+    source_videos = kichu_videos + music_videos + funny_videos + popular_videos
+    all_videos = deepcopy(_deduplicate_by_bvid(source_videos))
+    by_bvid = {v['bvid']: v for v in all_videos}
+    for v in source_videos:
+        target = by_bvid[v['bvid']]
+        target['tags'] = sorted({t for t in target.get('tags', []) + v.get('tags', [])
+                                 if isinstance(t, str)})
     meme_dict = {}
 
     # 停用词表来自 PostgreSQL 可变覆盖；未覆盖时使用随版本发布的只读默认词表。
     # 明确停用词优先于种子收录；两者按相同别名身份解释。
-    rules = _hot_meme_rule_context()
+    rules = _hot_meme_rule_context(review=review_aliases)
     alias_index = rules['aliases']
     seed_words = rules['seed_words']
 
@@ -1467,6 +1491,11 @@ def get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos):
             if matches:
                 mentions.setdefault(identifier, set()).update(matches)
         for identifier, matched_keywords in mentions.items():
+            if evidence is not None:
+                for spelling in sorted(matched_keywords):
+                    evidence.append({'raw_term': spelling, 'bvid': video['bvid'],
+                                     'source': 'tag' if spelling in video.get('tags', []) else 'title',
+                                     'video': deepcopy(video)})
             if identifier not in meme_dict:
                 meme_dict[identifier] = {
                     'meme_id': identifier,
@@ -1543,7 +1572,7 @@ def get_hot_songs(music_videos, kichu_videos):
     print(f'整理出 {len(results)} 首热门BGM')
     return results[:25]
 
-def get_meme_materials(all_videos, hot_songs, seed_words=None):
+def get_meme_materials(all_videos, hot_songs, seed_words=None, *, evidence=None):
     """优先收录至少两部鬼畜作品共用的标签，再用种子词和标题高频词补位。"""
     print(f'正在整理梗素材库... (待分析视频 {len(all_videos)} 条, BGM {len(hot_songs)} 首, 种子词 {len(seed_words or [])} 个)')
 
@@ -1593,6 +1622,14 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None):
                 seen_in_title.add(w)
         for w in seen_in_title:
             word_videos.setdefault(w, []).append(video)
+
+    if evidence is not None:
+        from copy import deepcopy
+        for source, pool in (('tag', tag_videos), ('title', word_videos)):
+            for word, matches in pool.items():
+                for video in (matches.values() if isinstance(matches, dict) else matches):
+                    evidence.append({'raw_term': word, 'bvid': video['bvid'],
+                                     'source': source, 'video': deepcopy(video)})
 
     tag_candidates = sorted(
         ((word, matches.values()) for word, matches in tag_videos.items() if len(matches) >= 2),
@@ -2227,6 +2264,7 @@ def make_collection_context(policy, now, seed_cursor=0):
     })
 
 
+@capture_meme_round
 def run_all_crawlers(*, context=None, official_snapshot=None, pending=None, mode=None):
     if context is not None:
         from collectors.generation import generate_collection
@@ -2288,14 +2326,18 @@ def run_all_crawlers(*, context=None, official_snapshot=None, pending=None, mode
     material_candidates = _filter_material_candidates(music_videos, funny_videos, now)
 
     # ── 其他板块 ──
-    hot_memes = get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos)
+    review_health = {'hot_memes': source_health()}
+    review_evidence = {'hot_memes': [], 'meme_materials': []}
+    hot_memes = get_hot_memes(kichu_videos, music_videos, funny_videos, popular_videos,
+                              evidence=review_evidence['hot_memes'])
     hot_songs = get_hot_songs(music_videos, kichu_videos)
     # 梗素材库: 4 路候选池都是制作/类型词搜索,常驻热梗(哈基米/叮咚鸡等)频次不足易被过滤,
     # 按种子热梗词主动搜索鬼畜区补足候选池,保证热梗不丢
     meme_seed_videos = fetch_meme_seed_videos()
+    review_health['meme_materials'] = source_health()
     meme_materials = get_meme_materials(
         kichu_videos + kichu_newest + music_videos + funny_videos + popular_videos + meme_seed_videos,
-        hot_songs, seed_words=load_meme_seed_words())
+        hot_songs, seed_words=load_meme_seed_words(), evidence=review_evidence['meme_materials'])
     # 真实弹幕热词:抓取鬼畜榜+潜力视频+素材发掘的弹幕,jieba分词统计
     danmaku_words = get_real_danmaku_words(kichu_videos[:20] + hot_videos[:30] + material_candidates[:20])
     golden_comments = get_golden_comments(kichu_videos[:10])
@@ -2335,4 +2377,6 @@ def run_all_crawlers(*, context=None, official_snapshot=None, pending=None, mode
         'danmaku_words': danmaku_words,
         'comments_gold': golden_comments,
         '_all_videos': list(all_found.values()),
+        '_meme_review_evidence': review_evidence,
+        '_meme_review_health': review_health,
     }

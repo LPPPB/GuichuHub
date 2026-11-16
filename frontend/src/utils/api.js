@@ -218,14 +218,15 @@ export const api = {
   // 弹幕热词升温榜：最近完整批次 vs 此前基准批次（按每万词出现率归一化）
   getRisingWords: (recentBatches = 2, baseBatches = 6, limit = 30) =>
     request(`/danmaku/rising-words?recent_batches=${recentBatches}&base_batches=${baseBatches}&limit=${limit}`),
+  memeReview: (path, method = 'GET', body) => request(`/admin/meme-review/${path}`, {method, ...(body ? {body: JSON.stringify(body)} : {})}),
   // 开发者模式：梗素材库停用词表
   getMemeStopwords: () => request('/config/meme-stopwords'),
   saveMemeStopwords: (categories) =>
     request('/config/meme-stopwords', { method: 'PUT', body: JSON.stringify({ categories }) }),
   // 开发者模式：梗素材库种子热梗词
   getMemeSeedWords: () => request('/config/meme-seed-words'),
-  saveMemeSeedWords: (words) =>
-    request('/config/meme-seed-words', { method: 'PUT', body: JSON.stringify({ words }) }),
+  saveMemeSeedWords: (words, version, links) =>
+    request('/config/meme-seed-words', { method: 'PUT', body: JSON.stringify({ words, version, links }) }),
   // 开发者后台：标签过滤词表（is_useless_tag 共享：分类停用词/广告品牌/活动词/二字白名单）
   getTagFilters: () => request('/config/tag-filters'),
   saveTagFilters: (filters) =>

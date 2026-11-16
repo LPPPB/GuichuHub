@@ -3,6 +3,7 @@ import { Layers, LineChart, Activity, FlaskConical, ShieldCheck } from 'lucide-r
 
 // 开发者后台：整页控制台，五个模块按需懒加载
 // 模块全部挂载后用 hidden 切换（保留各自状态：回测结果/配置草稿不因切 tab 丢失）
+const MemeReviewCenter = lazy(() => import('./MemeReviewCenter'))
 const MemeConfig = lazy(() => import('./DevPanel'))
 const BacktestPanel = lazy(() => import('./BacktestPanel'))
 const DataHealth = lazy(() => import('./DataHealth'))
@@ -11,6 +12,7 @@ const AdminAccountsPanel = lazy(() => import('./AdminAccountsPanel'))
 const ObservationAdmin = lazy(() => import('./ObservationAdmin'))
 
 const MODULES = [
+  { id: 'review', label: '梗库审核', icon: Layers, desc: '每日审核 · 别名合并 · 采集种子词' },
   { id: 'observation', label: 'UP主观测', icon: Activity, desc: '观测名单 · 添加与停止申请 · 审核' },
   { id: 'admins', label: '管理员管理', icon: ShieldCheck, desc: 'B站账号管理员名单与采集账号' },
   { id: 'meme', label: '词汇规则', icon: Layers, desc: '公共底座 + 榜单规则 + 规则测试' },
@@ -21,6 +23,9 @@ const MODULES = [
 
 export default function DevConsole() {
   const [module, setModule] = useState('admins')
+  const [reviewTab, setReviewTab] = useState('today')
+  const [reviewVisited, setReviewVisited] = useState(false)
+  const openReview = (tab='today') => {setReviewTab(tab);setReviewVisited(true);setModule('review')}
 
   return (
     <div className="min-h-full bg-slate-50 text-slate-800">
@@ -41,7 +46,7 @@ export default function DevConsole() {
           {MODULES.map((m) => (
             <button
               key={m.id}
-              onClick={() => setModule(m.id)}
+              onClick={() => m.id==='review' ? openReview() : setModule(m.id)}
               className={`text-left rounded-xl border p-3 transition-colors ${
                 module === m.id
                   ? 'bg-white border-primary-300 shadow-sm'
@@ -59,12 +64,13 @@ export default function DevConsole() {
 
         {/* 模块内容（全部挂载，hidden 切换） */}
         <Suspense fallback={<div className="text-sm text-slate-500 py-10 text-center">模块加载中...</div>}>
+          {reviewVisited && <div className={module === 'review' ? '' : 'hidden'}><MemeReviewCenter initialTab={reviewTab} onRules={() => setModule('meme')} /></div>}
           {module === 'observation' && <ObservationAdmin />}
           <div className={module === 'admins' ? '' : 'hidden'}>
             <AdminAccountsPanel />
           </div>
           <div className={module === 'meme' ? '' : 'hidden'}>
-            <MemeConfig />
+            <MemeConfig onOpenReview={() => openReview('seeds')} />
           </div>
           <div className={module === 'backtest' ? '' : 'hidden'}>
             <BacktestPanel />

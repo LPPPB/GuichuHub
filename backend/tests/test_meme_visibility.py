@@ -31,6 +31,15 @@ def keywords(client, endpoint='/api/dashboard'):
     return [row['keyword'] for row in rows]
 
 
+def test_active_review_does_not_reapply_obsolete_release_aliases(monkeypatch):
+    from services.meme_visibility import filter_meme_sections
+    monkeypatch.setattr('services.meme_publication.public_review_data', lambda data: dict(data,
+        meme_publication={'id':'review'},hot_memes=[{'keyword':'哈基米','meme_id':'old'}]))
+    monkeypatch.setattr(bili, 'load_meme_stopwords', lambda: {'屏蔽':['Hachimi']})
+    result = filter_meme_sections({})
+    assert result['hot_memes'] == [{'keyword':'哈基米','meme_id':'old'}]
+
+
 def test_saved_blacklist_filters_warm_dashboard_and_aliases_without_crawl(client, postgres_runtime, snapshot):
     assert keywords(client) == ['哈基米', '哈基米南北绿豆']
     before = deepcopy(snapshot)

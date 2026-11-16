@@ -81,8 +81,13 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const favKeyOf = (type, item) => {
     if (type === 'video') return `video:${item.bvid}`
     if (type === 'song')  return `song:${item.bvid}`
-    if (type === 'meme')  return `meme:${item.keyword}`
-    if (type === 'meme_material') return `meme_material:${item.name}`
+    if (type === 'meme' || type === 'meme_material') {
+      const rows = [...(data.hot_memes || []), ...(data.meme_materials || [])]
+      const name = item.keyword || item.name
+      const current = rows.find(r => r.keyword === name || r.name === name || r.aliases?.includes(name))
+      const id = item.meme_id || current?.meme_id || name
+      return `${type}:${data.meme_publication?.redirects?.[id] || id}`
+    }
     return `${type}:${item.id || JSON.stringify(item)}`
   }
   const favSet = new Set(favorites.map(f => favKeyOf(f.type, f.data || f)))
@@ -483,8 +488,9 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
                             </h3>
                             <p className="text-xs text-haze-300 mt-2 max-w-2xl leading-relaxed">{meme.description}</p>
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3">
-                              <span className="kb-chip kb-chip--pink">相关视频 <b className="kb-num ml-1">{meme.video_count}</b> 个</span>
-                              <span className="kb-chip kb-chip--cyan">总播放 <b className="kb-num ml-1">{formatNumber(meme.total_views)}</b></span>
+                              <span className="kb-chip kb-chip--pink">相关视频 <b className="kb-num ml-1">{meme.video_count ?? '—'}</b> 个</span>
+                              <span className="kb-chip kb-chip--cyan">总播放 <b className="kb-num ml-1">{meme.total_views == null ? '—' : formatNumber(meme.total_views)}</b></span>
+                              {meme.manual && <span className="kb-chip">人工收录</span>}
                               {meme.aliases?.length > 0 && <span className="kb-chip kb-chip--ghost">别名：{meme.aliases.slice(0, 3).join(' / ')}</span>}
                             </div>
                           </div>

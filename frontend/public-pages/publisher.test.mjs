@@ -136,3 +136,18 @@ test('new-build reconstruction retries when the first durable commit fails',asyn
   fail=false;await publisher.refresh()
   assert.equal(publisher.snapshot().size,2)
 })
+
+test('review publication never commits only one of the paired meme boards',async()=>{
+  const batches=[]
+  const publisher=createPublisher({buildId:'build1',clock:()=>1000,
+    fetchSections:async()=>({schema_version:1,sections:{
+      memes:{...section('review-hot','hot_memes'),publication_id:'one'},
+      'meme-materials':{...section('review-material','meme_materials'),publication_id:'one'},
+    }}),
+    renderPage:async({route})=>{if(route.tabId==='meme-materials')throw Error('render failure');return route.path},
+    cache:{load:async()=>new Map(),commitBatch:async batch=>batches.push(batch)},
+  })
+  const result=await publisher.refresh()
+  assert.equal(batches.length,0)
+  assert.deepEqual(result.validatedTabs,[])
+})
