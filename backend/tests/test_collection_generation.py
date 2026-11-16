@@ -56,6 +56,15 @@ def test_collection_generation_uses_video_tags_for_materials(monkeypatch):
     assert result['meme_materials'][0]['video_count'] == 2
 
 
+def test_shadow_registers_old_legacy_rank_rows_outside_discovery_window(derived_io):
+    import collectors.bilibili as bili
+    old=raw_video(tid=22,pubdate=NOW-365*86400)
+    result=bili.run_all_crawlers(context=context([old]),mode='shadow')
+    assert [v['bvid'] for v in result['kichu_rank']]==[old['bvid']]
+    assert result['potential_v2_snapshot']['items']==[]
+    assert old['bvid'] in {v['bvid'] for v in result['_all_videos']}
+
+
 def test_shadow_preserves_historical_over_cap_score(derived_io,monkeypatch):
     import collectors.bilibili as bili
     monkeypatch.setattr(bili,'_smooth_online',lambda b,v:500)

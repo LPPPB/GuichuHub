@@ -1,0 +1,32 @@
+/* Content metadata stays open; the boxed treatment is reserved for ranks. */
+.kb-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--label-accent, rgb(var(--haze-300)));
+}
+.kb-label > svg { flex-shrink: 0; }
+.kb-label--rose { --label-accent: rgb(var(--neon-rose)); }
+.kb-label--pink { --label-accent: rgb(var(--neon-pink)); }
+.kb-label--cyan { --label-accent: rgb(var(--bili-dark)); }
+.kb-label--amber { --label-accent: rgb(var(--neon-amber)); }
+.kb-label--status { color: rgb(var(--haze-300)); font-size: 13px; white-space: nowrap; min-width: max-content; }
+.kb-label--status::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--label-accent, currentColor);
+}
+.video-card-reasons { column-gap: 12px; }
+.video-card-reasons .kb-label { flex-wrap: wrap; color: rgb(var(--haze-400)); }
+.video-card-reasons .kb-label b {
+  color: var(--label-accent, rgb(var(--haze-100)));
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
