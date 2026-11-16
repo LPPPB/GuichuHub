@@ -27,24 +27,31 @@ def validate_dictionary(records):
     return terms
 
 
+def dictionary_index(records):
+    if isinstance(records, dict):
+        return records
+    return {normalize_meme_key(term): (record['id'],record['name'])
+            for record in records for term in [record['name'],*record['aliases']]}
+
+
 def resolve(word, records):
+    lookup = dictionary_index(records)
     key = normalize_meme_key(word)
-    for record in records:
-        if key in {normalize_meme_key(t) for t in [record['name'], *record['aliases']]}:
-            return record['id'], record['name']
-    return load_meme_aliases().resolve(word)
+    return lookup[key] if key in lookup else load_meme_aliases().resolve(word)
 
 
 def blocked_ids(blocked, records):
-    return {resolve(word, records)[0] for word in blocked}
+    lookup = dictionary_index(records)
+    return {resolve(word, lookup)[0] for word in blocked}
 
 
 def rank_evidence(board, evidence, records, blocked, songs=(), seeds=(), *, all_candidates=False):
     validate_dictionary(records)
+    lookup = dictionary_index(records)
     groups = {}
-    excluded = blocked_ids(blocked, records)
+    excluded = blocked_ids(blocked, lookup)
     for hit in evidence:
-        identifier, name = resolve(hit['raw_term'], records)
+        identifier, name = resolve(hit['raw_term'], lookup)
         if identifier in excluded:
             continue
         group = groups.setdefault(identifier, dict(name=name, terms=set(), videos={}, tags=set(), titles=set()))
@@ -56,7 +63,7 @@ def rank_evidence(board, evidence, records, blocked, songs=(), seeds=(), *, all_
         if old is None or (row.get('observed_at') or 0) > (old.get('observed_at') or 0):
             group['videos'][bv] = row
         group['tags' if hit['source'] == 'tag' else 'titles'].add(bv)
-    seed_ids = {resolve(s, records)[0] for s in seeds}
+    seed_ids = {resolve(s, lookup)[0] for s in seeds}
     selected_sources = {}
     if board == 'meme_materials' and not all_candidates:
         tagged = sorted((id for id, g in groups.items() if len(g['tags']) >= 2),

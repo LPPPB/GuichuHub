@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import insert
 from storage.models import (meme_review_state as states, meme_review_runs as runs,
     meme_review_publications as publications, meme_review_operations as operations,
     meme_review_drafts as drafts, dashboard_state, videos)
-from services.meme_review import BOARDS, resolve, validate_dictionary, rank_evidence, apply_adjustments
+from services.meme_review import BOARDS, resolve, validate_dictionary, rank_evidence, apply_adjustments, dictionary_index
 
 
 class ReviewConflict(ValueError):
@@ -162,6 +162,7 @@ class MemePublicationService:
             times[board] = run['finished_at'] if run else None
             evidence = source.get('evidence', [])
             records = state['dictionary']
+            lookup = dictionary_index(records)
             if state['dictionary_version'] and run and not source.get('evidence_complete'):
                 raise ValueError('complete evidence required for dictionary recalculation')
             candidates[board] = rank_evidence(board, evidence, records, blocked,
@@ -173,7 +174,7 @@ class MemePublicationService:
                 rows = deepcopy(source.get('cards', []))
                 for card in rows:
                     label = 'keyword' if board == 'hot_memes' else 'name'
-                    identifier, name = resolve(card.get(label) or '', records)
+                    identifier, name = resolve(card.get(label) or '', lookup)
                     card['meme_id'] = identifier
                     card['aliases'] = [a for a in card.get('aliases', []) if a != name]
             boards[board] = apply_adjustments(board, rows, records, state['adjustments'], blocked, now, candidates[board])
@@ -219,6 +220,7 @@ class MemePublicationService:
                 return
             state = self._state(row)
             self._bootstrap(session,state,now)
+            lookup = dictionary_index(state['dictionary'])
             session.execute(insert(runs).values(id=str(run_id), finished_at=now, boards=boards, context=context or {}))
             for board, source in boards.items():
                 if board not in BOARDS:
@@ -230,13 +232,15 @@ class MemePublicationService:
                 for term in terms:
                     if not term:
                         continue
-                    identifier, name = resolve(term, state['dictionary'])
+                    identifier, name = resolve(term, lookup)
                     record = next((r for r in state['dictionary'] if r['id'] == identifier), None)
                     if record is None:
                         record = dict(id=identifier, name=name, aliases=[])
                         state['dictionary'].append(record)
                     if term != name and term not in record['aliases']:
                         record['aliases'].append(term)
+                    from utils.meme_aliases import normalize_meme_key
+                    lookup[normalize_meme_key(term)] = (identifier,name)
             state['last_run'] = str(run_id)
             self._write_publication(session, state, self._render(session, state, now, self._blocked(session)), now)
             self._save(session, row, now)
@@ -327,9 +331,10 @@ class MemePublicationService:
                 count=len(v.get('cards',[]))) for b,v in r['boards'].items()})
                       for r in session.execute(select(runs).order_by(runs.c.finished_at.desc(),runs.c.id).limit(14)).mappings()]
             overlap = {}
+            lookup = dictionary_index(state['dictionary'])
             for source in (run['boards'].values() if run else []):
                 for hit in source.get('evidence', []):
-                    identifier, _ = resolve(hit['raw_term'], state['dictionary'])
+                    identifier, _ = resolve(hit['raw_term'], lookup)
                     overlap.setdefault(identifier, set()).add(hit['bvid'])
             pool = sorted(overlap, key=lambda identifier: -len(overlap[identifier]))[:60]
             suspected = [dict(source=a, target=b, shared=len(overlap[a] & overlap[b]))
@@ -495,8 +500,9 @@ class MemePublicationService:
         with self.repo.locked(0) as (session, row):
             state = self._state(row)
             run = session.execute(select(runs).where(runs.c.id == state['latest'].get(board))).mappings().first()
+            lookup = dictionary_index(state['dictionary'])
             matches = [hit for hit in (run['boards'][board].get('evidence', []) if run else [])
-                       if resolve(hit['raw_term'], state['dictionary'])[0] == identifier]
+                       if resolve(hit['raw_term'], lookup)[0] == identifier]
             return dict(items=matches[offset:offset+100], total=len(matches), offset=offset,
                         next_offset=offset+100 if len(matches)>offset+100 else None)
 

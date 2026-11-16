@@ -63,3 +63,16 @@ def test_inactive_pin_cannot_reserve_a_conflicting_future_position(ids):
     changes = [dict(board='hot_memes', meme_id=id, action='position', position=1, expires_at=200) for id in ids]
     with pytest.raises(ValueError, match='position'):
         meme_review.apply_adjustments('hot_memes', [{'meme_id':'a'}], [], changes, [], 100)
+
+
+def test_large_dictionary_evidence_lookup_scales_with_input_size(monkeypatch):
+    records = [dict(id=f'meme_{i}',name=f'样例梗{i}',aliases=[]) for i in range(300)]
+    evidence = [hit('样例梗299',f'BV{i}') for i in range(500)]
+    original, calls = meme_review.normalize_meme_key, []
+    def normalize(word):
+        calls.append(None)
+        return original(word)
+    monkeypatch.setattr(meme_review,'normalize_meme_key',normalize)
+    rows = meme_review.rank_evidence('hot_memes', evidence, records, [])
+    assert rows[0]['video_count'] == 500
+    assert len(calls) < 3000
