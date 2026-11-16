@@ -209,18 +209,9 @@ def explain_word(word, scope):
     if scope == 'danmaku':
         return explain_danmaku_word(word)
 
-    from collectors.bilibili import explain_tag_rule, load_meme_stopwords, load_meme_seed_words
+    from collectors.bilibili import explain_tag_rule, explain_hot_meme_rule
     if scope == 'tag':
         return explain_tag_rule(word)
     if scope == 'meme':
-        raw = str(word or '').strip()
-        if raw in set(load_meme_seed_words()):
-            return {'accepted': True, 'layer': 'meme_allow', 'category': '种子热梗词', 'match': 'exact'}
-        tag_result = explain_tag_rule(raw)
-        if not tag_result['accepted']:
-            return tag_result
-        for category, words in load_meme_stopwords().items():
-            if raw in words:
-                return {'accepted': False, 'layer': 'meme', 'category': category, 'match': 'exact'}
-        return {'accepted': True, 'layer': 'none', 'category': '未命中过滤规则', 'match': None}
+        return explain_hot_meme_rule(word)
     raise ValueError('scope must be danmaku, tag or meme')

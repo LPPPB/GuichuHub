@@ -63,18 +63,38 @@ def _rows(value, project, limit=200):
     return result
 
 
+def _meme_strings(value):
+    return [word[:500] for word in value[:20] if isinstance(word, str)] if isinstance(value, list) else []
+
+
+def _meme_video(value):
+    row = _video(value)
+    if row is not None and isinstance(value.get('matched_keywords'), list):
+        row['matched_keywords'] = _meme_strings(value['matched_keywords'])
+    return row
+
+
 def _meme(value):
     if not isinstance(value, dict) or not _text(value.get('keyword'), 500):
         return None
-    return {'keyword': _text(value['keyword'], 500), 'heat': _number(value.get('heat')),
-            'trend_label': _text(value.get('trend_label')),
-            'related_videos': _rows(value.get('related_videos'), _video, 20)}
+    row = {'keyword': _text(value['keyword'], 500), 'heat': _number(value.get('heat')),
+           'trend_label': _text(value.get('trend_label')),
+           'related_videos': _rows(value.get('related_videos'), _meme_video, 20)}
+    if _text(value.get('meme_id'), 120):
+        row['meme_id'] = _text(value['meme_id'], 120)
+    if isinstance(value.get('aliases'), list):
+        row['aliases'] = _meme_strings(value['aliases'])
+    row['manual'] = value.get('manual') is True
+    row['manual_position'] = _number(value.get('manual_position'))
+    return row
 
 
 def _material(value):
     if not isinstance(value, dict) or not _text(value.get('name'), 500):
         return None
     return {'name': _text(value['name'], 500), 'description': _text(value.get('description'), 4000),
+            'meme_id': _text(value.get('meme_id'), 200), 'manual': value.get('manual') is True,
+            'manual_position': _number(value.get('manual_position')),
             'aliases': [s[:500] for s in (value.get('aliases') or [])[:20] if isinstance(s, str)] if isinstance(value.get('aliases'), list) else [],
             'video_count': _number(value.get('video_count')), 'total_views': _number(value.get('total_views')),
             'related_videos': _rows(value.get('related_videos'), _video, 20),
@@ -169,14 +189,24 @@ def _section(data, source_updated_at=None):
 
 
 def build_public_sections(dashboard: dict, up_analysis: dict | None) -> dict:
+    from services.meme_visibility import filter_meme_sections
     sections = {tab: _unavailable() for tab in TABS}
-    dashboard = dashboard if isinstance(dashboard, dict) else {}
+    dashboard = filter_meme_sections(dashboard if isinstance(dashboard, dict) else {})
     for tab, field, project in (('kichu-rank', 'kichu_rank', _video), ('videos', 'hot_videos', _video), ('memes', 'hot_memes', _meme),
                                 ('meme-materials', 'meme_materials', _material), ('songs', 'hot_songs', _song),
                                 ('materials', 'material_candidates', _video)):
         rows = _rows(dashboard.get(field), project)
         if rows:
             sections[tab] = _section({field: rows})
+        elif field in ('hot_memes', 'meme_materials') and isinstance(dashboard.get(field), list):
+            sections[tab] = {**_section({field: []}), 'status': 'empty'}
+        if field in ('hot_memes', 'meme_materials') and dashboard.get('meme_publication'):
+            meta = dashboard['meme_publication']
+            sections[tab]['publication_id'] = meta['id']
+            sections[tab]['expires_at'] = meta['expires_at']
+            sections[tab]['source_updated_at'] = meta['source_times'].get(field)
+            sections[tab]['data']['meme_publication'] = meta
+            sections[tab]['content_version'] = hashlib.sha256(json.dumps(sections[tab]['data'], sort_keys=True).encode()).hexdigest()
     words = _rows(dashboard.get('danmaku_words'), _word)
     comments = _rows(dashboard.get('comments_gold'), _comment)
     if words or comments:

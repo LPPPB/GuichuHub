@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "memes": [
+    {
+      "id": "meme_hajimi",
+      "name": "哈基米",
+      "aliases": ["哈 基 米", "Hachimi"]
+    }
+  ]
+}

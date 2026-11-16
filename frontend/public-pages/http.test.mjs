@@ -4,8 +4,8 @@ import {createServer} from 'node:http'
 import {createPublicPageHandler} from './http.mjs'
 import {PUBLIC_ROUTES} from '../src/routing/publicRoutes.js'
 
-async function server(t, pages=new Map(PUBLIC_ROUTES.map(r=>[r.path,{html:`<h1>${r.title}</h1>`,etag:'"abc"'}]))) {
-  const instance=createServer(createPublicPageHandler({publisher:{snapshot:()=>pages},buildId:'build-test'}))
+async function server(t, pages=new Map(PUBLIC_ROUTES.map(r=>[r.path,{html:`<h1>${r.title}</h1>`,etag:'"abc"'}])), refresh=async()=>({failures:[],validatedTabs:['memes','meme-materials']})) {
+  const instance=createServer(createPublicPageHandler({publisher:{snapshot:()=>pages,refresh},buildId:'build-test'}))
   await new Promise(resolve=>instance.listen(0,'127.0.0.1',resolve))
   t.after(()=>new Promise(resolve=>{instance.closeAllConnections();instance.close(resolve)}))
   return `http://127.0.0.1:${instance.address().port}`
@@ -23,6 +23,39 @@ test('nine exact pages, HEAD, conditional and query requests share cached docume
     assert.equal(await (await fetch(base+route.path,{method:'HEAD'})).text(),'')
     assert.equal((await fetch(base+route.path,{headers:{'If-None-Match':'"other", W/"abc"'}})).status,304)
   }
+})
+
+test('meme documents and overview refresh before using cached HTML or ETags',async t=>{
+  const pages=new Map([['/memes',{html:'blocked meme',etag:'"old"'}]])
+  let refreshed=0
+  const base=await server(t,pages,async()=>{
+    refreshed++
+    pages.set('/memes',{html:'empty list',etag:'"new"'})
+    return {failures:[],validatedTabs:['memes','meme-materials']}
+  })
+  const response=await fetch(base+'/memes',{headers:{'If-None-Match':'"old"'}})
+  assert.equal(refreshed,1)
+  assert.equal(response.status,200)
+  assert.equal(await response.text(),'empty list')
+  await fetch(base+'/')
+  await fetch(base+'/meme-materials')
+  assert.equal(refreshed,3)
+})
+
+test('a failed rules refresh cannot serve possibly blocked cached memes',async t=>{
+  const pages=new Map([['/memes',{html:'blocked meme',etag:'"old"'}]])
+  const base=await server(t,pages,async()=>({failures:['fetch']}))
+  const response=await fetch(base+'/memes')
+  assert.equal(response.status,503)
+  assert.doesNotMatch(await response.text(),/blocked meme/)
+})
+
+test('an unavailable or missing meme source cannot confirm stale cached content',async t=>{
+  const pages=new Map([['/memes',{html:'blocked meme',etag:'"old"'}]])
+  const base=await server(t,pages,async()=>({failures:[],validatedTabs:[]}))
+  const response=await fetch(base+'/memes')
+  assert.equal(response.status,503)
+  assert.doesNotMatch(await response.text(),/blocked meme/)
 })
 test('canonical redirects, unknown paths and unsupported methods have honest status',async t=>{
   const base=await server(t)
@@ -47,4 +80,19 @@ test('a running publisher refuses pages requested by a different client build',a
   const incompatible=await fetch(base+'/memes',{headers:{'X-Public-Pages-Build':'previous-build'}})
   assert.equal(incompatible.status,503)
   assert.equal(incompatible.headers.get('x-robots-tag'),'noindex')
+})
+
+
+test('an unrelated source failure does not block a safely confirmed meme page',async t=>{
+  const pages=new Map([['/memes',{html:'safe empty list',etag:'"new"'}]])
+  const base=await server(t,pages,async()=>({failures:['songs'],validatedTabs:['memes']}))
+  const response=await fetch(base+'/memes')
+  assert.equal(response.status,200)
+  assert.equal(await response.text(),'safe empty list')
+})
+
+test('an adjustment that expires during refresh cannot serve stale HTML',async t=>{
+  const pages=new Map([['/memes',{html:'expired override',etag:'"old"',bootstrap:{sections:{memes:{expires_at:1}}}}]])
+  const base=await server(t,pages)
+  assert.equal((await fetch(base+'/memes')).status,503)
 })

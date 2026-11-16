@@ -65,6 +65,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const crawlingRef = useRef(false)
   const dashboardRevisionRef = useRef(null)
   const dashboardRequestRef = useRef(0)
+  const rulesReloadPendingRef = useRef(false)
   const [breakerTrend, setBreakerTrend] = useState([])
   const [breakerThreshold, setBreakerThreshold] = useState(3)
   const [isLive, setIsLive] = useState(false)
@@ -80,8 +81,13 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
   const favKeyOf = (type, item) => {
     if (type === 'video') return `video:${item.bvid}`
     if (type === 'song')  return `song:${item.bvid}`
-    if (type === 'meme')  return `meme:${item.keyword}`
-    if (type === 'meme_material') return `meme_material:${item.name}`
+    if (type === 'meme' || type === 'meme_material') {
+      const rows = [...(data.hot_memes || []), ...(data.meme_materials || [])]
+      const name = item.keyword || item.name
+      const current = rows.find(r => r.keyword === name || r.name === name || r.aliases?.includes(name))
+      const id = item.meme_id || current?.meme_id || name
+      return `${type}:${data.meme_publication?.redirects?.[id] || id}`
+    }
     return `${type}:${item.id || JSON.stringify(item)}`
   }
   const favSet = new Set(favorites.map(f => favKeyOf(f.type, f.data || f)))
@@ -95,6 +101,15 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       await verifyAdminSilent()
       await refreshIdentity()
     })()
+  }, [])
+
+  useEffect(() => {
+    const refreshRules = () => {
+      rulesReloadPendingRef.current = true
+      loadData({ background: true })
+    }
+    window.addEventListener('kichu:word-rules-changed', refreshRules)
+    return () => window.removeEventListener('kichu:word-rules-changed', refreshRules)
   }, [])
 
   useEffect(() => {
@@ -129,10 +144,11 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
         if (res.success && res.data) {
           const isCrawling = !!res.data.crawling
           const revision = JSON.stringify([res.data.last_updated, res.data.data_source,
-            res.data.observation_revision, Math.floor(Date.now() / 60000)])
+            res.data.observation_revision, res.data.meme_rules_version, Math.floor(Date.now() / 60000)])
           const changed = dashboardRevisionRef.current != null && dashboardRevisionRef.current !== revision
-          dashboardRevisionRef.current = revision
-          if ((crawlingRef.current && !isCrawling) || changed) loadData({ background: true })
+          if ((crawlingRef.current && !isCrawling) || changed || rulesReloadPendingRef.current) {
+            if (await loadData({ background: true })) dashboardRevisionRef.current = revision
+          } else if (dashboardRevisionRef.current == null) dashboardRevisionRef.current = revision
           crawlingRef.current = isCrawling
           startTransition(() => {
             setCrawling(isCrawling)
@@ -184,7 +200,7 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
     if (!background) setLoading(!hasPublicData.current)
     try {
     const res = await api.getDashboard()
-    if (requestId !== dashboardRequestRef.current) return
+    if (requestId !== dashboardRequestRef.current) return false
     if (res.success && res.data) {
       for (const [tab,field] of Object.entries(PUBLIC_FIELDS)) if (Array.isArray(res.data[field])) availableTabs.current.add(tab)
       if (Object.values(PUBLIC_FIELDS).every(field=>Array.isArray(res.data[field]))) availableTabs.current.add('dashboard')
@@ -198,8 +214,11 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
       if (newIsLive) {
         liveExpiryTimer.current = setTimeout(() => { setLiveExpired(true); liveExpiryTimer.current = null }, 10 * 60 * 1000)
       }
+      rulesReloadPendingRef.current = false
+      return true
     }
-    } catch { /* Retain the last successful public snapshot when offline. */ }
+    return false
+    } catch { return false /* Retain the last successful public snapshot when offline. */ }
     finally { if (requestId === dashboardRequestRef.current) startTransition(() => setLoading(false)) }
   }
   const loadFavorites = async () => { const res = await api.getFavorites(); if (res.success) startTransition(() => setFavorites(res.data || [])) }
@@ -469,8 +488,9 @@ export default function App({initialTab, initialData, initialAux, renderYear} = 
                             </h3>
                             <p className="text-xs text-haze-300 mt-2 max-w-2xl leading-relaxed">{meme.description}</p>
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3">
-                              <span className="kb-chip kb-chip--pink">相关视频 <b className="kb-num ml-1">{meme.video_count}</b> 个</span>
-                              <span className="kb-chip kb-chip--cyan">总播放 <b className="kb-num ml-1">{formatNumber(meme.total_views)}</b></span>
+                              <span className="kb-chip kb-chip--pink">相关视频 <b className="kb-num ml-1">{meme.video_count ?? '—'}</b> 个</span>
+                              <span className="kb-chip kb-chip--cyan">总播放 <b className="kb-num ml-1">{meme.total_views == null ? '—' : formatNumber(meme.total_views)}</b></span>
+                              {meme.manual && <span className="kb-chip">人工收录</span>}
                               {meme.aliases?.length > 0 && <span className="kb-chip kb-chip--ghost">别名：{meme.aliases.slice(0, 3).join(' / ')}</span>}
                             </div>
                           </div>

@@ -30,6 +30,7 @@ export default function MemeCard({
             }>{index + 1}</span>
             <div className="min-w-0">
               <h3 className="font-bold text-haze-50 text-[1.02rem]">{meme.keyword}</h3>
+              {meme.manual_position && <p className="text-xs text-sky-600">人工位置 · 第 {meme.manual_position} 位</p>}
               <div className="mt-1.5">
                 {meme.trend_label?.trim() && <span className={chipCls(meme.trend_label)}>{meme.trend_label}</span>}
               </div>
@@ -50,7 +51,7 @@ export default function MemeCard({
               <TrendingUp size={13} className="text-neon-rose" />
               热度
             </span>
-            <span className="kb-num text-neon-rose">{formatNumber(meme.heat)}</span>
+            <span className="kb-num text-neon-rose">{meme.heat == null ? '—' : formatNumber(meme.heat)}</span>
           </div>
           <div className="relative w-full h-2 rounded-full bg-white/5 overflow-hidden">
             <div className="h-full rounded-full transition-all duration-700 ease-out

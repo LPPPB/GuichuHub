@@ -9,7 +9,7 @@ from storage.migrations import _config, alembic_heads, upgrade_database
 
 
 def test_analysis_job_chain_has_one_current_head():
-    assert alembic_heads() == ["0004_radar_v2"]
+    assert alembic_heads() == ["0005_meme_review"]
 
 
 def test_upgrade_from_0002_preserves_observations(empty_postgres_url):

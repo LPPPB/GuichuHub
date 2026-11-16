@@ -294,10 +294,16 @@ def get_follower_growth(days=7, limit=10):
 
 
 def get_tag_heat(limit=30, min_count=2):
+    """Rank tags on videos published in the latest 30 Beijing calendar days."""
     repository = _repository()
     if repository.latest_video_observation_ts() is None:
         return []
-    rows = repository.tag_heat_rows(sorted(KICHU_TIDS_WITH_PARENT), min_count)
+    today = datetime.now(CN_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = repository.tag_heat_rows(
+        sorted(KICHU_TIDS_WITH_PARENT), min_count,
+        start_ts=int((today - timedelta(days=29)).timestamp()),
+        end_ts=int((today + timedelta(days=1)).timestamp()),
+    )
     from collectors.bilibili import is_useless_tag
     items = []
     for row in rows:

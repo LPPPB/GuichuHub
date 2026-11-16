@@ -52,6 +52,7 @@ COPY --from=builder /app/storage /app/storage
 COPY --from=builder /app/analytics /app/analytics
 COPY --from=builder /app/jobs /app/jobs
 COPY --from=builder /app/services /app/services
+COPY --from=builder /app/routes /app/routes
 COPY --from=builder /app/utils /app/utils
 COPY --from=builder /app/scripts /app/scripts
 COPY --from=builder /app/alembic.ini /app/alembic.ini

@@ -151,10 +151,14 @@ def clean_postgres_data(postgres_url):
 
 
 @pytest.fixture
-def postgres_runtime(clean_postgres_data, tmp_path):
+def postgres_runtime(clean_postgres_data, tmp_path, monkeypatch):
     """Install all compatibility adapters against a migrated disposable database."""
     from storage import auth_store, database, db, runtime_settings, tracked_ups
     from storage.runtime import configure_postgres_runtime
+    # Independent fixture databases can reuse the same dashboard revision number.
+    from storage import cache
+    monkeypatch.setattr(cache, '_data_cache', None)
+    monkeypatch.setattr(cache, '_data_cache_version', None)
 
     url_file = tmp_path / "postgres-test-url"
     url_file.write_text(clean_postgres_data, encoding="utf-8")
@@ -179,6 +183,8 @@ def postgres_runtime(clean_postgres_data, tmp_path):
         auth_store.configure_auth_repository(None)
         database.configure_state_repository(None)
         runtime_settings.configure_runtime_settings_repository(None)
+        from services.meme_publication import configure_meme_review
+        configure_meme_review(None)
         tracked_ups.configure_state_repository(None)
         runtime.sessions.kw["bind"].dispose()
 

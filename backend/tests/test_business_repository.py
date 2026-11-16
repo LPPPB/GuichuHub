@@ -1,6 +1,7 @@
 """PostgreSQL business repository contracts."""
 
 import time
+from datetime import datetime, timezone
 
 import pytest
 
@@ -428,18 +429,34 @@ def test_follower_growth_uses_postgresql_jsonb_observations(business_repository)
     }]
 
 
-def test_tag_heat_aggregates_latest_postgresql_observations(business_repository):
+def test_tag_heat_uses_latest_observations_for_last_30_beijing_dates(
+    business_repository, monkeypatch,
+):
     from config import KICHU_TIDS_WITH_PARENT
 
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 7, 16, 15, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(legacy_db, "datetime", FrozenDateTime)
     legacy_db.configure_business_repository(business_repository)
     tid = sorted(KICHU_TIDS_WITH_PARENT)[0]
-    ts = 2_000_000_200
-    for index, views in enumerate((1000, 3000), start=1):
+    ts = int(datetime(2026, 11, 7, 16, 15, tzinfo=timezone.utc).timestamp())
+    fixtures = (
+        (datetime(2026, 10, 9, 16, tzinfo=timezone.utc), 1000),
+        (datetime(2026, 11, 7, 16, tzinfo=timezone.utc), 3000),
+        (datetime(2026, 10, 9, 15, 59, 59, tzinfo=timezone.utc), 99000),
+        (datetime(2026, 11, 8, 16, tzinfo=timezone.utc), 99000),
+    )
+    for index, (published, views) in enumerate(fixtures, start=1):
         business_repository.record_video({
             "bvid": f"BV-tag-{index}", "mid": 600 + index, "first_seen": ts,
-            "title": "视频", "tid": tid, "pub_date": ts - 1000, "tags": ["鬼畜音MAD"],
+            "title": "视频", "tid": tid, "pub_date": int(published.timestamp()),
+            "tags": ["鬼畜音MAD"],
             "views": views, "likes": 20, "coins": 5, "favorites": 8,
         }, ts=ts, source="test")
+    business_repository.record_observation("BV-tag-1", ts - 1, {"views": 500})
 
     result = legacy_db.get_tag_heat(limit=30, min_count=2)
 

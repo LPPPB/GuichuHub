@@ -159,6 +159,7 @@ def _crawl_job_locked(trigger,*,guard):
         mode=load_collection_policy(os.environ).mode
         run_id=tsdb.begin_crawl_run(trigger)
         new_data=_collect_round()
+        review=new_data.pop('_meme_review',None)
         all_videos=new_data.pop('_all_videos',[])
         result=new_data.pop('_potential_result',None)
         if result is not None:
@@ -197,6 +198,9 @@ def _crawl_job_locked(trigger,*,guard):
                 mode=load_collection_policy(os.environ).mode)
         else:
             persist_data({k:v for k,v in new_data.items() if not k.startswith('_')})
+        if review is not None:
+            from services.meme_publication import get_meme_review_service
+            get_meme_review_service().ingest(str(run_id), review['boards'], int(time.time()), review['context'])
         tsdb.finish_crawl_run(run_id,'success',dict(summary,mode='startup_no_obs' if trigger=='startup' else summary.get('mode','legacy'),
                                                   videos_registered=len(all_videos),videos_recorded=records_written))
         _crawl_status['last_finished_at']=int(time.time())
