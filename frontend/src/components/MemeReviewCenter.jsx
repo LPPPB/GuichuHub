@@ -1,5 +1,7 @@
 import {useEffect, useRef, useState} from 'react'
 import {api} from '../utils/api'
+import {byHeat, nameOf, reviewSelection, selectionAdjustments} from '../utils/memeReviewSelection'
+import MemeReviewSelection from './MemeReviewSelection'
 
 const empty = () => ({dictionary:[], adjustments:[]})
 const tabs = [['today','今日待办'],['adjustments','当前调整'],['dictionary','梗词典'],['seeds','采集种子词']]
@@ -8,7 +10,6 @@ const actions = {hide:'隐藏',add:'补录',position:'调序',revoke:'撤销'}
 const field = 'border border-slate-300 rounded-lg px-3 py-2 bg-white min-w-0 text-sm'
 const button = 'border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white hover:bg-slate-50 disabled:opacity-40'
 const date = ts => ts ? new Date(ts*1000).toLocaleString('zh-CN') : '暂无'
-const nameOf = row => row.keyword || row.name || row.meme_id
 const wordsOf = text => [...new Set(text.split(/[\n,，]+/).map(w=>w.trim()).filter(Boolean))]
 
 export default function MemeReviewCenter({initialTab='today', onRules}) {
@@ -56,9 +57,18 @@ export default function MemeReviewCenter({initialTab='today', onRules}) {
   const count=proposal.adjustments.length+proposal.dictionary.length
   const dictionary=preview?.dictionary || data?.dictionary || []
   const displayName=id=>dictionary.find(r=>r.id===id)?.name || id
-  const rows=(preview?.boards || data?.preview?.boards || {})[board] || []
-  const candidates=data?.preview?.candidates?.[board] || []
-  const list=[...rows,...candidates.filter(c=>!rows.some(r=>r.meme_id===c.meme_id))].filter(r=>nameOf(r).includes(query))
+  const selection=reviewSelection(board,data,proposal)
+  const selected=preview?.boards?.[board]
+  const previewIds=new Set(selected?.map(row=>row.meme_id))
+  const visibleSelection=selected ? {
+    ...selection,
+    selected,
+    candidates:(preview.candidates?.[board] || selection.candidates).filter(row=>!previewIds.has(row.meme_id)).sort(byHeat),
+  } : selection
+  const selectRows=next=>change({
+    ...proposal,
+    adjustments:[...proposal.adjustments.filter(edit=>edit.board!==board),...selectionAdjustments(selection,next)],
+  })
   const seeds=wordsOf(seedText)
   const seedConflicts=seeds.filter(word=>blockedSeeds.some(blocked=>blocked.normalize('NFKC').toLowerCase()===word.normalize('NFKC').toLowerCase()))
   const publish=()=>run(async()=>{
@@ -98,30 +108,16 @@ export default function MemeReviewCenter({initialTab='today', onRules}) {
     {tab==='today' && <div className="space-y-3">
       {!!data?.suspected_aliases?.length && <details className="bg-amber-50 border border-amber-200 rounded-xl p-3"><summary className="cursor-pointer text-sm">{data.suspected_aliases.length} 组词条证据高度重叠，待人工确认</summary>{data.suspected_aliases.map((pair,i)=><p key={i} className="text-sm mt-2">{displayName(pair.source)} / {displayName(pair.target)} · 共用 {pair.shared} 个 BV <button className="text-sky-700 underline" onClick={()=>{setMergeSource(pair.source);setMergeTarget(pair.target);setTab('dictionary')}}>检查是否同义</button></p>)}</details>}
       <div className="flex flex-wrap gap-2">
-        {Object.entries(labels).map(([id,label])=><button key={id} className={`${button} ${board===id?'!bg-sky-100':''}`} onClick={()=>setBoard(id)}>{label}</button>)}
-        <input className={field} aria-label="搜索候选词" placeholder="搜索本期候选词" value={query} onChange={e=>setQuery(e.target.value)}/>
-        <button className={button} disabled={busy} onClick={()=>run(load)}>刷新本期数据</button>
+        {Object.entries(labels).map(([id,label])=><button key={id} aria-pressed={board===id} className={`${button} ${board===id?'!bg-sky-100 !border-sky-400':''}`} onClick={()=>{setBoard(id);setEvidence(null)}}>{label}</button>)}
+        {preview
+          ? <button className={`${button} ml-auto`} disabled={busy} onClick={()=>change(proposal)}>继续编辑</button>
+          : <button className={`${button} ml-auto`} disabled={busy} onClick={()=>run(load)}>刷新本期数据</button>}
       </div>
       {data?.source_status?.[board] && data.source_status[board]!=='complete' && <p className="text-amber-700 text-sm">本期来源不完整，继续使用上次有效结果。</p>}
-      <p className="text-xs text-slate-500">数据时间：{date(data?.preview?.source_times?.[board])} · 每个调整只作用于当前选择的库</p>
+      <p className="text-xs text-slate-500">数据时间：{date(data?.preview?.source_times?.[board])}</p>
       {!!data?.recent_runs?.length && <details className="bg-white border rounded-xl p-3"><summary className="text-sm cursor-pointer">最近 {data.recent_runs.length} 期采集记录</summary>{data.recent_runs.map(run=><p key={run.id} className="text-xs mt-2">{run.id} · {date(run.finished_at)} · {Object.entries(run.boards).map(([b,status])=>`${labels[b]} ${status.count}项${status.complete?'':'（保留上期）'}${status.evidence_complete?'':' · 证据不完整'}`).join('；')}</p>)}</details>}
-      {list.length===0 && <p className="bg-white border rounded-xl p-6 text-slate-500">本期暂无候选词。可先在梗词典登记，再人工补录。</p>}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {list.slice(0,100).map(entry=><article key={entry.meme_id} className="bg-white border rounded-xl p-4 space-y-3">
-          <div className="flex justify-between gap-2"><h3 className="font-bold break-words">{nameOf(entry)}</h3><span className="text-xs shrink-0 text-slate-500">{rows.some(r=>r.meme_id===entry.meme_id)?'榜内':'榜外候选'}</span></div>
-          <p className="text-xs text-slate-500">{entry.video_count ?? '—'} 个视频 · 热度 {entry.heat?.toLocaleString() ?? '—'}{entry.manual?' · 人工收录':''}</p>
-          <div className="flex flex-wrap gap-2">
-            <button className={button} aria-label={`隐藏 ${nameOf(entry)}`} onClick={()=>stage({board,meme_id:entry.meme_id,action:'hide'})}>隐藏</button>
-            <button className={button} aria-label={`补录 ${nameOf(entry)}`} onClick={()=>stage({board,meme_id:entry.meme_id,action:'add'})}>补录</button>
-            <label className="text-xs flex items-center gap-1">目标位置<input className={`${field} w-20`} type="number" min="1" max={board==='hot_memes'?30:10} aria-label={`${nameOf(entry)}目标位置`}
-              value={proposal.adjustments.find(a=>a.board===board&&a.meme_id===entry.meme_id)?.position || ''}
-              onChange={e=>stage({board,meme_id:entry.meme_id,action:rows.some(r=>r.meme_id===entry.meme_id)?'position':'add',position:e.target.value?Number(e.target.value):null})}/></label>
-            <button className={button} onClick={()=>inspect(entry)}>查看 BV 证据</button>
-            <button className={button} onClick={()=>{setSeedCandidate(entry.meme_id);setSeedSearch(nameOf(entry));setTab('seeds')}}>加入采集种子词</button>
-          </div>
-        </article>)}
-      </div>
-      {list.length>100 && <p>共 {list.length} 项，当前展示前 100 项；可搜索定位。</p>}
+      {data && <MemeReviewSelection key={board} selection={visibleSelection} onChange={selectRows} disabled={busy || !!preview} onInspect={inspect}
+        onSeed={entry=>{setSeedCandidate(entry.meme_id);setSeedSearch(nameOf(entry));setTab('seeds')}}/>}
       {evidence && <aside className="bg-white border rounded-xl p-4 space-y-2"><div className="flex justify-between"><h3>{evidence.name} · {evidence.total} 条证据</h3><button className={button} onClick={()=>setEvidence(null)}>关闭证据</button></div>
         {evidence.items?.map((e,i)=><p key={i} className="text-sm break-words"><a className="text-sky-700 underline" href={`https://www.bilibili.com/video/${encodeURIComponent(e.bvid)}`} target="_blank" rel="noreferrer">{e.bvid}</a> · {e.raw_term} · {e.source==='tag'?'标签':'标题'} · {e.video?.title}</p>)}
         {evidence.next_offset != null && <button className={button} disabled={busy} onClick={()=>run(async()=>{const next=check(await api.memeReview(`evidence?board=${evidence.board}&meme_id=${encodeURIComponent(evidence.meme_id)}&offset=${evidence.next_offset}`));setEvidence({...evidence,...next,items:[...evidence.items,...next.items]})})}>加载更多证据</button>}
@@ -169,10 +165,13 @@ export default function MemeReviewCenter({initialTab='today', onRules}) {
     </div>}
 
     {tab!=='seeds' && <footer className="sticky bottom-0 bg-white/95 border rounded-xl p-4 shadow-sm space-y-3">
-      <p className="font-semibold text-sm">待发布 {count} 项{preview?' · 预览已生成':''}</p>
-      {proposal.adjustments.map((a,i)=><p className="text-xs" key={`a${i}`}>{labels[a.board]} · {displayName(a.meme_id)} · {actions[a.action]} {a.position || ''} <button className="text-red-600 underline" onClick={()=>change({...proposal,adjustments:proposal.adjustments.filter((_,j)=>i!==j)})}>移除</button></p>)}
-      {proposal.dictionary.map((a,i)=><p className="text-xs" key={`d${i}`}>词典：{a.action==='merge'?`${displayName(a.source)} → ${displayName(a.target)}`:a.name} <button className="text-red-600 underline" onClick={()=>change({...proposal,dictionary:proposal.dictionary.filter((_,j)=>i!==j)})}>移除</button></p>)}
-      {preview && <p className="text-xs">预览已生成</p>}
+      {count>0 ? <details>
+        <summary className="cursor-pointer font-semibold text-sm">待发布 {count} 项{preview?' · 预览已生成':''}</summary>
+        <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+          {proposal.adjustments.map((a,i)=><p className="text-xs" key={`a${i}`}>{labels[a.board]} · {displayName(a.meme_id)} · {actions[a.action]} {a.position || ''} <button className="text-red-600 underline" disabled={busy} onClick={()=>change({...proposal,adjustments:proposal.adjustments.filter((_,j)=>i!==j)})}>移除</button></p>)}
+          {proposal.dictionary.map((a,i)=><p className="text-xs" key={`d${i}`}>词典：{a.action==='merge'?`${displayName(a.source)} → ${displayName(a.target)}`:a.name} <button className="text-red-600 underline" disabled={busy} onClick={()=>change({...proposal,dictionary:proposal.dictionary.filter((_,j)=>i!==j)})}>移除</button></p>)}
+        </div>
+      </details> : <p className="font-semibold text-sm">待发布 0 项{preview?' · 预览已生成':''}</p>}
       <div className="flex flex-wrap gap-2">
         <button className={button} disabled={busy||!data} onClick={()=>run(async()=>{const saved=check(await api.memeReview('draft','PUT',{proposal,revision:draftRevision}));setDraftRevision(saved.revision);setMessage('草稿已保存，自动更新继续运行')})}>保存草稿</button>
         <button className={button} disabled={busy||!data} onClick={()=>run(async()=>{setPreview(check(await api.memeReview('preview','POST',{proposal})));requestId.current=null})}>预览调整</button>

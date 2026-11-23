@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import pytest
 from storage.repositories.meme_review import MemeReviewRepository
 from services.meme_publication import MemePublicationService, ReviewConflict
@@ -10,6 +12,37 @@ def board(word='华强买瓜'):
 
 def service(runtime):
     return MemePublicationService(MemeReviewRepository(runtime.sessions), blocked_loader=lambda: [])
+
+
+def test_review_render_exposes_hidden_automatic_entries_but_excludes_blocked_words():
+    svc = MemePublicationService(None)
+    source = dict(board(), cards=[
+        {'keyword': '华强买瓜', 'heat': 20},
+        {'keyword': '二仙桥', 'heat': 10},
+    ])
+    session = Mock()
+    session.execute.return_value.mappings.return_value.first.return_value = {
+        'finished_at': 100, 'boards': {'hot_memes': source},
+    }
+    state = {
+        'latest': {'hot_memes': 'one'},
+        'dictionary': [
+            {'id': 'melon', 'name': '华强买瓜', 'aliases': []},
+            {'id': 'bridge', 'name': '二仙桥', 'aliases': []},
+        ],
+        'dictionary_version': 0,
+        'redirects': {},
+        'adjustments': [
+            {'board': 'hot_memes', 'meme_id': 'melon', 'action': 'hide', 'expires_at': 200},
+        ],
+    }
+    overview = svc._render(session, state, 100, ['二仙桥'], include_base=True)
+    assert overview['boards']['hot_memes'] == []
+    assert overview['base_boards'] == {
+        'hot_memes': [{'meme_id': 'melon', 'keyword': '华强买瓜', 'heat': 20}],
+        'meme_materials': [],
+    }
+    assert 'base_boards' not in svc._render(session, state, 100, ['二仙桥'])
 
 
 def test_publish_survives_next_crawl_expires_without_crawl_and_retry_does_not_extend(postgres_runtime):

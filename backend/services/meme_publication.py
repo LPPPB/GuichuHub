@@ -153,8 +153,9 @@ class MemePublicationService:
                     position=edit.get('position'), bvids=list(dict.fromkeys(bvids)), starts_at=now, expires_at=now+86400))
         return state
 
-    def _render(self, session, state, now, blocked):
+    def _render(self, session, state, now, blocked, *, include_base=False):
         boards, candidates, times = {}, {}, {}
+        base_boards = {}
         for board in BOARDS:
             run_id = state['latest'].get(board)
             run = session.execute(select(runs).where(runs.c.id == run_id)).mappings().first() if run_id else None
@@ -177,6 +178,11 @@ class MemePublicationService:
                     identifier, name = resolve(card.get(label) or '', lookup)
                     card['meme_id'] = identifier
                     card['aliases'] = [a for a in card.get('aliases', []) if a != name]
+            if include_base:
+                base_boards[board] = [
+                    {key: item[key] for key in ('meme_id', 'keyword', 'name', 'heat', 'video_count') if key in item}
+                    for item in apply_adjustments(board, rows, records, [], blocked, now)
+                ]
             boards[board] = apply_adjustments(board, rows, records, state['adjustments'], blocked, now, candidates[board])
             for adjustment in state['adjustments']:
                 if adjustment['board'] != board or adjustment['action'] != 'add' or now >= adjustment['expires_at'] or not adjustment.get('bvids'):
@@ -200,7 +206,8 @@ class MemePublicationService:
         expiry = min((a['expires_at'] for a in state['adjustments'] if a['expires_at'] > now), default=None)
         return dict(boards=boards, sources=deepcopy(state['latest']), source_times=times,
                     dictionary_version=state['dictionary_version'], expires_at=expiry,
-                    rules_hash=digest(blocked), candidates=candidates, redirects=deepcopy(state['redirects']))
+                    rules_hash=digest(blocked), candidates=candidates, redirects=deepcopy(state['redirects']),
+                    **({'base_boards': base_boards} if include_base else {}))
 
     def _write_publication(self, session, state, result, now):
         result = deepcopy(result)
@@ -324,7 +331,7 @@ class MemePublicationService:
         with self.repo.locked(now) as (session, row):
             state = self._state(row)
             draft = session.execute(select(drafts).where(drafts.c.owner == owner)).mappings().first()
-            result = self._render(session, state, now, self._blocked(session))
+            result = self._render(session, state, now, self._blocked(session), include_base=True)
             run = session.execute(select(runs).where(runs.c.id == state.get('last_run'))).mappings().first()
             recent = [dict(id=r['id'],finished_at=r['finished_at'],boards={b:dict(
                 complete=v.get('complete') is True, evidence_complete=v.get('evidence_complete') is True,
