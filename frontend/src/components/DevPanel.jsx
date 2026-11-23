@@ -75,7 +75,7 @@ function InfoBar({ icon: Icon, title, items }) {
 }
 
 // 开发者模式：词表配置（梗素材库停用词 + 种子热梗词 + 标签过滤 + 弹幕热词）
-export default function DevPanel() {
+export default function DevPanel({onOpenReview}) {
   const [tab, setTab] = useState('overview')
   const [overview, setOverview] = useState(null)
   const [commonQuery, setCommonQuery] = useState('')
@@ -250,7 +250,8 @@ export default function DevPanel() {
       if (tab === 'stopwords') {
         savedRes = await api.saveMemeStopwords(categories)
       } else if (tab === 'seedwords') {
-        savedRes = await api.saveMemeSeedWords(seedWords)
+        onOpenReview?.()
+        return
       } else if (tab === 'tagfilters') {
         savedRes = await api.saveTagFilters(tagFilters)
       } else {
@@ -265,6 +266,7 @@ export default function DevPanel() {
     }
     setSaving(false)
     if (savedRes?.success) {
+      window.dispatchEvent(new Event('kichu:word-rules-changed'))
       api.getWordRulesOverview().then((next) => {
         if (next.success) setOverview(next.data || null)
       }).catch(() => {})
@@ -300,7 +302,7 @@ export default function DevPanel() {
 
   const editableTab = ['stopwords', 'seedwords', 'tagfilters', 'danmaku'].includes(tab)
   const effectText = {
-    stopwords: '下次全量抓取生效',
+    stopwords: '保存后立即隐藏命中内容，无需重新抓取',
     seedwords: '下次全量抓取生效',
     tagfilters: '标签热度立即生效；素材结果下次抓取更新',
     danmaku: '词云与升温榜立即生效',
@@ -402,7 +404,7 @@ export default function DevPanel() {
           <span className="mx-1 h-5 w-px bg-slate-200" />
           <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">采集策略</span>
           <button
-            onClick={() => { setTab('seedwords'); setMsg(null) }}
+            onClick={() => onOpenReview ? onOpenReview() : setTab('seedwords')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               tab === 'seedwords' ? 'bg-primary-500 text-white' : 'text-slate-600 hover:bg-slate-100'
             }`}
@@ -608,56 +610,9 @@ export default function DevPanel() {
             </div>
           </div>
         ) : tab === 'seedwords' ? (
-          <div className="space-y-3">
-            <InfoBar
-              icon={ListChecks}
-              title="种子热梗词"
-              items={[
-                '管：抓取时主动搜索的热梗词（不是过滤）',
-                '保证哈基米/叮咚鸡等常驻热梗不被"频次≥3"门槛过滤',
-                '优先级最高，即使被停用词表误伤也保留',
-              ]}
-            />
-            <div className="bg-white rounded-lg p-3 border border-slate-200 max-h-[50vh] overflow-y-auto pr-1">
-              <div className="flex flex-wrap gap-1.5 mb-3">
-                {seedWords.map((w) => (
-                  <span
-                    key={w}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs group"
-                  >
-                    {w}
-                    <button
-                      onClick={() => removeSeedWord(w)}
-                      title={`删除 "${w}"`}
-                      className="text-slate-500 hover:text-red-500 transition-colors"
-                    >
-                      <X size={11} />
-                    </button>
-                  </span>
-                ))}
-                {seedWords.length === 0 && (
-                  <span className="text-xs text-slate-500">（空，退化为纯自动发现）</span>
-                )}
-              </div>
-              <div className="flex gap-1.5">
-                <input
-                  value={seedInput}
-                  onChange={(e) => setSeedInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addSeedWord()
-                  }}
-                  placeholder="添加热梗词（如：电棍 / 只因）"
-                  className="flex-1 min-w-0 bg-slate-100 border border-slate-300 rounded px-2 py-1 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-slate-400"
-                />
-                <button
-                  onClick={addSeedWord}
-                  title="添加"
-                  className="flex items-center justify-center w-7 h-7 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 transition-colors"
-                >
-                  <Plus size={13} />
-                </button>
-              </div>
-            </div>
+          <div className="bg-white border rounded-xl p-5">
+            <p>采集种子词已迁移至梗库审核中心，修改将在下次全量抓取生效。</p>
+            <button className="mt-3 text-sky-700 underline" onClick={onOpenReview}>前往梗库审核中心</button>
           </div>
         ) : tab === 'tagfilters' ? (
           <div className="space-y-3">

@@ -38,7 +38,7 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
     restored=true
   }
   async function run() {
-    const result={changedPaths:[],retainedPaths:[],failures:[]}
+    const result={changedPaths:[],retainedPaths:[],failures:[],validatedTabs:[]}
     try { await restore() } catch { result.failures.push('restore') }
     const controller=new AbortController()
     let timer
@@ -51,10 +51,35 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
       if (input?.schema_version!==1 || !input.sections || typeof input.sections!=='object') throw Error('Invalid export')
     } catch { result.failures.push('fetch');result.retainedPaths=[...pages.keys()];return result }
     finally { clearTimeout(timer) }
+    const paired=['memes','meme-materials']
+    const hasReview=paired.some(tab=>input.sections[tab]?.publication_id)
+    if(hasReview) {
+      try {
+        const id=input.sections.memes?.publication_id
+        if(!id || !paired.every(tab=>input.sections[tab]?.publication_id===id && ['ready','empty'].includes(input.sections[tab]?.status)))throw Error('Incomplete review generation')
+        const nextSections={...sections},nextConfirmed={...confirmed},candidate=new Map(pages)
+        for(const tab of paired) {
+          nextSections[tab]=input.sections[tab]
+          nextConfirmed[tab]=sections[tab]?.content_version===input.sections[tab].content_version?confirmed[tab]:clock()
+        }
+        if(paired.some(tab=>sections[tab]?.content_version!==input.sections[tab].content_version || !pages.has(routeForTab(tab).path))) {
+          for(const tab of paired)candidate.set(routeForTab(tab).path,await render(routeForTab(tab),nextSections,nextConfirmed))
+          candidate.set('/',await render(routeForTab('dashboard'),nextSections,nextConfirmed))
+          await cache.commitBatch(candidate)
+          pages=candidate;sections=nextSections;confirmed=nextConfirmed
+          result.changedPaths.push('/memes','/meme-materials','/')
+        }
+        result.validatedTabs.push(...paired)
+      } catch { result.failures.push('meme-publication') }
+    }
     for (const [tab,section] of Object.entries(input.sections)) {
+      if(hasReview && paired.includes(tab))continue
       const route=routeForTab(tab)
       if (!route || tab==='dashboard' || !['ready','empty'].includes(section?.status)) continue
-      if (sections[tab]?.content_version===section.content_version && pages.has(route.path)) continue
+      if (sections[tab]?.content_version===section.content_version && pages.has(route.path)) {
+        result.validatedTabs.push(tab)
+        continue
+      }
       const nextSections={...sections,[tab]:section}
       const nextConfirmed={...confirmed,[tab]:sections[tab]?.content_version===section.content_version?confirmed[tab]:clock()}
       try {
@@ -64,17 +89,18 @@ export function createPublisher({fetchSections,renderPage,cache,clock=()=>Math.f
         await cache.commitBatch(candidate)
         pages=candidate;sections=nextSections;confirmed=nextConfirmed
         result.changedPaths.push(route.path,'/')
+        result.validatedTabs.push(tab)
       } catch { result.failures.push(tab) }
     }
     result.changedPaths=[...new Set(result.changedPaths)]
     result.retainedPaths=[...pages.keys()].filter(path=>!result.changedPaths.includes(path))
     return result
   }
-  return {
-    snapshot:()=>new Map(pages),
-    refresh() {
-      if (!inFlight) inFlight=run().finally(()=>{inFlight=null})
-      return inFlight
-    },
+  function refresh({afterCurrent=false}={}) {
+    // An older poll may already have read the rules before this request began.
+    if(afterCurrent && inFlight)return inFlight.then(()=>refresh())
+    if (!inFlight) inFlight=run().finally(()=>{inFlight=null})
+    return inFlight
   }
+  return {snapshot:()=>new Map(pages),refresh}
 }

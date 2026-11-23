@@ -335,13 +335,15 @@ def route_dashboard():
         if _dash_payload_cache['key'] != cache_key:
             payload = _build_dashboard_payload(data, is_live, live_cached_at, now)
             _dash_payload_cache.update(key=cache_key, payload=payload)
-        return jsonify({'success': True, 'data': _dash_payload_cache['payload']})
+        from services.meme_visibility import filter_meme_sections
+        return jsonify({'success': True, 'data': filter_meme_sections(_dash_payload_cache['payload'])})
 
 
 @app.route('/api/memes', methods=['GET'])
 def route_memes():
+    from services.meme_visibility import filter_meme_sections
     data = get_data()
-    return jsonify({'success': True, 'data': data.get('hot_memes', [])})
+    return jsonify({'success': True, 'data': filter_meme_sections(data).get('hot_memes', [])})
 
 
 @app.route('/api/songs', methods=['GET'])
@@ -374,8 +376,9 @@ def route_kichu_rank():
 
 @app.route('/api/meme-materials', methods=['GET'])
 def route_meme_materials():
+    from services.meme_visibility import filter_meme_sections
     data = get_data()
-    return jsonify({'success': True, 'data': data.get('meme_materials', [])})
+    return jsonify({'success': True, 'data': filter_meme_sections(data).get('meme_materials', [])})
 
 
 @app.route('/api/material-candidates', methods=['GET'])
@@ -538,6 +541,7 @@ def route_status():
         bili_logged_in = False  # 模块加载失败视为未登录
     # 数据来源：实时缓存存在且未过期 = live，否则 = scheduled
     from storage.cache import get_live_cache
+    from storage.runtime_settings import runtime_setting_version
     data_source = 'live' if get_live_cache() else 'scheduled'
     from storage.repositories.radar import get_radar_repository
     repository = get_radar_repository()
@@ -568,6 +572,7 @@ def route_status():
             'bili_logged_in': bili_logged_in,      # B站登录态（过期时前端提示重新扫码）
             'data_source': data_source,             # 数据来源：live(实时)/scheduled(定时)
             'observation_revision': observation_revision,
+            'meme_rules_version': runtime_setting_version('meme_stopwords'),
             'online_breaker': ob,                   # 同接熔断器状态（null=不可用）
         }
     })
@@ -1152,7 +1157,7 @@ def route_get_meme_stopwords():
 
 @app.route('/api/config/meme-stopwords', methods=['PUT'])
 def route_save_meme_stopwords():
-    """保存梗素材库停用词表（下次抓取生效）。"""
+    """保存停用词表；已有素材和热梗在读取时立即隐藏命中词。"""
     from collectors.bilibili import save_meme_stopwords
     payload = request.get_json(silent=True) or {}
     categories = payload.get('categories')
@@ -1165,8 +1170,8 @@ def route_save_meme_stopwords():
         cleaned[cat] = [str(w).strip() for w in words if str(w).strip()]
     save_meme_stopwords(cleaned)
     total = sum(len(v) for v in cleaned.values())
-    return jsonify({'success': True, 'message': f'已保存 {total} 个停用词；素材/热梗将在下次全量抓取后更新',
-                    'effective': 'next_crawl'})
+    return jsonify({'success': True, 'message': f'已保存 {total} 个停用词；素材/热梗黑名单已立即生效',
+                    'effective': 'immediate'})
 
 
 @app.route('/api/config/tag-filters', methods=['GET'])
@@ -1252,24 +1257,29 @@ def route_get_meme_seed_words():
     guard = _require_admin()
     if guard:
         return guard
-    from collectors.bilibili import load_meme_seed_words
-    words = load_meme_seed_words()
-    return jsonify({'success': True, 'data': {'words': words, 'count': len(words)}})
+    from services.meme_publication import get_meme_review_service
+    data = get_meme_review_service().seed_snapshot()
+    return jsonify(success=True, data=dict(data, count=len(data['words'])))
 
 
 @app.route('/api/config/meme-seed-words', methods=['PUT'])
 def route_save_meme_seed_words():
-    """保存梗素材库种子热梗词列表（下次抓取生效）。"""
-    from collectors.bilibili import save_meme_seed_words
+    guard = _require_admin()
+    if guard:
+        return guard
+    from services.meme_publication import get_meme_review_service, ReviewConflict
     payload = request.get_json(silent=True) or {}
-    words = payload.get('words')
-    if not isinstance(words, list):
-        return jsonify({'success': False, 'message': '参数错误：缺少 words'}), 400
-    cleaned = [str(w).strip() for w in words if str(w).strip()]
-    save_meme_seed_words(cleaned)
-    return jsonify({'success': True,
-                    'message': f'已保存 {len(cleaned)} 个种子热梗词；将在下次全量抓取时用于主动发现',
-                    'effective': 'next_crawl'})
+    if not isinstance(payload, dict):
+        return jsonify(success=False, message='invalid payload'), 400
+    if 'version' not in payload:
+        return jsonify(success=False, message='请刷新审核中心后再保存种子词'), 428
+    try:
+        data = get_meme_review_service().save_seeds(payload.get('words'), payload.get('links'), payload['version'], int(time.time()))
+        return jsonify(success=True, data=data, effective='next_crawl', message='已保存采集设置，下次全量抓取生效')
+    except ReviewConflict as error:
+        return jsonify(success=False, message=str(error)), 409
+    except ValueError as error:
+        return jsonify(success=False, message=str(error)), 400
 
 
 @app.route('/api/config/word-rules/overview', methods=['GET'])
@@ -1299,7 +1309,7 @@ def route_word_rules_overview():
         },
         'effects': {
             'common': '新抓取立即使用；已有弹幕榜在读取时同步过滤',
-            'meme': '下次全量抓取',
+            'meme': '保存后立即隐藏命中内容，无需重新抓取',
             'tag': '标签热度立即重算；素材派生结果下次全量抓取',
             'danmaku': '词云与升温榜立即生效',
             'seed': '下次全量抓取',
@@ -2072,6 +2082,9 @@ def route_up_trends():
 
 
 # ==================== 入口 ====================
+
+from routes.meme_review import register_meme_review_routes
+register_meme_review_routes(app, _require_admin, _request_actor)
 
 if __name__ == '__main__':
     setup_logging()

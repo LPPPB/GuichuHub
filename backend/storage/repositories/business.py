@@ -262,10 +262,15 @@ class BusinessRepository:
             })
         return sorted(items, key=lambda item: item["growth"], reverse=True)[:limit]
 
-    def tag_heat_rows(self, tids: list[int], min_count: int) -> list[dict]:
+    def tag_heat_rows(self, tids: list[int], min_count: int, *,
+                      start_ts: int, end_ts: int) -> list[dict]:
         latest = select(
             video_observations.c.bvid,
             func.max(video_observations.c.ts).label("ts"),
+        ).join(videos, videos.c.bvid == video_observations.c.bvid).where(
+            videos.c.tid.in_(tids),
+            videos.c.pub_date >= start_ts,
+            videos.c.pub_date < end_ts,
         ).group_by(video_observations.c.bvid).subquery()
         query = select(
             video_tags.c.tag,
@@ -274,12 +279,12 @@ class BusinessRepository:
             func.avg(video_observations.c.likes).label("avg_likes"),
             func.avg(video_observations.c.coins).label("avg_coins"),
             func.avg(video_observations.c.favorites).label("avg_favs"),
-        ).join(videos, videos.c.bvid == video_tags.c.bvid).join(
+        ).select_from(video_tags).join(
             latest, latest.c.bvid == video_tags.c.bvid,
         ).join(video_observations, and_(
             video_observations.c.bvid == latest.c.bvid,
             video_observations.c.ts == latest.c.ts,
-        )).where(videos.c.tid.in_(tids)).group_by(video_tags.c.tag).having(
+        )).group_by(video_tags.c.tag).having(
             func.count(distinct(video_tags.c.bvid)) >= min_count,
         )
         with self._sessions() as session:

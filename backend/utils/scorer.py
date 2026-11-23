@@ -328,20 +328,18 @@ def get_potential_reason(video, now=None):
 
 def extract_keywords_from_title(title):
     keywords = []
+
+    # Suffix names must stay inside one title segment. Otherwise 《代号：神不言》
+    # produces the truncated candidate 《代号：神, and 【哈基米】面筋哥 can merge.
+    segment = r'[^\s，。、！？,.!?：:；;【】「」『』《》〈〉（）()“”"\[\]{}]'
     
     patterns = [
         r'【([^】]+)】',
         r'「([^」]+)」',
         r'『([^』]+)』',
         r'"([^"]+)"',
-        r'([^\s，。、！？,.!?]{2,6}哥)',
-        r'([^\s，。、！？,.!?]{2,6}姐)',
-        r'([^\s，。、！？,.!?]{2,6}侠)',
-        r'([^\s，。、！？,.!?]{2,6}帝)',
-        r'([^\s，。、！？,.!?]{2,6}神)',
-        r'([^\s，。、！？,.!?]{2,6}之王)',
-        r'([^\s，。、！？,.!?]{2,6}名场面)',
-        r'([^\s，。、！？,.!?]{2,6}神曲)',
+        *[rf'({segment}{{2,6}}{suffix})'
+          for suffix in ('哥', '姐', '侠', '帝', '神', '之王', '名场面', '神曲')],
     ]
     
     for pattern in patterns:

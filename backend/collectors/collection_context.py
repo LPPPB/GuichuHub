@@ -66,11 +66,11 @@ class RoundContext:
         self.events.append({'kind':kind,'outcome':result.outcome,'key':key})
         return result
 
-    def call(self, name, *args, kind='discovery'):
+    def call(self, name, *args, kind='discovery', source=None):
         def load():
             loader = self.loaders.get(name)
             return loader(*args) if callable(loader) else SourceResult(outcome='error',error_code='missing_loader')
-        return self.fetch_once(kind,(name,*args),load)
+        return self.fetch_once(kind,(source or name,*args),load)
 
 
 def record_http_attempt():

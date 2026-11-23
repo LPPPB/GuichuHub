@@ -1,7 +1,7 @@
 import {resolvePublicPath} from '../src/routing/publicRoutes.js'
 
 export function createPublicPageHandler({publisher,buildId}) {
-  return (request,response)=>{
+  return async (request,response)=>{
     const send=(status,body='',headers={})=>{
       response.writeHead(status,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache',...headers})
       response.end(request.method==='HEAD'?'':body)
@@ -17,8 +17,20 @@ export function createPublicPageHandler({publisher,buildId}) {
     if(resolved.kind!=='page')return send(404,'<h1>页面不存在</h1>',{'X-Robots-Tag':'noindex'})
     if(request.headers['x-public-pages-build'] && request.headers['x-public-pages-build']!==buildId)
       return send(503,'<h1>页面版本正在切换，请稍后重试</h1>',{'Retry-After':'60','X-Robots-Tag':'noindex'})
+    if(['/', '/memes', '/meme-materials'].includes(path)) {
+      try {
+        const result=await publisher.refresh({afterCurrent:true})
+        const required=path==='/'?['memes','meme-materials']:[resolved.route.tabId]
+        if(!required.every(tab=>result.validatedTabs?.includes(tab)))throw Error('Rules refresh unavailable')
+      } catch {
+        return send(503,'<h1>公开数据暂不可用</h1>',{'Retry-After':'15','X-Robots-Tag':'noindex'})
+      }
+    }
     const page=publisher.snapshot().get(path)
     if(!page)return send(503,'<h1>公开数据暂不可用</h1>',{'Retry-After':'60','X-Robots-Tag':'noindex'})
+    if(['/', '/memes', '/meme-materials'].includes(path) &&
+       Object.values(page.bootstrap?.sections || {}).some(section=>section.expires_at!=null && Date.now()>=section.expires_at*1000))
+      return send(503,'<h1>榜单正在更新，请稍后重试</h1>',{'Retry-After':'1','X-Robots-Tag':'noindex'})
     const conditions=(request.headers['if-none-match'] || '').split(',').map(v=>v.trim().replace(/^W\//,''))
     if(conditions.includes('*') || conditions.includes(page.etag))return send(304,'',{ETag:page.etag})
     return send(200,page.html,{ETag:page.etag})

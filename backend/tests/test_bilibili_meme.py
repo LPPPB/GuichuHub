@@ -50,6 +50,39 @@ def test_meme_materials_extracts_high_freq_word():
     assert '哈基米' in names
 
 
+def test_meme_materials_ranks_creator_tags_ahead_of_title_fallback():
+    videos = [
+        _video('BV1', '第一集', views=1000, tid=22, tags=['华强买瓜']),
+        _video('BV2', '第二集', views=1000, tid=22, tags=['华强买瓜']),
+        *[_video(f'BV{i}', f'哈基米第{i}集', views=500000) for i in range(3, 6)],
+    ]
+
+    results = get_meme_materials(videos, [])
+
+    assert [row['name'] for row in results] == ['华强买瓜', '哈基米']
+    assert {video['bvid'] for video in results[0]['related_videos']} == {'BV1', 'BV2'}
+
+
+def test_meme_materials_tag_evidence_claims_videos_before_titles():
+    videos = [
+        _video('BV1', '哈基米第一集', tid=22, tags=['华强买瓜']),
+        _video('BV2', '哈基米第二集', tid=22, tags=['华强买瓜']),
+        _video('BV3', '哈基米第三集'),
+    ]
+
+    assert [row['name'] for row in get_meme_materials(videos, [])] == ['华强买瓜']
+
+
+def test_meme_materials_counts_distinct_tagged_bvs_and_filters_noise():
+    videos = [
+        _video('BV1', '第一集', tid=22, tags=['华强买瓜', '华强买瓜', '但是']),
+        _video('BV1', '第一集', tid=22, tags=['华强买瓜']),
+        _video('BV2', '第二集', tid=22, tags=['但是']),
+    ]
+
+    assert get_meme_materials(videos, []) == []
+
+
 def test_meme_materials_filters_generic_words():
     """generic_words 中的词不应被提取(如'鬼畜''视频')"""
     videos = [
