@@ -54,7 +54,8 @@ def rank_evidence(board, evidence, records, blocked, songs=(), seeds=(), *, all_
         identifier, name = resolve(hit['raw_term'], lookup)
         if identifier in excluded:
             continue
-        group = groups.setdefault(identifier, dict(name=name, terms=set(), videos={}, tags=set(), titles=set()))
+        group = groups.setdefault(identifier, dict(name=name, terms=set(), videos={}, tags=set(),
+                                                   titles=set(), seed_ranks={}))
         group['terms'].add(hit['raw_term'])
         bv = hit['bvid']
         row = deepcopy(hit['video'])
@@ -63,11 +64,16 @@ def rank_evidence(board, evidence, records, blocked, songs=(), seeds=(), *, all_
         if old is None or (row.get('observed_at') or 0) > (old.get('observed_at') or 0):
             group['videos'][bv] = row
         group['tags' if hit['source'] == 'tag' else 'titles'].add(bv)
+        rank = hit.get('seed_search_rank')
+        if rank is not None:
+            ranks = group['seed_ranks']
+            ranks[bv] = min(rank, ranks.get(bv, rank))
     seed_ids = {resolve(s, lookup)[0] for s in seeds}
     selected_sources = {}
     if board == 'meme_materials' and not all_candidates:
         tagged = sorted((id for id, g in groups.items() if len(g['tags']) >= 2),
                         key=lambda id: (-len(groups[id]['tags']), groups[id]['name']))
+        tagged_bvids = {bv for id in tagged for bv in groups[id]['tags']}
         titled = sorted((id for id, g in groups.items() if len(g['titles']) >= 3 or id in seed_ids),
                         key=lambda id: (id not in seed_ids, -len(groups[id]['titles']), groups[id]['name']))
         assigned, selected = set(), {}
@@ -77,6 +83,8 @@ def rank_evidence(board, evidence, records, blocked, songs=(), seeds=(), *, all_
             bvs = groups[id][source] - assigned
             if len(bvs) < (1 if source == 'titles' and id in seed_ids else 2):
                 continue
+            if source == 'tags' and id in seed_ids:
+                bvs |= (groups[id]['titles'] & groups[id]['seed_ranks'].keys()) - tagged_bvids - assigned
             selected[id] = dict(groups[id], videos={bv: groups[id]['videos'][bv] for bv in bvs})
             selected_sources[id] = source
             assigned.update(bvs)
@@ -85,7 +93,9 @@ def rank_evidence(board, evidence, records, blocked, songs=(), seeds=(), *, all_
         groups = selected
     entries = []
     for identifier, group in groups.items():
-        videos = sorted(group['videos'].values(), key=lambda v: (-v.get('views', 0), v['bvid']))
+        ranks = group['seed_ranks'] if board == 'meme_materials' and identifier in seed_ids else {}
+        videos = sorted(group['videos'].values(),
+                        key=lambda v: (ranks.get(v['bvid'], float('inf')), -(v.get('views') or 0), v['bvid']))
         views = sum(v.get('views') or 0 for v in videos)
         aliases = set(group['terms'])
         for record in records:

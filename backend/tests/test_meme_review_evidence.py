@@ -50,3 +50,25 @@ def test_recalculation_preserves_tag_first_greedy_selection_without_alias_edits(
     rebuilt = rank_evidence('meme_materials', evidence, [], [])
     assert [(r['name'],r['total_views']) for r in rebuilt] == [(r['name'],r['total_views']) for r in cards]
 
+
+def test_seed_material_uses_comprehensive_search_rank_after_deduplication():
+    from services.meme_review import rank_evidence
+
+    seed = '小跳蛙'
+    first = dict(video('BVFirst', []), title='小跳蛙 新作', views=100, pub_date=1790000000)
+    second = dict(video('BVSecond', [seed]), views=900000, pub_date=1790100000)
+    unranked = dict(video('BVUnranked', [seed]), views=1000000)
+    rows = [first, second, unranked,
+            dict(first, seed_search_ranks={seed: 1}),
+            dict(second, seed_search_ranks={seed: 2})]
+    evidence = []
+
+    cards = get_meme_materials(rows, [], seed_words=[seed], evidence=evidence)
+    dictionary = [{'id': 'frog', 'name': '开心小蛙', 'aliases': [seed]}]
+    rebuilt = rank_evidence('meme_materials', evidence, dictionary, [], seeds=[seed])
+
+    for card in (cards[0], rebuilt[0]):
+        assert [v['bvid'] for v in card['related_videos']] == ['BVFirst', 'BVSecond', 'BVUnranked']
+        assert card['video_count'] == 3
+        assert card['total_views'] == 1900100
+

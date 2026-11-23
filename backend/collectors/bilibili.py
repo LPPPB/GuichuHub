@@ -262,7 +262,7 @@ def fetch_kichu_newest(limit=20):
     return collected
 
 def fetch_search_videos(tid, page=1, ps=20, keyword='', order='pubdate'):
-    """搜索指定分区的视频。order: pubdate(最新) / click(播放) / scores(综合)"""
+    """搜索指定分区的视频。order: pubdate(最新) / click(播放) / totalrank(综合)"""
     url = 'https://api.bilibili.com/x/web-interface/search/type'
     params = {
         'search_type': 'video',
@@ -307,19 +307,17 @@ def fetch_meme_seed_videos():
     seed_words = load_meme_seed_words()
     if not seed_words:
         return []
-    collected = []
-    seen = set()
+    collected = {}
     for kw in seed_words:
         try:
-            # 按播放量排序（click），优先收录播放高的热梗作品
-            results = fetch_search_videos_by_keyword(kw, tid=22, pages=2, ps=20, order='click')
+            results = fetch_search_videos_by_keyword(kw, tid=22, pages=2, ps=20, order='totalrank')
         except Exception as e:
             print(f'  种子词"{kw}"搜索失败: {e}')
             continue
         added = 0
-        for video in results:
+        for rank, video in enumerate(results, 1):
             bvid = video.get('bvid', '')
-            if not bvid or bvid in seen:
+            if not bvid:
                 continue
             # 搜索 tid 参数不严格（关键词命中即可），按视频真实分区过滤
             real_tid_raw = video.get('typeid') or video.get('tid') or 0
@@ -329,12 +327,14 @@ def fetch_meme_seed_videos():
                 real_tid = 0
             if real_tid not in KICHU_TIDS:
                 continue
-            seen.add(bvid)
-            collected.append(parse_region_rank_item(video, tid=real_tid))
-            added += 1
+            if bvid not in collected:
+                collected[bvid] = parse_region_rank_item(video, tid=real_tid)
+                collected[bvid]['seed_search_ranks'] = {}
+                added += 1
+            collected[bvid]['seed_search_ranks'].setdefault(kw, rank)
         print(f'  梗种子词"{kw}": +{added} 条（搜索返回 {len(results)} 条）')
     print(f'梗素材种子词搜索合计: {len(collected)} 条')
-    return collected
+    return list(collected.values())
 
 def fetch_video_tags(bvid):
     url = 'https://api.bilibili.com/x/tag/archive/tags'
@@ -1590,9 +1590,16 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None, *, evidence=None)
 
     # 同一 BV 可能从多路返回。汇总各来源提供的标签，每个标签下同一 BV 只算一次。
     tag_videos = {}
+    seed_ranks = {}
     for video in all_videos:
         bvid = video.get('bvid')
-        if not bvid or video.get('tid') not in KICHU_TIDS_WITH_PARENT:
+        if not bvid:
+            continue
+        # 同一 BV 也可能先从其他来源出现，独立保留种子词搜索名次。
+        for word, rank in video.get('seed_search_ranks', {}).items():
+            if word in seed_words:
+                seed_ranks.setdefault(word, {}).setdefault(bvid, rank)
+        if video.get('tid') not in KICHU_TIDS_WITH_PARENT:
             continue
         for tag in video.get('tags') or []:
             if not isinstance(tag, str):
@@ -1628,13 +1635,19 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None, *, evidence=None)
         for source, pool in (('tag', tag_videos), ('title', word_videos)):
             for word, matches in pool.items():
                 for video in (matches.values() if isinstance(matches, dict) else matches):
-                    evidence.append({'raw_term': word, 'bvid': video['bvid'],
-                                     'source': source, 'video': deepcopy(video)})
+                    hit = {'raw_term': word, 'bvid': video['bvid'],
+                           'source': source, 'video': deepcopy(video)}
+                    hit['video'].pop('seed_search_ranks', None)
+                    rank = seed_ranks.get(word, {}).get(video['bvid'])
+                    if rank is not None:
+                        hit['seed_search_rank'] = rank
+                    evidence.append(hit)
 
     tag_candidates = sorted(
         ((word, matches.values()) for word, matches in tag_videos.items() if len(matches) >= 2),
         key=lambda item: (-len(item[1]), item[0]),
     )
+    tagged_bvids = {v['bvid'] for _, matches in tag_candidates for v in matches}
     title_candidates = sorted(
         ((word, matches) for word, matches in word_videos.items()
          if len(matches) >= 3 or word in seed_words),
@@ -1654,10 +1667,17 @@ def get_meme_materials(all_videos, hot_songs, seed_words=None, *, evidence=None)
         min_videos = 1 if not from_tag and word in seed_words else 2
         if len(related_videos) < min_videos:
             continue
+        ranks = seed_ranks.get(word, {})
+        if from_tag and ranks:
+            # 补充搜索命中的标题作品，同时保留其他梗的标签归属。
+            related_videos.extend(
+                v for v in word_videos.get(word, [])
+                if v['bvid'] in ranks and v['bvid'] not in tagged_bvids and v['bvid'] not in assigned_bvids
+            )
         selected_words.add(word)
         assigned_bvids.update(v['bvid'] for v in related_videos)
 
-        related_videos.sort(key=lambda x: x.get('views', 0), reverse=True)
+        related_videos.sort(key=lambda v: (ranks.get(v['bvid'], float('inf')), -(v.get('views') or 0)))
         total_views = sum(v.get('views', 0) for v in related_videos)
 
         # 匹配 BGM（词出现在歌名里）

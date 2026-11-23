@@ -35,11 +35,13 @@ def test_budget_caps_are_normal_completion_and_seed_failure_is_board_specific():
         dict(kind='tags', key=('tags','BV1'),outcome='success'),
         dict(kind='tags', key=('tags','BV65'),outcome='budget'),
         dict(kind='detail', key=('detail','BV161'),outcome='budget'),
-        dict(kind='discovery', key=('search_page','梗',22,'click',1),outcome='error')])
+        dict(kind='discovery', key=('seed_search_page','梗',22,'totalrank',1),outcome='error')])
     assert source_health(context, board='hot_memes') is True
     assert source_health(context, board='meme_materials') is False
     context.events[-1]['outcome'] = 'success'
     assert source_health(context, board='meme_materials') is True
+    context.events.append(dict(kind='discovery', key=('search_page','鬼畜',22,'totalrank',1),outcome='error'))
+    assert source_health(context, board='hot_memes') is False
 
 
 def test_malformed_success_does_not_publish_empty_as_complete(monkeypatch):

@@ -31,7 +31,7 @@ def source_health(modern=None, *, board='meme_materials'):
     if modern:
         events = [e for e in modern.events if e['kind'] in ('discovery', 'tags', 'detail')]
         if board == 'hot_memes':
-            events = [e for e in events if not (len(e['key']) > 3 and e['key'][0] == 'search_page' and e['key'][3] == 'click')]
+            events = [e for e in events if e['key'][0] != 'seed_search_page']
         # The bounded algorithm intentionally stops at its request quotas.
         # Budget exhaustion is distinct from an attempted source that failed.
         return any(e['outcome'] == 'success' for e in events) and all(e['outcome'] in ('success','budget') for e in events)

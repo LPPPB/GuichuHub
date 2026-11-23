@@ -56,6 +56,27 @@ def _search_video(bvid, typeid, views=100000, pubdate=None):
     }
 
 
+def test_seed_search_uses_comprehensive_order_on_both_pages(monkeypatch):
+    from collectors import bilibili
+
+    first = _search_video('BVFirst', 22, views=100)
+    second = _search_video('BVSecond', 22, views=900000)
+    unrelated = _search_video('BVOther', 138)
+    pages = {1: [first, unrelated], 2: [first, second]}
+
+    def search_response(url, params):
+        return {'data': {'result': pages[params['page']] if params['order'] == 'totalrank' else []}}
+
+    monkeypatch.setattr(bilibili, 'load_meme_seed_words', lambda: ['小跳蛙'])
+    monkeypatch.setattr(bilibili.time, 'sleep', lambda _: None)
+    monkeypatch.setattr(bilibili, 'safe_get', search_response)
+
+    videos = bilibili.fetch_meme_seed_videos()
+
+    assert [v['bvid'] for v in videos] == ['BVFirst', 'BVSecond']
+    assert [v['seed_search_ranks'] for v in videos] == [{'小跳蛙': 1}, {'小跳蛙': 3}]
+
+
 @pytest.fixture
 def mock_fetch(monkeypatch):
     """mock bilibili 模块的网络层函数,返回可控数据"""

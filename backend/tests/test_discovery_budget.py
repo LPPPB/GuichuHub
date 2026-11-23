@@ -98,6 +98,27 @@ def test_seed_budget_and_pending_boundaries():
     assert len([c for c in calls if c[0]=='search' and c[1].startswith('种子')])<=8
 
 
+def test_seed_discovery_preserves_comprehensive_rank_across_pages():
+    context, discovery, _ = setup(seeds=['小跳蛙'])
+    pages = {
+        1: [raw_video('BVFirst', tid=22), raw_video('BVOther', tid=22)],
+        2: [raw_video('BVFirst', tid=22), raw_video('BVSecond', tid=22)],
+    }
+
+    def search_page(keyword, tid, order, page):
+        return pages[page] if (keyword, tid, order) == ('小跳蛙', 22, 'totalrank') else []
+
+    context.loaders['search_page'] = search_page
+    result = discovery.discover_candidates(context=context, official_snapshot=None, pending=[], now=NOW)
+
+    assert [(v['bvid'], v['seed_search_ranks']['小跳蛙']) for v in result.attempt['seed_rows']] == [
+        ('BVFirst', 1), ('BVOther', 2), ('BVSecond', 3),
+    ]
+    assert [e['key'][0] for e in context.events if '小跳蛙' in e['key']] == [
+        'seed_search_page', 'seed_search_page',
+    ]
+
+
 def test_lower_budget_cannot_be_exceeded():
     context,discovery,_=setup(policy=replace(CollectionPolicy(),discovery_limit=3))
     discovery.discover_candidates(context=context,official_snapshot=None,pending=[],now=NOW)

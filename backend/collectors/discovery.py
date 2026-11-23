@@ -47,8 +47,8 @@ def discover_candidates(*, context, official_snapshot, pending, now):
         all_rows[bvid] = merge_video(all_rows.get(bvid),video)
         memberships[lane].add(bvid)
 
-    def rows(name,*args,endpoint,lane=None):
-        response = context.call(name,*args)
+    def rows(name,*args,endpoint,lane=None,source=None):
+        response = context.call(name,*args,source=source)
         if response.outcome != 'success' or not isinstance(response.value,list):
             return []
         normalized = [video_from_api(raw,endpoint=endpoint,observed_at=response.observed_at or now)
@@ -90,14 +90,17 @@ def discover_candidates(*, context, official_snapshot, pending, now):
     visited = 0
     while seeds and visited < len(seeds) and seed_pages < policy.seed_search_pages:
         word = seeds[(cursor+visited)%len(seeds)]
+        matches = {}
         for page in (1,2):
             if seed_pages >= policy.seed_search_pages:
                 break
-            found = rows('search_page',word,22,'click',page,endpoint='search')
+            found = rows('search_page',word,22,'totalrank',page,endpoint='search',source='seed_search_page')
             for video in found:
                 add(video,'search','meme_seed')
-            seed_rows.extend(found)
+                matches.setdefault(video['bvid'], video)
             seed_pages += 1
+        seed_rows.extend(dict(video, seed_search_ranks={word: rank})
+                         for rank, video in enumerate(matches.values(), 1))
         visited += 1
     for video in music_rows+funny_rows:
         add(video,'popular','material_source')
